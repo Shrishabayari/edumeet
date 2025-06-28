@@ -1,14 +1,16 @@
 {
-  "name": "server",
+  "name": "edumet-server",
   "version": "1.0.0",
+  "description": "EduMet backend server",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": ["edumet", "education", "mern"],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
