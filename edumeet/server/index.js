@@ -1,32 +1,125 @@
-const express = require('express');
-const cors = require('cors');
-const connectDB = require('./config/db');
 require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const cookieParser = require('cookie-parser');
+const morgan = require('morgan');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+// Import routes
+const authRoutes = require('./routes/auth');
+
+// Import database connection
+const connectDB = require('./config/db');
 
 const app = express();
 
 // Connect to MongoDB
 connectDB();
 
-// Middleware
+// Security middleware
+app.use(helmet());
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: {
+    success: false,
+    message: 'Too many requests from this IP, please try again later.'
+  }
+});
+app.use(limiter);
+
+// CORS configuration
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? 'https://your-render-frontend-url.onrender.com' 
-    : 'http://localhost:3000',
-  credentials: true
+  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  credentials: true,
+  optionsSuccessStatus: 200
 }));
-app.use(express.json());
+
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser());
+
+// Logging middleware
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan('dev'));
+}
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/users', require('./routes/users'));
+app.use('/api/auth', authRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {
-  res.json({ message: 'EduMet server is running!' });
+  res.status(200).json({
+    success: true,
+    message: 'Server is running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Handle undefined routes
+app.all('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route ${req.originalUrl} not found`
+  });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+
+  let error = { ...err };
+  error.message = err.message;
+
+  // Mongoose bad ObjectId
+  if (err.name === 'CastError') {
+    const message = 'Resource not found';
+    error = { message, statusCode: 404 };
+  }
+
+  // Mongoose duplicate key
+  if (err.code === 11000) {
+    const message = 'Duplicate field value entered';
+    error = { message, statusCode: 400 };
+  }
+
+  // Mongoose validation error
+  if (err.name === 'ValidationError') {
+    const message = Object.values(err.errors).map(val => val.message).join(', ');
+    error = { message, statusCode: 400 };
+  }
+
+  res.status(error.statusCode || 500).json({
+    success: false,
+    message: error.message || 'Server Error',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+
+const server = app.listen(PORT, () => {
+  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err, promise) => {
+  console.log(`Error: ${err.message}`);
+  // Close server & exit process
+  server.close(() => {
+    process.exit(1);
+  });
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.log(`Error: ${err.message}`);
+  console.log('Shutting down due to uncaught exception');
+  process.exit(1);
 });
