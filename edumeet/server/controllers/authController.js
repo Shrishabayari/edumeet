@@ -1,4 +1,4 @@
-const User = require('../../models/User');
+const User = require('../models/User'); // Fixed path: removed extra ../
 const jwt = require('jsonwebtoken');
 
 const generateToken = (id) => {
