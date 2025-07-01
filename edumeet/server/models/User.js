@@ -12,7 +12,7 @@ const userSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Email is required'],
-    unique: true,
+    unique: true, // This creates an index automatically
     lowercase: true,
     match: [
       /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
@@ -31,7 +31,8 @@ const userSchema = new mongoose.Schema({
       values: ['student', 'teacher', 'admin'],
       message: 'Role must be either student, teacher, or admin'
     },
-    default: 'student'
+    default: 'student',
+    index: true // Add index for role queries
   },
   profile: {
     phone: {
@@ -64,11 +65,8 @@ const userSchema = new mongoose.Schema({
     },
     studentId: {
       type: String,
-      unique: true,
-      sparse: true, // Only enforce uniqueness for non-null values
-      required: function() {
-        return this.role === 'student';
-      }
+      unique: true, // This creates an index automatically
+      sparse: true // Only enforce uniqueness for non-null values
     }
   },
   isActive: {
@@ -92,7 +90,7 @@ const userSchema = new mongoose.Schema({
 userSchema.pre('save', async function(next) {
   // Only hash password if it's been modified (or is new)
   if (!this.isModified('password')) return next();
-  
+
   try {
     // Hash password with salt of 12
     this.password = await bcrypt.hash(this.password, 12);
@@ -135,10 +133,4 @@ userSchema.methods.toJSON = function() {
 userSchema.statics.findByEmail = function(email) {
   return this.findOne({ email }).select('+password');
 };
-
-// Index for better query performance
-userSchema.index({ email: 1 });
-userSchema.index({ role: 1 });
-userSchema.index({ 'profile.studentId': 1 });
-
 module.exports = mongoose.model('User', userSchema);

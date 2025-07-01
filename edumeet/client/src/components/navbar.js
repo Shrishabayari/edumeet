@@ -35,13 +35,13 @@ const Navbar = () => {
             ) : (
               <>
                 <Link
-                  to="/login"
+                  to="/admin/login"
                   className="text-white hover:text-blue-200"
                 >
                   Login
                 </Link>
                 <Link
-                  to="/register"
+                  to="/admin/register"
                   className="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800"
                 >
                   Register
