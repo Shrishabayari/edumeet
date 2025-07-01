@@ -1,9 +1,9 @@
 // routes/adminRoutes.js
-import express from 'express';
-import {
+const express = require('express');
+const {
   registerAdmin,
   loginAdmin
-} from '../controllers/adminController.js';
+} = require('../controllers/adminController');
 
 const router = express.Router();
 
@@ -11,5 +11,4 @@ const router = express.Router();
 router.post('/register', registerAdmin);
 router.post('/login', loginAdmin);
 
-
-export default router;
+module.exports = router;

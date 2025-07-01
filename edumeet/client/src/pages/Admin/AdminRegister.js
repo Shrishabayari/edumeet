@@ -33,7 +33,7 @@ const AdminRegister = () => {
     }
 
     try {
-      const response = await api.post("/api/admin/register", adminData);
+      const response = await api.post("/admin/register", adminData);
       console.log("Registration successful:", response.data);
       navigate("/admin/login"); 
     } catch (error) {

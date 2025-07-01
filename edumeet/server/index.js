@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 
 // Import routes
 const authRoutes = require('./routes/auth');
+const adminRoutes = require('./routes/adminRoutes'); // Add this line
 
 // Import database connection
 const connectDB = require('./config/db');
@@ -51,6 +52,7 @@ if (process.env.NODE_ENV === 'development') {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes); // Add this line
 
 // Health check route
 app.get('/api/health', (req, res) => {

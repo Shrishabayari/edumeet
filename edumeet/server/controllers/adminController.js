@@ -1,50 +1,111 @@
-import Admin from "../models/Admin.js";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import asyncHandler from 'express-async-handler';
+// controllers/adminController.js
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const Admin = require('../models/Admin'); // You'll need to create this model too
 
-export const registerAdmin = asyncHandler(async (req, res) => {
-  const { name, email, password } = req.body;
+// Register Admin
+const registerAdmin = async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
 
-  const existingAdmin = await Admin.findOne({ email });
-  if (existingAdmin) {
-    res.status(400);
-    throw new Error("Admin already exists");
+    // Check if admin already exists
+    const existingAdmin = await Admin.findOne({ email });
+    if (existingAdmin) {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin already exists with this email'
+      });
+    }
+
+    // Hash password
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Create admin
+    const admin = new Admin({
+      name,
+      email,
+      password: hashedPassword
+    });
+
+    await admin.save();
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { adminId: admin._id, email: admin.email },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Admin registered successfully',
+      token,
+      admin: {
+        id: admin._id,
+        name: admin.name,
+        email: admin.email
+      }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during registration'
+    });
   }
+};
 
-  const hashedPassword = await bcrypt.hash(password, 10);
+// Login Admin
+const loginAdmin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-  const newAdmin = new Admin({
-    name,
-    email,
-    password: hashedPassword,
-  });
+    // Find admin
+    const admin = await Admin.findOne({ email });
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
 
-  await newAdmin.save();
-  res.status(201).json({ message: "Admin registered successfully" });
-});
+    // Check password
+    const isMatch = await bcrypt.compare(password, admin.password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
 
-export const loginAdmin = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
+    // Generate JWT token
+    const token = jwt.sign(
+      { adminId: admin._id, email: admin.email },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '7d' }
+    );
 
-  const admin = await Admin.findOne({ email });
-  if (!admin) {
-    res.status(400); 
-    throw new Error("Email not found. Please register or check your email."); 
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      admin: {
+        id: admin._id,
+        name: admin.name,
+        email: admin.email
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during login'
+    });
   }
+};
 
-  const isMatch = await bcrypt.compare(password, admin.password);
-  if (!isMatch) {
-    res.status(400);
-    throw new Error("Incorrect password. Please try again."); 
-  }
-
-  const token = jwt.sign(
-    { id: admin._id, email: admin.email },
-    process.env.JWT_SECRET,
-    { expiresIn: "365d" }
-  );
-
-  res.status(200).json({ message: "Login successful", token });
-
-});
+module.exports = {
+  registerAdmin,
+  loginAdmin
+};
