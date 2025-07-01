@@ -5,6 +5,7 @@ import Navbar from './components/navbar';
 import Home from './components/home';
  import AdminLogin from './pages/Admin/AdminLogin';
  import AdminRegister from './pages/Admin/AdminRegister';
+ import AdminDashboard from './pages/Admin/AdminDashboard';
 function App() {
   return (
     <AuthProvider>
@@ -16,6 +17,7 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/admin/register" element={<AdminRegister />} />
+              <Route path="/admin/dashboard" element={<AdminDashboard />} />
             </Routes>
           </main>
         </div>
