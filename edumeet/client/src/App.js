@@ -6,6 +6,8 @@ import Home from './components/home';
  import AdminLogin from './pages/Admin/AdminLogin';
  import AdminRegister from './pages/Admin/AdminRegister';
  import AdminDashboard from './pages/Admin/AdminDashboard';
+ import RegistrationForm from './pages/User/RegisterPage';
+ import LoginPage from './pages/User/LoginPage';
 function App() {
   return (
     <AuthProvider>
@@ -18,6 +20,9 @@ function App() {
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/admin/register" element={<AdminRegister />} />
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
+              <Route path="/user/register" element={<RegistrationForm />} />
+              <Route path="/user/login" element={<LoginPage />} />
+
             </Routes>
           </main>
         </div>

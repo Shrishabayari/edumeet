@@ -12,7 +12,7 @@ const userSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Email is required'],
-    unique: true, // This creates an index automatically
+    unique: true,
     lowercase: true,
     match: [
       /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
@@ -23,16 +23,16 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Password is required'],
     minlength: [6, 'Password must be at least 6 characters long'],
-    select: false // Don't include password in queries by default
+    select: false
   },
   role: {
     type: String,
     enum: {
-      values: ['student', 'teacher', 'admin'],
-      message: 'Role must be either student, teacher, or admin'
+      values: ['student', 'teacher'],
+      message: 'Role must be either student or teacher'
     },
     default: 'student',
-    index: true // Add index for role queries
+    index: true
   },
   profile: {
     phone: {
@@ -65,8 +65,8 @@ const userSchema = new mongoose.Schema({
     },
     studentId: {
       type: String,
-      unique: true, // This creates an index automatically
-      sparse: true // Only enforce uniqueness for non-null values
+      unique: true,
+      sparse: true
     }
   },
   isActive: {
@@ -88,11 +88,9 @@ const userSchema = new mongoose.Schema({
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
-  // Only hash password if it's been modified (or is new)
   if (!this.isModified('password')) return next();
-
+  
   try {
-    // Hash password with salt of 12
     this.password = await bcrypt.hash(this.password, 12);
     next();
   } catch (error) {
@@ -103,7 +101,6 @@ userSchema.pre('save', async function(next) {
 // Generate student ID automatically for students
 userSchema.pre('save', async function(next) {
   if (this.role === 'student' && !this.profile.studentId) {
-    // Generate student ID format: STU + year + random 4 digits
     const year = new Date().getFullYear();
     const random = Math.floor(1000 + Math.random() * 9000);
     this.profile.studentId = `STU${year}${random}`;
@@ -133,4 +130,5 @@ userSchema.methods.toJSON = function() {
 userSchema.statics.findByEmail = function(email) {
   return this.findOne({ email }).select('+password');
 };
+
 module.exports = mongoose.model('User', userSchema);
