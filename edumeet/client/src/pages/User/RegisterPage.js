@@ -281,7 +281,7 @@ const RegistrationForm = () => {
 
   return (
     <div 
-      className="relative min-h-screen bg-cover bg-no-repeat px-4 py-8"
+      className="relative min-h-screen bg-cover bg-center bg-no-repeat px-4 py-8"
       style={{
         backgroundImage: `linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1562774053-701939374585?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80')`,
       }}
