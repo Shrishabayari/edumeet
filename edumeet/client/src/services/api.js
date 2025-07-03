@@ -1,18 +1,21 @@
-// services/api.js
+// services/api.js - Updated configuration
 import axios from 'axios';
 
-// API URL configuration - Add /api to the base URL
+// API URL configuration
 const API_URL = process.env.NODE_ENV === 'production' 
-  ? process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com/api'
-  : process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  ? 'https://edumeet.onrender.com/api'  // Your backend URL
+  : 'http://localhost:5000/api';
+
+console.log('API_URL:', API_URL); // Debug log
 
 // Create axios instance
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 10000,
+  timeout: 30000, // Increased timeout for Render cold starts
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // Important for CORS with credentials
 });
 
 // Request interceptor - Add token to requests

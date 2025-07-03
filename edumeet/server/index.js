@@ -34,7 +34,7 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// ✅ Corrected CORS Configuration
+// ✅ Updated CORS Configuration
 const allowedOrigins = [
   'http://localhost:3000',
   'https://edumeet-1.onrender.com'
@@ -42,15 +42,22 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
-    console.log("CORS request origin:", origin); // <--- Add this
+    console.log('Request origin:', origin); // Debug log
+    
+    // Allow requests with no origin (like mobile apps, Postman, curl)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
       return callback(null, true);
     } else {
+      console.error(`CORS error: ${origin} not allowed`);
       return callback(new Error(`CORS error: ${origin} not allowed`));
     }
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200 // For legacy browser support
 }));
 
 // Body parsing middleware
