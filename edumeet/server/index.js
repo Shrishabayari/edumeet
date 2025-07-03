@@ -12,7 +12,6 @@ const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/adminRoutes');
 const teacherRoutes = require('./routes/teacherRoutes');
 
-
 // Import database connection
 const connectDB = require('./config/db');
 
@@ -27,19 +26,31 @@ app.use(helmet());
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 100,
   message: {
     success: false,
-    message: 'Too many requests from this IP, please try again later.'
-  }
+    message: 'Too many requests from this IP, please try again later.',
+  },
 });
 app.use(limiter);
 
-// CORS configuration
+// ✅ Corrected CORS Configuration
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://edumeet-1.onrender.com'
+];
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000'|| 'https://edumeet-1.onrender.com',
+  origin: function (origin, callback) {
+    // Allow requests with no origin like mobile apps or curl
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      return callback(new Error(`CORS error: ${origin} not allowed`));
+    }
+  },
   credentials: true,
-  optionsSuccessStatus: 200
 }));
 
 // Body parsing middleware
@@ -116,10 +127,7 @@ const server = app.listen(PORT, () => {
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err, promise) => {
   console.log(`Error: ${err.message}`);
-  // Close server & exit process
-  server.close(() => {
-    process.exit(1);
-  });
+  server.close(() => process.exit(1));
 });
 
 // Handle uncaught exceptions
