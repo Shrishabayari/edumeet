@@ -16,7 +16,7 @@ const StudentRegistrationForm = () => {
   const [submitStatus, setSubmitStatus] = useState(null);
 
   const API_URL = process.env.NODE_ENV === 'production'
-    ? process.env.REACT_APP_API_URL || 'https://your-render-backend-url.onrender.com/api'
+    ? process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com/api'
     : process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
   const grades = ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'];

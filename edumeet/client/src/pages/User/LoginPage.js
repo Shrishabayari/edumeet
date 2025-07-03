@@ -15,7 +15,7 @@ const LoginPage = () => {
 
   // API configuration
   const API_URL = process.env.NODE_ENV === 'production'
-    ? process.env.REACT_APP_API_URL || 'https://your-render-backend-url.onrender.com/api'
+    ? process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com/api'
     : process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
   const validateForm = () => {
