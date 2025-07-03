@@ -37,7 +37,7 @@ app.use(limiter);
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: process.env.CLIENT_URL || 'http://localhost:3000'|| 'https://edumeet-1.onrender.com',
   credentials: true,
   optionsSuccessStatus: 200
 }));
