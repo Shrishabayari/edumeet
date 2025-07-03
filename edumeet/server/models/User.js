@@ -14,10 +14,7 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Email is required'],
     unique: true,
     lowercase: true,
-    match: [
-      /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
-      'Please enter a valid email'
-    ]
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
   },
   password: {
     type: String,
@@ -28,8 +25,8 @@ const userSchema = new mongoose.Schema({
   role: {
     type: String,
     enum: {
-      values: ['student', 'teacher'],
-      message: 'Role must be either student or teacher'
+      values: ['student'],
+      message: 'Role must be student'
     },
     default: 'student',
     index: true
@@ -43,25 +40,9 @@ const userSchema = new mongoose.Schema({
       type: String,
       default: ''
     },
-    // Teacher specific fields
-    subject: {
-      type: String,
-      required: function() {
-        return this.role === 'teacher';
-      }
-    },
-    department: {
-      type: String,
-      required: function() {
-        return this.role === 'teacher';
-      }
-    },
-    // Student specific fields
     grade: {
       type: String,
-      required: function() {
-        return this.role === 'student';
-      }
+      required: true
     },
     studentId: {
       type: String,
@@ -77,28 +58,21 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  lastLogin: {
-    type: Date
-  },
+  lastLogin: Date,
   passwordResetToken: String,
   passwordResetExpires: Date
 }, {
   timestamps: true
 });
 
-// Hash password before saving
+// Hash password
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
-  
-  try {
-    this.password = await bcrypt.hash(this.password, 12);
-    next();
-  } catch (error) {
-    next(error);
-  }
+  this.password = await bcrypt.hash(this.password, 12);
+  next();
 });
 
-// Generate student ID automatically for students
+// Auto-generate student ID
 userSchema.pre('save', async function(next) {
   if (this.role === 'student' && !this.profile.studentId) {
     const year = new Date().getFullYear();
@@ -108,25 +82,18 @@ userSchema.pre('save', async function(next) {
   next();
 });
 
-// Instance method to compare passwords
 userSchema.methods.comparePassword = async function(candidatePassword) {
-  try {
-    return await bcrypt.compare(candidatePassword, this.password);
-  } catch (error) {
-    throw new Error('Password comparison failed');
-  }
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Instance method to get user data without sensitive fields
 userSchema.methods.toJSON = function() {
-  const userObject = this.toObject();
-  delete userObject.password;
-  delete userObject.passwordResetToken;
-  delete userObject.passwordResetExpires;
-  return userObject;
+  const obj = this.toObject();
+  delete obj.password;
+  delete obj.passwordResetToken;
+  delete obj.passwordResetExpires;
+  return obj;
 };
 
-// Static method to find user by email with password
 userSchema.statics.findByEmail = function(email) {
   return this.findOne({ email }).select('+password');
 };

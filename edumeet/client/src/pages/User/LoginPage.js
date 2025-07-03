@@ -132,7 +132,7 @@ const LoginPage = () => {
         // Redirect to dashboard after successful login
         setTimeout(() => {
           console.log('Redirecting to dashboard...');
-          // window.location.href = '/user/dashboard';
+          window.location.href = '/user/dashboard';
         }, 2000);
 
       } else {
@@ -181,7 +181,7 @@ const LoginPage = () => {
 
   const handleSignUpRedirect = () => {
     console.log('Redirecting to registration page...');
-    // window.location.href = '/user/register';
+    window.location.href = '/user/register';
   };
 
   return (
