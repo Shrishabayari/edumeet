@@ -34,30 +34,46 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// ✅ Updated CORS Configuration
+// Enhanced CORS Configuration
 const allowedOrigins = [
   'http://localhost:3000',
-  'https://edumeet-1.onrender.com'
+  'https://edumeet-1.onrender.com',
+  'https://edumeet.onrender.com' // Add your backend URL too
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    console.log('Request origin:', origin); // Debug log
+    console.log('Request origin:', origin);
+    console.log('Request method:', callback.req?.method);
     
-    // Allow requests with no origin (like mobile apps, Postman, curl)
-    if (!origin) return callback(null, true);
+    // Allow requests with no origin (Postman, mobile apps, same-origin, server-to-server)
+    if (!origin) {
+      console.log('No origin - allowing request');
+      return callback(null, true);
+    }
     
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.includes(origin)) {
+      console.log(`Origin ${origin} is allowed`);
       return callback(null, true);
     } else {
       console.error(`CORS error: ${origin} not allowed`);
+      console.error('Allowed origins:', allowedOrigins);
       return callback(new Error(`CORS error: ${origin} not allowed`));
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 200 // For legacy browser support
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Access-Control-Allow-Origin'
+  ],
+  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
+  optionsSuccessStatus: 200, // For legacy browser support
+  preflightContinue: false // Pass control to the next handler
 }));
 
 // Body parsing middleware

@@ -32,7 +32,7 @@ const AdminLogin = () => {
       setMessage("Login successful! Redirecting to dashboard...");
 
       setTimeout(() => {
-        navigate("/admin/dashboard");
+        navigate("/admin/teacher-register");
       }, 1500); 
 
     } catch (err) {

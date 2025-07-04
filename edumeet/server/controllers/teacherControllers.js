@@ -1,120 +1,6 @@
 const Teacher = require('../models/Teacher');
 const { validationResult } = require('express-validator');
 
-// @desc    Get all teachers
-// @route   GET /api/teachers
-// @access  Public
-const getAllTeachers = async (req, res) => {
-  try {
-    const {
-      page = 1,
-      limit = 10,
-      department,
-      subject,
-      search,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
-
-    // Build filter object
-    const filter = { isActive: true };
-    
-    if (department) {
-      filter.department = department;
-    }
-    
-    if (subject) {
-      filter.subject = subject;
-    }
-    
-    if (search) {
-      filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { subject: { $regex: search, $options: 'i' } },
-        { department: { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    // Build sort object
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    // Execute query with pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    const teachers = await Teacher.find(filter)
-      .sort(sort)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .select('-__v');
-
-    const totalTeachers = await Teacher.countDocuments(filter);
-    const totalPages = Math.ceil(totalTeachers / parseInt(limit));
-
-    res.status(200).json({
-      success: true,
-      data: teachers,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalTeachers,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching teachers:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching teachers',
-      error: error.message
-    });
-  }
-};
-
-// @desc    Get single teacher
-// @route   GET /api/teachers/:id
-// @access  Public
-const getTeacherById = async (req, res) => {
-  try {
-    const teacher = await Teacher.findById(req.params.id).select('-__v');
-    
-    if (!teacher) {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher not found'
-      });
-    }
-
-    if (!teacher.isActive) {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher is not active'
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: teacher
-    });
-  } catch (error) {
-    console.error('Error fetching teacher:', error);
-    
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching teacher',
-      error: error.message
-    });
-  }
-};
 
 // @desc    Create new teacher
 // @route   POST /api/teachers
@@ -291,6 +177,121 @@ const updateTeacher = async (req, res) => {
   }
 };
 
+
+// @desc    Get all teachers
+// @route   GET /api/teachers
+// @access  Public
+const getAllTeachers = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      department,
+      subject,
+      search,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Build filter object
+    const filter = { isActive: true };
+    
+    if (department) {
+      filter.department = department;
+    }
+    
+    if (subject) {
+      filter.subject = subject;
+    }
+    
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { subject: { $regex: search, $options: 'i' } },
+        { department: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Build sort object
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Execute query with pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const teachers = await Teacher.find(filter)
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .select('-__v');
+
+    const totalTeachers = await Teacher.countDocuments(filter);
+    const totalPages = Math.ceil(totalTeachers / parseInt(limit));
+
+    res.status(200).json({
+      success: true,
+      data: teachers,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalTeachers,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching teachers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching teachers',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get single teacher
+// @route   GET /api/teachers/:id
+// @access  Public
+const getTeacherById = async (req, res) => {
+  try {
+    const teacher = await Teacher.findById(req.params.id).select('-__v');
+    
+    if (!teacher) {
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
+    }
+
+    if (!teacher.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher is not active'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: teacher
+    });
+  } catch (error) {
+    console.error('Error fetching teacher:', error);
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching teacher',
+      error: error.message
+    });
+  }
+};
 // @desc    Delete teacher (soft delete)
 // @route   DELETE /api/teachers/:id
 // @access  Private/Admin
