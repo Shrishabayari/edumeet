@@ -101,6 +101,27 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Route handlers
+app.use('/api/teachers', teacherRoutes);  // This is the correct way to mount routes
+
+// Catch-all for undefined routes
+app.all('*', (req, res) => {
+  console.log(`Route not found: ${req.method} ${req.path}`);
+  res.status(404).json({
+    success: false,
+    message: `Route ${req.path} not found`,
+    availableRoutes: [
+      'GET /api/health',
+      'GET /api/teachers',
+      'POST /api/teachers',
+      'GET /api/teachers/:id',
+      'PUT /api/teachers/:id',
+      'DELETE /api/teachers/:id',
+      'GET /api/teachers/stats',
+      'GET /api/teachers/department/:department'
+    ]
+  });
+});
 // Handle undefined routes
 app.all('*', (req, res) => {
   res.status(404).json({

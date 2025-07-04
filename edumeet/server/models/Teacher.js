@@ -3,10 +3,10 @@ const mongoose = require('mongoose');
 const teacherSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: [true, 'Teacher name is required'],
+    required: [true, 'Name is required'],
     trim: true,
-    minLength: [2, 'Name must be at least 2 characters long'],
-    maxLength: [50, 'Name cannot exceed 50 characters']
+    minlength: [2, 'Name must be at least 2 characters'],
+    maxlength: [50, 'Name cannot exceed 50 characters']
   },
   email: {
     type: String,
@@ -14,13 +14,13 @@ const teacherSchema = new mongoose.Schema({
     unique: true,
     lowercase: true,
     trim: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
   },
   phone: {
     type: String,
     required: [true, 'Phone number is required'],
     trim: true,
-    match: [/^[\+]?[1-9][\d]{0,15}$/, 'Please enter a valid phone number']
+    match: [/^[\+]?[1-9][\d]{0,15}$/, 'Please provide a valid phone number']
   },
   department: {
     type: String,
@@ -36,29 +36,32 @@ const teacherSchema = new mongoose.Schema({
       'Economics',
       'Business Administration',
       'Psychology'
-    ],
-    trim: true
+    ]
   },
   subject: {
     type: String,
     required: [true, 'Subject is required'],
-    trim: true
+    trim: true,
+    minlength: [2, 'Subject must be at least 2 characters'],
+    maxlength: [50, 'Subject cannot exceed 50 characters']
   },
   experience: {
     type: String,
     required: [true, 'Experience is required'],
-    trim: true
+    trim: true,
+    maxlength: [50, 'Experience cannot exceed 50 characters']
   },
   qualification: {
     type: String,
     required: [true, 'Qualification is required'],
     trim: true,
-    minLength: [5, 'Qualification must be at least 5 characters long']
+    minlength: [5, 'Qualification must be at least 5 characters'],
+    maxlength: [100, 'Qualification cannot exceed 100 characters']
   },
   bio: {
     type: String,
     trim: true,
-    maxLength: [500, 'Bio cannot exceed 500 characters']
+    maxlength: [500, 'Bio cannot exceed 500 characters']
   },
   availability: [{
     type: String,
@@ -77,93 +80,59 @@ const teacherSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
-  profileImage: {
-    type: String,
-    default: null
+  createdAt: {
+    type: Date,
+    default: Date.now
   },
-  teachingRating: {
-    type: Number,
-    default: 0,
-    min: 0,
-    max: 5
-  },
-  totalAppointments: {
-    type: Number,
-    default: 0
+  updatedAt: {
+    type: Date,
+    default: Date.now
   }
-}, {
-  timestamps: true, // This will add createdAt and updatedAt fields
-  toJSON: { virtuals: true },
-  toObject: { virtuals: true }
 });
 
-// Virtual field for full contact info
-teacherSchema.virtual('contactInfo').get(function() {
-  return {
-    email: this.email,
-    phone: this.phone
-  };
-});
-
-// Virtual field for experience years (if experience is in "X years" format)
-teacherSchema.virtual('experienceYears').get(function() {
-  const match = this.experience.match(/(\d+)/);
-  return match ? parseInt(match[1]) : 0;
-});
-
-// Index for better search performance
-teacherSchema.index({ name: 'text', subject: 'text', department: 'text' });
-teacherSchema.index({ department: 1, subject: 1 });
-teacherSchema.index({ email: 1 });
-
-// Pre-save middleware to validate subject based on department
+// Update the updatedAt field before saving
 teacherSchema.pre('save', function(next) {
-  const subjectsByDepartment = {
-    'Computer Science': ['Programming', 'Data Structures', 'Algorithms', 'Database Systems', 'Web Development', 'Machine Learning'],
-    'Mathematics': ['Calculus', 'Algebra', 'Statistics', 'Geometry', 'Discrete Math', 'Applied Mathematics'],
-    'Physics': ['Classical Mechanics', 'Thermodynamics', 'Electromagnetism', 'Quantum Physics', 'Optics'],
-    'Chemistry': ['Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry', 'Analytical Chemistry'],
-    'Biology': ['Cell Biology', 'Genetics', 'Ecology', 'Microbiology', 'Anatomy', 'Physiology'],
-    'English': ['Literature', 'Grammar', 'Creative Writing', 'Composition', 'Public Speaking'],
-    'History': ['World History', 'Ancient History', 'Modern History', 'Political History'],
-    'Economics': ['Microeconomics', 'Macroeconomics', 'International Economics', 'Development Economics'],
-    'Business Administration': ['Management', 'Marketing', 'Finance', 'Human Resources', 'Operations'],
-    'Psychology': ['General Psychology', 'Cognitive Psychology', 'Social Psychology', 'Clinical Psychology']
-  };
-
-  if (this.department && this.subject) {
-    const validSubjects = subjectsByDepartment[this.department];
-    if (validSubjects && !validSubjects.includes(this.subject)) {
-      return next(new Error(`Subject ${this.subject} is not valid for department ${this.department}`));
-    }
-  }
-  
+  this.updatedAt = Date.now();
   next();
 });
 
 // Static method to get teachers by department
 teacherSchema.statics.getByDepartment = function(department) {
-  return this.find({ department, isActive: true });
+  return this.find({ department, isActive: true }).select('-__v');
 };
 
 // Instance method to get available slots
 teacherSchema.methods.getAvailableSlots = function() {
-  return this.availability.filter(slot => slot);
+  return this.availability || [];
 };
 
-// Instance method to add availability slot
-teacherSchema.methods.addAvailabilitySlot = function(slot) {
-  if (!this.availability.includes(slot)) {
-    this.availability.push(slot);
+// Virtual for full profile
+teacherSchema.virtual('profile').get(function() {
+  return {
+    id: this._id,
+    name: this.name,
+    email: this.email,
+    phone: this.phone,
+    department: this.department,
+    subject: this.subject,
+    experience: this.experience,
+    qualification: this.qualification,
+    bio: this.bio,
+    availability: this.availability,
+    isActive: this.isActive,
+    createdAt: this.createdAt,
+    updatedAt: this.updatedAt
+  };
+});
+
+// Ensure virtual fields are serialized
+teacherSchema.set('toJSON', {
+  virtuals: true,
+  transform: function(doc, ret) {
+    delete ret.__v;
+    return ret;
   }
-  return this.save();
-};
-
-// Instance method to remove availability slot
-teacherSchema.methods.removeAvailabilitySlot = function(slot) {
-  this.availability = this.availability.filter(s => s !== slot);
-  return this.save();
-};
+});
 
 const Teacher = mongoose.model('Teacher', teacherSchema);
 

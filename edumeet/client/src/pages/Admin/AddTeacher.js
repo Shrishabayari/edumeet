@@ -153,41 +153,124 @@ const AdminTeacherManagement = () => {
     setSuccess('');
   };
 
+  // Validate form data before submission
+  const validateFormData = (data) => {
+    const errors = [];
+    
+    if (!data.name || data.name.trim().length < 2) {
+      errors.push('Name must be at least 2 characters long');
+    }
+    
+    if (!data.email || !/\S+@\S+\.\S+/.test(data.email)) {
+      errors.push('Valid email is required');
+    }
+    
+    if (!data.phone || data.phone.trim().length < 10) {
+      errors.push('Phone number must be at least 10 characters');
+    }
+    
+    if (!data.department) {
+      errors.push('Department is required');
+    }
+    
+    if (!data.subject) {
+      errors.push('Subject is required');
+    }
+    
+    if (!data.experience) {
+      errors.push('Experience is required');
+    }
+    
+    if (!data.qualification) {
+      errors.push('Qualification is required');
+    }
+    
+    return errors;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     setSuccess('');
 
+    // Validate form data
+    const validationErrors = validateFormData(formData);
+    if (validationErrors.length > 0) {
+      setError(`Validation errors: ${validationErrors.join(', ')}`);
+      setLoading(false);
+      return;
+    }
+
+    // Clean form data - remove empty strings and trim whitespace
+    const cleanFormData = {
+      name: formData.name.trim(),
+      email: formData.email.trim().toLowerCase(),
+      phone: formData.phone.trim(),
+      department: formData.department.trim(),
+      subject: formData.subject.trim(),
+      experience: formData.experience.trim(),
+      qualification: formData.qualification.trim(),
+      bio: formData.bio.trim(),
+      availability: formData.availability.filter(slot => slot) // Remove empty slots
+    };
+
+    console.log('=== DEBUGGING TEACHER SUBMISSION ===');
+    console.log('Form data being sent:', cleanFormData);
+    console.log('Is editing?', !!editingTeacher);
+    console.log('Teacher ID:', editingTeacher?._id);
+
     try {
       if (editingTeacher) {
         // Update teacher
-        const response = await api.put(`/teachers/${editingTeacher._id}`, formData);
+        console.log('Updating teacher with ID:', editingTeacher._id);
+        const response = await api.put(`/teachers/${editingTeacher._id}`, cleanFormData);
+        console.log('Update response:', response.data);
         
         // Update local state
         setTeachers(prev => prev.map(teacher =>
           teacher._id === editingTeacher._id
-            ? { ...teacher, ...formData }
+            ? { ...teacher, ...cleanFormData }
             : teacher
         ));
         
         setSuccess('Teacher updated successfully!');
-        console.log('Teacher updated:', response.data);
       } else {
         // Add new teacher
-        const response = await api.post('/teachers', formData);
+        console.log('Adding new teacher');
+        const response = await api.post('/teachers', cleanFormData);
+        console.log('Add response:', response.data);
         
         // Add to local state
         setTeachers(prev => [...prev, response.data.data || response.data]);
         
         setSuccess('Teacher added successfully!');
-        console.log('Teacher added:', response.data);
       }
       
       closeModal();
     } catch (error) {
-      console.error('Error saving teacher:', error);
-      setError(error.message || 'Failed to save teacher');
+      console.error('=== DETAILED ERROR INFORMATION ===');
+      console.error('Full error object:', error);
+      console.error('Error response:', error.response);
+      console.error('Error response data:', error.response?.data);
+      console.error('Error response status:', error.response?.status);
+      console.error('Error message:', error.message);
+      
+      let errorMessage = 'Failed to save teacher';
+      
+      if (error.response?.data) {
+        if (error.response.data.message) {
+          errorMessage = error.response.data.message;
+        } else if (error.response.data.error) {
+          errorMessage = error.response.data.error;
+        } else if (error.response.data.errors) {
+          // Handle validation errors array
+          const validationErrors = Object.values(error.response.data.errors).join(', ');
+          errorMessage = `Validation errors: ${validationErrors}`;
+        }
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -399,169 +482,169 @@ const AdminTeacherManagement = () => {
                 </div>
               </div>
 
-<form onSubmit={handleSubmit}>
-  <div className="p-6 space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Full Name *
-                    </label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Email *
-                    </label>
-                    <input
-                      type="email"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Phone Number *
-                    </label>
-                    <input
-                      type="tel"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Department *
-                    </label>
-                    <select
-                      name="department"
-                      value={formData.department}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select Department</option>
-                      {departments.map(dept => (
-                        <option key={dept} value={dept}>{dept}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Subject *
-                    </label>
-                    <select
-                      name="subject"
-                      value={formData.subject}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select Subject</option>
-                      {formData.department && subjects[formData.department]?.map(subject => (
-                        <option key={subject} value={subject}>{subject}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Experience *
-                    </label>
-                    <input
-                      type="text"
-                      name="experience"
-                      value={formData.experience}
-                      onChange={handleInputChange}
-                      placeholder="e.g., 5 years"
-                      required
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Qualification *
-                  </label>
-                  <input
-                    type="text"
-                    name="qualification"
-                    value={formData.qualification}
-                    onChange={handleInputChange}
-                    placeholder="e.g., PhD in Computer Science"
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Bio
-                  </label>
-                  <textarea
-                    name="bio"
-                    value={formData.bio}
-                    onChange={handleInputChange}
-                    rows={3}
-                    placeholder="Brief description about the teacher..."
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Available Time Slots
-                  </label>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    {availabilitySlots.map(slot => (
-                      <label key={slot} className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={formData.availability.includes(slot)}
-                          onChange={() => handleAvailabilityChange(slot)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-gray-700">{slot}</span>
+              <form onSubmit={handleSubmit}>
+                <div className="p-6 space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Full Name *
                       </label>
-                    ))}
+                      <input
+                        type="text"
+                        name="name"
+                        value={formData.name}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Email *
+                      </label>
+                      <input
+                        type="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Phone Number *
+                      </label>
+                      <input
+                        type="tel"
+                        name="phone"
+                        value={formData.phone}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Department *
+                      </label>
+                      <select
+                        name="department"
+                        value={formData.department}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">Select Department</option>
+                        {departments.map(dept => (
+                          <option key={dept} value={dept}>{dept}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Subject *
+                      </label>
+                      <select
+                        name="subject"
+                        value={formData.subject}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">Select Subject</option>
+                        {formData.department && subjects[formData.department]?.map(subject => (
+                          <option key={subject} value={subject}>{subject}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Experience *
+                      </label>
+                      <input
+                        type="text"
+                        name="experience"
+                        value={formData.experience}
+                        onChange={handleInputChange}
+                        placeholder="e.g., 5 years"
+                        required
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Qualification *
+                    </label>
+                    <input
+                      type="text"
+                      name="qualification"
+                      value={formData.qualification}
+                      onChange={handleInputChange}
+                      placeholder="e.g., PhD in Computer Science"
+                      required
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Bio
+                    </label>
+                    <textarea
+                      name="bio"
+                      value={formData.bio}
+                      onChange={handleInputChange}
+                      rows={3}
+                      placeholder="Brief description about the teacher..."
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Available Time Slots
+                    </label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {availabilitySlots.map(slot => (
+                        <label key={slot} className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={formData.availability.includes(slot)}
+                            onChange={() => handleAvailabilityChange(slot)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-sm text-gray-700">{slot}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end space-x-4 pt-4">
+                    <button
+                      type="button"
+                      onClick={closeModal}
+                      className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 transition-colors"
+                    >
+                      {loading ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      ) : (
+                        <Save className="h-4 w-4" />
+                      )}
+                      <span>{loading ? 'Saving...' : 'Save Teacher'}</span>
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex justify-end space-x-4 pt-4">
-      <button
-        type="button"
-        onClick={closeModal}
-        className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-      >
-        Cancel
-      </button>
-      <button
-        type="submit"
-        disabled={loading}
-        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 transition-colors"
-      >
-        {loading ? (
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-        ) : (
-          <Save className="h-4 w-4" />
-        )}
-        <span>{loading ? 'Saving...' : 'Save Teacher'}</span>
-      </button>
-    </div>
-  </div>
-</form>
+              </form>
             </div>
           </div>
         )}

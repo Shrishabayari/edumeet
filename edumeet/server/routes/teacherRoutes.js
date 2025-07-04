@@ -11,10 +11,6 @@ const {
   getTeacherStats
 } = require('../controllers/teacherControllers');
 
-// Import middleware (you'll need to create these)
-// const { protect, authorize } = require('../middleware/auth');
-// const { advancedResults } = require('../middleware/advancedResults');
-
 const router = express.Router();
 
 // Validation middleware
@@ -171,14 +167,15 @@ const updateTeacherValidation = [
     .withMessage('Invalid availability slot')
 ];
 
-// Public routes
-router.get('/', getAllTeachers);
+// Routes (Fixed route ordering)
+// Special routes first
 router.get('/stats', getTeacherStats);
 router.get('/department/:department', getTeachersByDepartment);
-router.get('/:id', getTeacherById);
 
-// Admin routes
-router.post('/', teacherValidation, createTeacher);
+// CRUD routes
+router.get('/', getAllTeachers);
+router.get('/:id', getTeacherById);
+router.post('/', teacherValidation, createTeacher);  // Fixed: Changed from '/teachers' to '/'
 router.put('/:id', updateTeacherValidation, updateTeacher);
 router.delete('/:id', deleteTeacher);
 router.delete('/:id/permanent', permanentDeleteTeacher);
