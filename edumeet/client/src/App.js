@@ -9,6 +9,7 @@ import Home from './components/home';
  import RegistrationForm from './pages/User/RegisterPage';
  import LoginPage from './pages/User/LoginPage';
  import AdminTeacherManagement from './pages/Admin/AddTeacher';
+ import TeacherLogin from './pages/Teacher/TeacherLogin';
 function App() {
   return (
     <AuthProvider>
@@ -24,6 +25,7 @@ function App() {
               <Route path="/user/register" element={<RegistrationForm />} />
               <Route path="/user/login" element={<LoginPage />} />
               <Route path="/admin/teacher-register" element={<AdminTeacherManagement />} />
+              <Route path="/teacher/login" element={<TeacherLogin />} />
 
             </Routes>
           </main>

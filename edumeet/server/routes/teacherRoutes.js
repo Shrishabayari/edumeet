@@ -8,8 +8,14 @@ const {
   deleteTeacher,
   permanentDeleteTeacher,
   getTeachersByDepartment,
-  getTeacherStats
+  getTeacherStats,
+  teacherLogin,
+  sendAccountSetupLink,
+  setupTeacherAccount,
+  getTeacherProfile,
+  teacherLogout
 } = require('../controllers/teacherControllers');
+const { protect, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -179,5 +185,30 @@ router.post('/', teacherValidation, createTeacher);  // Fixed: Changed from '/te
 router.put('/:id', updateTeacherValidation, updateTeacher);
 router.delete('/:id', deleteTeacher);
 router.delete('/:id/permanent', permanentDeleteTeacher);
+// Validation middlewares
+const loginValidation = [
+  body('email')
+    .isEmail()
+    .withMessage('Please provide a valid email')
+    .normalizeEmail(),
+  body('password')
+    .notEmpty()
+    .withMessage('Password is required')
+];
+
+const setupValidation = [
+  body('password')
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters long')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
+];
+
+// Routes
+router.post('/login', loginValidation, teacherLogin);
+router.post('/send-setup-link', protect, authorize('admin'), sendAccountSetupLink);
+router.post('/setup-account/:token', setupValidation, setupTeacherAccount);
+router.get('/profile', protect, authorize('teacher'), getTeacherProfile);
+router.post('/logout', protect, authorize('teacher'), teacherLogout);
 
 module.exports = router;

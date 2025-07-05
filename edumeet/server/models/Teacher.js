@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 const teacherSchema = new mongoose.Schema({
   name: {
@@ -72,8 +73,40 @@ const teacherSchema = new mongoose.Schema({
       '12:00 PM - 1:00 PM',
       '2:00 PM - 3:00 PM',
       '3:00 PM - 4:00 PM',
-      '4:00 PM - 5:00 PM'    ]
+      '4:00 PM - 5:00 PM',
+      '5:00 PM - 6:00 PM'
+    ]
   }],
+  
+  // NEW AUTHENTICATION FIELDS
+  password: {
+    type: String,
+    select: false // Don't include password in queries by default
+  },
+  hasAccount: {
+    type: Boolean,
+    default: false
+  },
+  accountSetupToken: {
+    type: String,
+    select: false
+  },
+  accountSetupExpires: {
+    type: Date,
+    select: false
+  },
+  passwordResetToken: {
+    type: String,
+    select: false
+  },
+  passwordResetExpires: {
+    type: Date,
+    select: false
+  },
+  lastLogin: {
+    type: Date
+  },
+  
   isActive: {
     type: Boolean,
     default: true
@@ -88,11 +121,40 @@ const teacherSchema = new mongoose.Schema({
   }
 });
 
-// Update the updatedAt field before saving
-teacherSchema.pre('save', function(next) {
+// Hash password before saving
+teacherSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) {
+    this.updatedAt = Date.now();
+    return next();
+  }
+  
+  if (this.password) {
+    this.password = await bcrypt.hash(this.password, 12);
+  }
+  
   this.updatedAt = Date.now();
   next();
 });
+
+// Compare password method
+teacherSchema.methods.correctPassword = async function(candidatePassword, userPassword) {
+  return await bcrypt.compare(candidatePassword, userPassword);
+};
+
+// Generate account setup token
+teacherSchema.methods.createAccountSetupToken = function() {
+  const crypto = require('crypto');
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  
+  this.accountSetupToken = crypto
+    .createHash('sha256')
+    .update(resetToken)
+    .digest('hex');
+  
+  this.accountSetupExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+  
+  return resetToken;
+};
 
 // Static method to get teachers by department
 teacherSchema.statics.getByDepartment = function(department) {
@@ -117,6 +179,8 @@ teacherSchema.virtual('profile').get(function() {
     qualification: this.qualification,
     bio: this.bio,
     availability: this.availability,
+    hasAccount: this.hasAccount,
+    lastLogin: this.lastLogin,
     isActive: this.isActive,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt
@@ -124,14 +188,18 @@ teacherSchema.virtual('profile').get(function() {
 });
 
 // Ensure virtual fields are serialized
-teacherSchema.set('toJSON', {
-  virtuals: true,
+teacherSchema.set('toJSON', { 
+  virtuals: true, 
   transform: function(doc, ret) {
     delete ret.__v;
+    delete ret.password;
+    delete ret.accountSetupToken;
+    delete ret.accountSetupExpires;
+    delete ret.passwordResetToken;
+    delete ret.passwordResetExpires;
     return ret;
   }
 });
 
 const Teacher = mongoose.model('Teacher', teacherSchema);
-
 module.exports = Teacher;

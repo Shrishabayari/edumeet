@@ -8,6 +8,9 @@ const API_URL = process.env.NODE_ENV === 'production'
 console.log('API_URL:', API_URL);
 console.log('NODE_ENV:', process.env.NODE_ENV);
 
+// In-memory token storage (alternative to localStorage)
+let authToken = null;
+
 // Create axios instance
 const api = axios.create({
   baseURL: API_URL,
@@ -21,9 +24,8 @@ const api = axios.create({
 // Request interceptor - Add token to requests
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    if (authToken) {
+      config.headers.Authorization = `Bearer ${authToken}`;
     }
     
     console.log('API Request:', {
@@ -69,8 +71,8 @@ api.interceptors.response.use(
       
       switch (status) {
         case 401:
-          console.warn('Authentication failed - removing token');
-          localStorage.removeItem('token');
+          console.warn('Authentication failed - clearing token');
+          authToken = null;
           
           // Only redirect if not already on login page
           if (!window.location.pathname.includes('/login')) {
@@ -127,29 +129,28 @@ export const apiHelpers = {
   // Set auth token manually
   setAuthToken: (token) => {
     if (token) {
-      localStorage.setItem('token', token);
+      authToken = token;
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     } else {
-      localStorage.removeItem('token');
+      authToken = null;
       delete api.defaults.headers.common['Authorization'];
     }
   },
   
   // Clear auth token
   clearAuthToken: () => {
-    localStorage.removeItem('token');
+    authToken = null;
     delete api.defaults.headers.common['Authorization'];
   },
   
   // Get current token
   getToken: () => {
-    return localStorage.getItem('token');
+    return authToken;
   },
   
   // Check if user is authenticated
   isAuthenticated: () => {
-    const token = localStorage.getItem('token');
-    return !!token;
+    return !!authToken;
   },
   
   // Test API connection
@@ -162,6 +163,26 @@ export const apiHelpers = {
       console.error('API Connection Test Failed:', error);
       return false;
     }
+  },
+  
+  // Login function
+  login: async (credentials) => {
+    try {
+      const response = await api.post('/teachers/login', credentials);
+      
+      if (response.data.token) {
+        apiHelpers.setAuthToken(response.data.token);
+      }
+      
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  // Logout function
+  logout: () => {
+    apiHelpers.clearAuthToken();
   }
 };
 
