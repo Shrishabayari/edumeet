@@ -3,6 +3,8 @@ import {
   Mail, Lock, AlertCircle, CheckCircle,
   Eye, EyeOff, User, BookOpen
 } from 'lucide-react';
+import { useNavigate, Link } from "react-router-dom";
+
 
 // ✅ Reusable API Client
 const createApiClient = () => {
@@ -61,6 +63,7 @@ const TeacherLogin = () => {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const navigate = useNavigate();
 
   const api = createApiClient();
 
@@ -104,9 +107,10 @@ const TeacherLogin = () => {
       localStorage.setItem("token", response.token);
       setMessage("Login successful! Redirecting to dashboard...");
 
+
       setTimeout(() => {
         setMessage("Login successful! You would be redirected to the teacher dashboard.");
-        // Example: navigate("/teacher/dashboard");
+        navigate("/teacher/dashboard");
       }, 1500);
     } catch (err) {
       console.error("Teacher login error:", err);
@@ -173,12 +177,14 @@ const TeacherLogin = () => {
                   <User className="h-8 w-8 text-blue-200" />
                 </div>
                 <h2 className="text-4xl font-bold text-white mb-2">Teacher Sign in</h2>
+                <div>
                 <p className="text-gray-200">
-                  Don't have an account?{" "}
-                  <button className="text-blue-300 hover:text-blue-200 underline font-medium">
-                    Contact Admin
-                  </button>
+                  Don't have an account?{' '}
+                  <Link to="/admin/login" className="text-black-300 hover:text-blue-200 underline font-medium">
+                    contact Admin
+                  </Link>
                 </p>
+                </div>
               </div>
 
               {/* Error Message */}
@@ -243,17 +249,6 @@ const TeacherLogin = () => {
                   </div>
                 </div>
 
-                {/* Remember Me / Forgot */}
-                <div className="flex items-center justify-between text-sm text-gray-300">
-                  <label className="flex items-center">
-                    <input type="checkbox" className="mr-2 rounded" />
-                    Remember me
-                  </label>
-                  <button type="button" className="text-blue-300 hover:text-blue-200 underline">
-                    Forgot password?
-                  </button>
-                </div>
-
                 {/* Submit */}
                 <button
                   type="submit"
@@ -270,19 +265,6 @@ const TeacherLogin = () => {
                   )}
                 </button>
               </form>
-
-              <div className="mt-6 text-center text-white">
-                <button className="hover:text-blue-200">Need Help? Contact Support</button>
-              </div>
-
-              <div className="mt-4 text-center pt-4 border-t border-white border-opacity-20">
-                <p className="text-xs text-gray-300 mb-2">
-                  Demo: Try logging in with any valid email and password
-                </p>
-                <p className="text-xs text-gray-400">
-                  Auth Status: {api.getToken() ? 'Authenticated' : 'Not authenticated'}
-                </p>
-              </div>
             </div>
           </div>
         </div>
