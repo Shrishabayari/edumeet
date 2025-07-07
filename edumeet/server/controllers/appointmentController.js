@@ -104,7 +104,6 @@ const getAppointmentById = async (req, res) => {
     });
   }
 };
-
 // @desc    Book new appointment
 // @route   POST /api/appointments
 // @access  Public
@@ -121,6 +120,24 @@ const bookAppointment = async (req, res) => {
 
     const { teacherId, day, time, date, student } = req.body;
 
+    // Normalize time slot
+    const normalizeTimeSlot = (input) => {
+      const mapping = {
+        '9:00 AM': '9:00 AM - 10:00 AM',
+        '10:00 AM': '10:00 AM - 11:00 AM',
+        '11:00 AM': '11:00 AM - 12:00 PM',
+        '12:00 PM': '12:00 PM - 1:00 PM',
+        '1:00 PM': '1:00 PM - 2:00 PM',
+        '2:00 PM': '2:00 PM - 3:00 PM',
+        '3:00 PM': '3:00 PM - 4:00 PM',
+        '4:00 PM': '4:00 PM - 5:00 PM',
+        '5:00 PM': '5:00 PM - 6:00 PM'
+      };
+      return mapping[input] || input; // fallback if already in full format
+    };
+
+    const normalizedTime = normalizeTimeSlot(time);
+
     // Verify teacher exists
     const teacher = await Teacher.findById(teacherId);
     if (!teacher) {
@@ -131,7 +148,7 @@ const bookAppointment = async (req, res) => {
     }
 
     // Check if teacher is available at this time
-    if (!teacher.availability.includes(time)) {
+    if (!teacher.availability.includes(normalizedTime)) {
       return res.status(400).json({
         success: false,
         message: 'Teacher is not available at this time'
@@ -140,7 +157,8 @@ const bookAppointment = async (req, res) => {
 
     // Parse appointment date
     const appointmentDate = new Date(date);
-    if (appointmentDate < new Date()) {
+    const now = new Date();
+    if (appointmentDate < now.setHours(0, 0, 0, 0)) {
       return res.status(400).json({
         success: false,
         message: 'Cannot book appointment in the past'
@@ -154,7 +172,7 @@ const bookAppointment = async (req, res) => {
         $gte: new Date(appointmentDate.setHours(0, 0, 0, 0)),
         $lt: new Date(appointmentDate.setHours(23, 59, 59, 999))
       },
-      timeSlot: time,
+      timeSlot: normalizedTime,
       status: { $in: ['pending', 'confirmed'] }
     });
 
@@ -170,7 +188,7 @@ const bookAppointment = async (req, res) => {
       teacher: teacherId,
       student,
       appointmentDate: new Date(date),
-      timeSlot: time,
+      timeSlot: normalizedTime,
       status: 'pending'
     });
 
@@ -186,13 +204,13 @@ const bookAppointment = async (req, res) => {
     });
   } catch (error) {
     console.error('Error booking appointment:', error);
-    
+
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => ({
         field: err.path,
         message: err.message
       }));
-      
+
       return res.status(400).json({
         success: false,
         message: 'Validation failed',

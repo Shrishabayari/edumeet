@@ -110,6 +110,17 @@ api.interceptors.response.use(
   }
 );
 
+// Helper function to generate default availability
+const generateDefaultAvailability = () => {
+  return [
+    { day: 'Monday', slots: ['9:00 AM', '10:00 AM', '2:00 PM', '3:00 PM'] },
+    { day: 'Tuesday', slots: ['9:00 AM', '11:00 AM', '1:00 PM', '4:00 PM'] },
+    { day: 'Wednesday', slots: ['10:00 AM', '2:00 PM', '3:00 PM'] },
+    { day: 'Thursday', slots: ['9:00 AM', '1:00 PM', '2:00 PM', '4:00 PM'] },
+    { day: 'Friday', slots: ['9:00 AM', '10:00 AM', '11:00 AM', '3:00 PM'] }
+  ];
+};
+
 // Teacher API endpoints
 export const teacherAPI = {
   // Get all teachers
@@ -125,6 +136,11 @@ export const teacherAPI = {
 
   // Get specific teacher
   getTeacher: async (teacherId) => {
+    if (!teacherId || teacherId === 'undefined') {
+      console.error('Invalid teacher ID provided:', teacherId);
+      throw new Error('Teacher ID is required');
+    }
+
     try {
       const response = await api.get(`/teachers/${teacherId}`);
       return response.data;
@@ -134,14 +150,71 @@ export const teacherAPI = {
     }
   },
 
-  // Get teacher availability
+  // Updated getTeacherAvailability function with better error handling
   getTeacherAvailability: async (teacherId) => {
+    // Add validation
+    if (!teacherId || teacherId === 'undefined') {
+      console.error('Invalid teacher ID provided:', teacherId);
+      throw new Error('Teacher ID is required');
+    }
+
     try {
+      // First, try to get availability from the specific endpoint
       const response = await api.get(`/teachers/${teacherId}/availability`);
-      return response.data;
+      
+      // Handle different response formats
+      if (response.data) {
+        if (Array.isArray(response.data)) {
+          return response.data;
+        } else if (response.data.availability && Array.isArray(response.data.availability)) {
+          return response.data.availability;
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          return response.data.data;
+        }
+      }
+      
+      // If no valid availability found, return default
+      console.warn('No valid availability data found, returning default');
+      return generateDefaultAvailability();
+      
     } catch (error) {
-      console.error('Error fetching teacher availability:', error);
-      throw error;
+      console.warn('Availability endpoint not found, trying teacher endpoint:', error.message);
+      
+      // Fallback: Try to get teacher data which might include availability
+      try {
+        const teacherResponse = await api.get(`/teachers/${teacherId}`);
+        let teacherData = teacherResponse.data;
+        
+        // Handle nested data structure
+        if (teacherData && teacherData.data) {
+          teacherData = teacherData.data;
+        }
+        
+        // Check if we got valid teacher data
+        if (!teacherData) {
+          throw new Error('Teacher not found');
+        }
+        
+        // If teacher has availability property, return it
+        if (teacherData.availability && Array.isArray(teacherData.availability)) {
+          return teacherData.availability;
+        }
+        
+        // If teacher has schedule property, return it
+        if (teacherData.schedule && Array.isArray(teacherData.schedule)) {
+          return teacherData.schedule;
+        }
+        
+        // Return default availability structure
+        console.warn('No availability data found for teacher, returning default schedule');
+        return generateDefaultAvailability();
+        
+      } catch (teacherError) {
+        console.error('Error fetching teacher data:', teacherError);
+        // Return default availability instead of throwing error
+        console.warn('Falling back to default availability');
+        return generateDefaultAvailability();
+      }
     }
   },
 
@@ -242,14 +315,56 @@ export const appointmentAPI = {
     }
   },
 
-  // Book new appointment
+  // Book new appointment - Fixed with better error handling
   bookAppointment: async (appointmentData) => {
     try {
-      const response = await api.post('/appointments', appointmentData);
+      console.log('Booking appointment with data:', appointmentData);
+      
+      // Validate required fields
+      if (!appointmentData.teacherId) {
+        throw new Error('Teacher ID is required');
+      }
+      if (!appointmentData.day) {
+        throw new Error('Day is required');
+      }
+      if (!appointmentData.time) {
+        throw new Error('Time is required');
+      }
+      if (!appointmentData.student?.name) {
+        throw new Error('Student name is required');
+      }
+      if (!appointmentData.student?.email) {
+        throw new Error('Student email is required');
+      }
+      
+      // Ensure the data is properly formatted
+      const formattedData = {
+        teacherId: appointmentData.teacherId,
+        day: appointmentData.day,
+        time: appointmentData.time,
+        date: appointmentData.date,
+        student: {
+          name: appointmentData.student.name,
+          email: appointmentData.student.email,
+          phone: appointmentData.student.phone || '',
+          subject: appointmentData.student.subject || '',
+          message: appointmentData.student.message || ''
+        }
+      };
+      
+      const response = await api.post('/appointments', formattedData);
       return response.data;
     } catch (error) {
       console.error('Error booking appointment:', error);
-      throw error;
+      
+      // Re-throw with more context
+      if (error.response && error.response.data) {
+        throw new Error(error.response.data.message || 'Failed to book appointment');
+      } else if (error.message) {
+        throw error;
+      } else {
+        throw new Error('Network error or server unavailable');
+      }
     }
   },
 
