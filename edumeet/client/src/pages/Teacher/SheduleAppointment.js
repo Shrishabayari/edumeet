@@ -24,20 +24,18 @@ const TeacherSchedule = () => {
   // Valid day names for validation
   const VALID_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-  // Helper function to get next date for a given day
+  // Helper function to get next date for a given day - FIXED
   const getNextDateForDay = (dayName) => {
-    // Validate day name - handle both cases and potential undefined
     if (!dayName || typeof dayName !== 'string') {
       console.error('Invalid day name (not a string):', dayName);
-      return new Date().toLocaleDateString('en-CA'); // Return today's date as fallback
+      return new Date().toLocaleDateString('en-CA');
     }
 
-    // Normalize the day name to proper case
     const normalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1).toLowerCase();
     
     if (!VALID_DAYS.includes(normalizedDay)) {
       console.error('Invalid day name:', dayName, 'normalized:', normalizedDay);
-      return new Date().toLocaleDateString('en-CA'); // Return today's date as fallback
+      return new Date().toLocaleDateString('en-CA');
     }
     
     const today = new Date();
@@ -45,6 +43,8 @@ const TeacherSchedule = () => {
     const todayDay = today.getDay();
     
     let daysUntilTarget = targetDay - todayDay;
+    
+    // If target day is today or has passed this week, get next week's date
     if (daysUntilTarget <= 0) {
       daysUntilTarget += 7;
     }
@@ -53,6 +53,46 @@ const TeacherSchedule = () => {
     targetDate.setDate(today.getDate() + daysUntilTarget);
     
     return targetDate.toLocaleDateString('en-CA'); // Returns YYYY-MM-DD format
+  };
+
+  // Helper function to format date for display
+  const formatDateForDisplay = (dateString) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch (error) {
+      return dateString;
+    }
+  };
+
+  // FIXED: Enhanced default availability with more comprehensive slots
+  const getDefaultAvailability = () => {
+    return [
+      { 
+        day: 'Monday', 
+        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
+      },
+      { 
+        day: 'Tuesday', 
+        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
+      },
+      { 
+        day: 'Wednesday', 
+        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
+      },
+      { 
+        day: 'Thursday', 
+        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
+      },
+      { 
+        day: 'Friday', 
+        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
+      }
+    ];
   };
 
   const fetchTeachers = async () => {
@@ -86,14 +126,10 @@ const TeacherSchedule = () => {
         return hasValidId;
       }).map(teacher => ({
         ...teacher,
-        // Add default availability if not present
-        availability: teacher.availability || [
-          { day: 'Monday', slots: ['9:00 AM', '10:00 AM', '2:00 PM', '3:00 PM'] },
-          { day: 'Tuesday', slots: ['9:00 AM', '11:00 AM', '1:00 PM', '4:00 PM'] },
-          { day: 'Wednesday', slots: ['10:00 AM', '2:00 PM', '3:00 PM'] },
-          { day: 'Thursday', slots: ['9:00 AM', '1:00 PM', '2:00 PM', '4:00 PM'] },
-          { day: 'Friday', slots: ['9:00 AM', '10:00 AM', '11:00 AM', '3:00 PM'] }
-        ]
+        // Use default availability if not present or invalid
+        availability: teacher.availability && Array.isArray(teacher.availability) && teacher.availability.length > 0 
+          ? teacher.availability 
+          : getDefaultAvailability()
       }));
       
       setTeachers(validTeachers);
@@ -132,118 +168,79 @@ const TeacherSchedule = () => {
     }
   };
 
+  // FIXED: Better availability fetching with comprehensive slot handling
   const fetchTeacherAvailability = async (teacherId) => {
-  try {
-    // Since the availability endpoint doesn't exist, we'll use the teacher's embedded availability
-    const teacher = teachers.find(t => (t.id || t._id) === teacherId);
-    
-    if (teacher && teacher.availability) {
-      console.log('Raw teacher availability:', teacher.availability);
+    try {
+      const teacher = teachers.find(t => (t.id || t._id) === teacherId);
       
-      // Check if availability is an array of strings (time slots)
-      if (Array.isArray(teacher.availability)) {
-        const timeSlots = teacher.availability.filter(item => 
-          typeof item === 'string' && (item.includes(':') || item.includes('AM') || item.includes('PM'))
-        );
+      if (teacher && teacher.availability) {
+        console.log('Raw teacher availability:', teacher.availability);
         
-        if (timeSlots.length > 0) {
-          console.log('Found time slots, converting to weekly format:', timeSlots);
-          
-          // Convert time slot strings to just the start time
-          const cleanTimeSlots = timeSlots.map(slot => {
-            // Extract start time from "9:00 AM - 10:00 AM" format
-            const startTime = slot.split(' - ')[0];
-            return startTime;
-          }).filter(time => time); // Remove any empty strings
-          
-          // Sort the time slots
-          const sortedSlots = cleanTimeSlots.sort((a, b) => {
-            const timeA = new Date(`2000/01/01 ${a}`);
-            const timeB = new Date(`2000/01/01 ${b}`);
-            return timeA - timeB;
+        // If availability is already in correct format, validate and return
+        if (Array.isArray(teacher.availability)) {
+          const validAvailability = teacher.availability.filter(daySlot => {
+            if (!daySlot || typeof daySlot !== 'object') return false;
+            if (!daySlot.day || typeof daySlot.day !== 'string') return false;
+            if (daySlot.day.includes(':') || daySlot.day.includes('AM') || daySlot.day.includes('PM')) return false;
+            
+            const normalizedDay = daySlot.day.charAt(0).toUpperCase() + daySlot.day.slice(1).toLowerCase();
+            if (!VALID_DAYS.includes(normalizedDay)) return false;
+            
+            daySlot.day = normalizedDay;
+            if (!Array.isArray(daySlot.slots)) daySlot.slots = [];
+            
+            return true;
           });
           
-          // Distribute time slots across weekdays
-          const slotsPerDay = Math.ceil(sortedSlots.length / 5);
-          const weeklyAvailability = [];
+          if (validAvailability.length > 0) {
+            console.log('Valid object-format availability found:', validAvailability);
+            return validAvailability;
+          }
           
-          const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+          // Check if it's array of time strings and convert
+          const timeSlots = teacher.availability.filter(item => 
+            typeof item === 'string' && (item.includes(':') || item.includes('AM') || item.includes('PM'))
+          );
           
-          for (let i = 0; i < weekdays.length; i++) {
-            const daySlots = sortedSlots.slice(i * slotsPerDay, (i + 1) * slotsPerDay);
-            if (daySlots.length > 0) {
+          if (timeSlots.length > 0) {
+            console.log('Found time slots, converting to weekly format:', timeSlots);
+            
+            const cleanTimeSlots = timeSlots.map(slot => {
+              const startTime = slot.split(' - ')[0];
+              return startTime;
+            }).filter(time => time);
+            
+            const sortedSlots = cleanTimeSlots.sort((a, b) => {
+              const timeA = new Date(`2000/01/01 ${a}`);
+              const timeB = new Date(`2000/01/01 ${b}`);
+              return timeA - timeB;
+            });
+            
+            // Create availability for all weekdays with the same slots
+            const weeklyAvailability = [];
+            const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+            
+            weekdays.forEach(day => {
               weeklyAvailability.push({
-                day: weekdays[i],
-                slots: daySlots
+                day: day,
+                slots: [...sortedSlots] // Copy all slots to each day
               });
-            }
+            });
+            
+            console.log('Converted to weekly availability:', weeklyAvailability);
+            return weeklyAvailability;
           }
-          
-          console.log('Converted to weekly availability:', weeklyAvailability);
-          return weeklyAvailability;
-        }
-        
-        // Check if it's already in the expected object format
-        const validAvailability = teacher.availability.filter(daySlot => {
-          // Check if daySlot has the expected structure
-          if (!daySlot || typeof daySlot !== 'object') {
-            return false;
-          }
-          
-          // Check if day property exists and is a string
-          if (!daySlot.day || typeof daySlot.day !== 'string') {
-            return false;
-          }
-          
-          // Check if it's a time slot instead of a day name
-          if (daySlot.day.includes(':') || daySlot.day.includes('AM') || daySlot.day.includes('PM')) {
-            return false;
-          }
-          
-          const normalizedDay = daySlot.day.charAt(0).toUpperCase() + daySlot.day.slice(1).toLowerCase();
-          if (!VALID_DAYS.includes(normalizedDay)) {
-            return false;
-          }
-          
-          // Normalize the day name
-          daySlot.day = normalizedDay;
-          
-          // Ensure slots array exists
-          if (!Array.isArray(daySlot.slots)) {
-            daySlot.slots = [];
-          }
-          
-          return true;
-        });
-        
-        if (validAvailability.length > 0) {
-          console.log('Valid object-format availability found:', validAvailability);
-          return validAvailability;
         }
       }
+      
+      console.log('Using default availability for teacher:', teacherId);
+      return getDefaultAvailability();
+    } catch (error) {
+      console.error('Error fetching teacher availability:', error);
+      return getDefaultAvailability();
     }
-    
-    console.log('Using default availability for teacher:', teacherId);
-    // Return default availability if teacher not found or no valid availability
-    return [
-      { day: 'Monday', slots: ['9:00 AM', '10:00 AM', '2:00 PM', '3:00 PM'] },
-      { day: 'Tuesday', slots: ['9:00 AM', '11:00 AM', '1:00 PM', '4:00 PM'] },
-      { day: 'Wednesday', slots: ['10:00 AM', '2:00 PM', '3:00 PM'] },
-      { day: 'Thursday', slots: ['9:00 AM', '1:00 PM', '2:00 PM', '4:00 PM'] },
-      { day: 'Friday', slots: ['9:00 AM', '10:00 AM', '11:00 AM', '3:00 PM'] }
-    ];
-  } catch (error) {
-    console.error('Error fetching teacher availability:', error);
-    // Return default availability on error
-    return [
-      { day: 'Monday', slots: ['9:00 AM', '10:00 AM', '2:00 PM', '3:00 PM'] },
-      { day: 'Tuesday', slots: ['9:00 AM', '11:00 AM', '1:00 PM', '4:00 PM'] },
-      { day: 'Wednesday', slots: ['10:00 AM', '2:00 PM', '3:00 PM'] },
-      { day: 'Thursday', slots: ['9:00 AM', '1:00 PM', '2:00 PM', '4:00 PM'] },
-      { day: 'Friday', slots: ['9:00 AM', '10:00 AM', '11:00 AM', '3:00 PM'] }
-    ];
-  }
-};
+  };
+
   // Load teachers and appointments on component mount
   useEffect(() => {
     fetchTeachers();
@@ -377,7 +374,7 @@ const TeacherSchedule = () => {
     } catch (error) {
       console.error('Error fetching availability:', error);
       setError('Failed to load teacher availability');
-      setSelectedTeacher({ ...teacher, availability: [], loading: false });
+      setSelectedTeacher({ ...teacher, availability: getDefaultAvailability(), loading: false });
     }
   };
 
@@ -535,14 +532,15 @@ const TeacherSchedule = () => {
                       </div>
                       <div>
                         <h3 className="text-xl font-semibold text-gray-800">{appointment.teacherName}</h3>
-                        <p className="text-gray-600">{appointment.appointmentDate}, {appointment.date}</p>
-                        <p className="text-sm text-gray-500">{appointment.timeSlot} - {appointment.student?.subject}</p>
+                        <h5 className="text-x font-semibold text-gray-800">{appointment.teacher.email}</h5>
+                        <p className="text-gray-600"> {formatDateForDisplay(appointment.appointmentDate)}</p>
+                        <p className="text-sm text-gray-500">{appointment.timeSlot} - {appointment.student?.subject || 'General'}</p>
                       </div>
                     </div>
                     <div className="flex items-center space-x-3">
                       <div className="flex items-center text-green-600">
                         <CheckCircle className="w-5 h-5 mr-1" />
-                        <span className="text-sm font-medium">{appointment.status}</span>
+                        <span className="text-sm font-medium">{appointment.status || 'Confirmed'}</span>
                       </div>
                       <button
                         onClick={() => cancelAppointment(appointment.id || appointment._id)}
@@ -561,7 +559,7 @@ const TeacherSchedule = () => {
         {/* Booking Modal */}
         {showBookingModal && selectedTeacher && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
               <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-6 rounded-t-2xl">
                 <div className="flex items-center justify-between">
                   <h2 className="text-2xl font-bold text-white">Book Appointment</h2>
@@ -579,7 +577,7 @@ const TeacherSchedule = () => {
                 {/* Day Selection */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-3">Select Day</label>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     {selectedTeacher.loading ? (
                       <div className="col-span-full text-center py-8">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
@@ -600,7 +598,8 @@ const TeacherSchedule = () => {
                           }`}
                         >
                           <div className="font-medium">{daySlot.day}</div>
-                          <div className="text-sm text-gray-500">{getNextDateForDay(daySlot.day)}</div>
+                          <div className="text-sm text-gray-500">{formatDateForDisplay(getNextDateForDay(daySlot.day))}</div>
+                          <div className="text-xs text-gray-400">{daySlot.slots.length} slots</div>
                         </button>
                       ))
                     ) : (
@@ -618,11 +617,11 @@ const TeacherSchedule = () => {
                   </div>
                 </div>
 
-                {/* Time Selection */}
+                {/* Time Selection - FIXED to show ALL slots */}
                 {selectedDay && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-3">Select Time</label>
-                    <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-3">
                       {selectedTeacher.loading ? (
                         <div className="col-span-full text-center py-4">
                           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
@@ -636,9 +635,9 @@ const TeacherSchedule = () => {
                           const availableSlots = selectedDayData?.slots || [];
                           
                           return availableSlots.length > 0 ? (
-                            availableSlots.map(time => (
+                            availableSlots.map((time, index) => (
                               <button
-                                key={time}
+                                key={`${time}-${index}`}
                                 onClick={() => setSelectedTime(time)}
                                 className={`p-3 rounded-lg border-2 transition-all duration-200 ${
                                   selectedTime === time
@@ -701,6 +700,7 @@ const TeacherSchedule = () => {
                       className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
+                    
                   <textarea
                     name="message"
                     placeholder="Additional message or questions..."

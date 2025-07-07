@@ -44,12 +44,21 @@ const getAllAppointments = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    // Map appointments to include teacherName for frontend compatibility
+    const appointmentsWithTeacherName = appointments.map(appointment => {
+      const appointmentObj = appointment.toObject();
+      return {
+        ...appointmentObj,
+        teacherName: appointment.teacher?.name || 'Unknown Teacher'
+      };
+    });
+
     const totalAppointments = await Appointment.countDocuments(filter);
     const totalPages = Math.ceil(totalAppointments / parseInt(limit));
 
     res.status(200).json({
       success: true,
-      data: appointments,
+      data: appointmentsWithTeacherName,
       pagination: {
         currentPage: parseInt(page),
         totalPages,
@@ -83,9 +92,13 @@ const getAppointmentById = async (req, res) => {
       });
     }
 
+    // Add teacherName for frontend compatibility
+    const appointmentObj = appointment.toObject();
+    appointmentObj.teacherName = appointment.teacher?.name || 'Unknown Teacher';
+
     res.status(200).json({
       success: true,
-      data: appointment
+      data: appointmentObj
     });
   } catch (error) {
     console.error('Error fetching appointment:', error);
@@ -104,6 +117,7 @@ const getAppointmentById = async (req, res) => {
     });
   }
 };
+
 // @desc    Book new appointment
 // @route   POST /api/appointments
 // @access  Public
@@ -197,10 +211,19 @@ const bookAppointment = async (req, res) => {
     // Populate teacher info for response
     await appointment.populate('teacher', 'name email department subject');
 
+    // Create response object with all fields the frontend expects
+    const appointmentResponse = {
+      ...appointment.toObject(),
+      day: day, // Add the day field that frontend expects
+      time: time, // Add the original time format
+      date: date, // Add the original date format
+      teacherName: appointment.teacher?.name || 'Unknown Teacher' // Add teacherName for frontend compatibility
+    };
+
     res.status(201).json({
       success: true,
       message: 'Appointment booked successfully',
-      data: appointment
+      data: appointmentResponse
     });
   } catch (error) {
     console.error('Error booking appointment:', error);
@@ -261,10 +284,14 @@ const updateAppointment = async (req, res) => {
     // Populate teacher info for response
     await appointment.populate('teacher', 'name email department subject');
 
+    // Add teacherName for frontend compatibility
+    const appointmentObj = appointment.toObject();
+    appointmentObj.teacherName = appointment.teacher?.name || 'Unknown Teacher';
+
     res.status(200).json({
       success: true,
       message: 'Appointment updated successfully',
-      data: appointment
+      data: appointmentObj
     });
   } catch (error) {
     console.error('Error updating appointment:', error);
@@ -360,11 +387,20 @@ const getTeacherAppointments = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    // Map appointments to include teacherName
+    const appointmentsWithTeacherName = appointments.map(appointment => {
+      const appointmentObj = appointment.toObject();
+      return {
+        ...appointmentObj,
+        teacherName: appointment.teacher?.name || 'Unknown Teacher'
+      };
+    });
+
     const totalAppointments = await Appointment.countDocuments(filter);
 
     res.status(200).json({
       success: true,
-      data: appointments,
+      data: appointmentsWithTeacherName,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(totalAppointments / parseInt(limit)),
