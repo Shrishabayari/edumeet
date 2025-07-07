@@ -38,19 +38,19 @@ const Navbar = () => {
                   to="/admin/login"
                   className="text-white hover:text-blue-200"
                 >
-                  Login
+                  Admin Login
                 </Link>
                 <Link
-                  to="/admin/register"
+                  to="/teacher/login"
                   className="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800"
                 >
-                  Register
+                  Teacher login
                 </Link>
                 <Link
                   to="/user/register"
                   className="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800"
                 >
-                  Register
+                  User Register
                 </Link>
               </>
             )}

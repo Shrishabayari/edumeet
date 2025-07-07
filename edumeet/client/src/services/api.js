@@ -97,34 +97,233 @@ api.interceptors.response.use(
       }
       
       // Return structured error
-      return Promise.reject({
-        status,
-        message: data?.message || `Request failed with status ${status}`,
-        data: data,
-        response: error.response
-      });
+      return Promise.reject(new Error(data?.message || `Request failed with status ${status}`));
     } else if (error.request) {
       // Network error
       console.error('Network error - no response received:', error.request);
-      return Promise.reject({
-        status: 0,
-        message: 'Network error. Please check your connection and server status.',
-        data: null,
-        request: error.request
-      });
+      return Promise.reject(new Error('Network error. Please check your connection and server status.'));
     } else {
       // Request setup error
       console.error('Request setup error:', error.message);
-      return Promise.reject({
-        status: -1,
-        message: `Request failed to send: ${error.message}`,
-        data: null
-      });
+      return Promise.reject(new Error(`Request failed to send: ${error.message}`));
     }
   }
 );
 
-// Helper functions for common API operations
+// Teacher API endpoints
+export const teacherAPI = {
+  // Get all teachers
+  getTeachers: async () => {
+    try {
+      const response = await api.get('/teachers');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching teachers:', error);
+      throw error;
+    }
+  },
+
+  // Get specific teacher
+  getTeacher: async (teacherId) => {
+    try {
+      const response = await api.get(`/teachers/${teacherId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching teacher:', error);
+      throw error;
+    }
+  },
+
+  // Get teacher availability
+  getTeacherAvailability: async (teacherId) => {
+    try {
+      const response = await api.get(`/teachers/${teacherId}/availability`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching teacher availability:', error);
+      throw error;
+    }
+  },
+
+  // Update teacher availability
+  updateTeacherAvailability: async (teacherId, availability) => {
+    try {
+      const response = await api.put(`/teachers/${teacherId}/availability`, { availability });
+      return response.data;
+    } catch (error) {
+      console.error('Error updating teacher availability:', error);
+      throw error;
+    }
+  },
+
+  // Teacher login
+  login: async (credentials) => {
+    try {
+      const response = await api.post('/teachers/login', credentials);
+      
+      if (response.data.token) {
+        authToken = response.data.token;
+        api.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error during teacher login:', error);
+      throw error;
+    }
+  },
+
+  // Teacher register
+  register: async (teacherData) => {
+    try {
+      const response = await api.post('/teachers/register', teacherData);
+      return response.data;
+    } catch (error) {
+      console.error('Error during teacher registration:', error);
+      throw error;
+    }
+  },
+
+  // Get teacher profile
+  getProfile: async () => {
+    try {
+      const response = await api.get('/teachers/profile');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching teacher profile:', error);
+      throw error;
+    }
+  },
+
+  // Update teacher profile
+  updateProfile: async (profileData) => {
+    try {
+      const response = await api.put('/teachers/profile', profileData);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating teacher profile:', error);
+      throw error;
+    }
+  }
+};
+
+// Appointment API endpoints
+export const appointmentAPI = {
+  // Get all appointments (for students)
+  getAppointments: async () => {
+    try {
+      const response = await api.get('/appointments');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching appointments:', error);
+      throw error;
+    }
+  },
+
+  // Get appointments for a specific teacher
+  getTeacherAppointments: async (teacherId) => {
+    try {
+      const response = await api.get(`/appointments/teacher/${teacherId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching teacher appointments:', error);
+      throw error;
+    }
+  },
+
+  // Get specific appointment
+  getAppointment: async (appointmentId) => {
+    try {
+      const response = await api.get(`/appointments/${appointmentId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching appointment:', error);
+      throw error;
+    }
+  },
+
+  // Book new appointment
+  bookAppointment: async (appointmentData) => {
+    try {
+      const response = await api.post('/appointments', appointmentData);
+      return response.data;
+    } catch (error) {
+      console.error('Error booking appointment:', error);
+      throw error;
+    }
+  },
+
+  // Update appointment
+  updateAppointment: async (appointmentId, appointmentData) => {
+    try {
+      const response = await api.put(`/appointments/${appointmentId}`, appointmentData);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating appointment:', error);
+      throw error;
+    }
+  },
+
+  // Cancel appointment
+  cancelAppointment: async (appointmentId) => {
+    try {
+      const response = await api.delete(`/appointments/${appointmentId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error canceling appointment:', error);
+      throw error;
+    }
+  },
+
+  // Confirm appointment (for teachers)
+  confirmAppointment: async (appointmentId) => {
+    try {
+      const response = await api.patch(`/appointments/${appointmentId}/confirm`);
+      return response.data;
+    } catch (error) {
+      console.error('Error confirming appointment:', error);
+      throw error;
+    }
+  },
+
+  // Reject appointment (for teachers)
+  rejectAppointment: async (appointmentId, reason) => {
+    try {
+      const response = await api.patch(`/appointments/${appointmentId}/reject`, { reason });
+      return response.data;
+    } catch (error) {
+      console.error('Error rejecting appointment:', error);
+      throw error;
+    }
+  }
+};
+
+// Student API endpoints
+export const studentAPI = {
+  // Get student profile
+  getProfile: async (email) => {
+    try {
+      const response = await api.get(`/students/profile?email=${email}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching student profile:', error);
+      throw error;
+    }
+  },
+
+  // Create or update student profile
+  updateProfile: async (studentData) => {
+    try {
+      const response = await api.post('/students/profile', studentData);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating student profile:', error);
+      throw error;
+    }
+  }
+};
+
+// General API helpers
 export const apiHelpers = {
   // Set auth token manually
   setAuthToken: (token) => {
@@ -165,26 +364,18 @@ export const apiHelpers = {
     }
   },
   
-  // Login function
-  login: async (credentials) => {
-    try {
-      const response = await api.post('/teachers/login', credentials);
-      
-      if (response.data.token) {
-        apiHelpers.setAuthToken(response.data.token);
-      }
-      
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
-  },
-  
   // Logout function
   logout: () => {
-    apiHelpers.clearAuthToken();
+    authToken = null;
+    delete api.defaults.headers.common['Authorization'];
   }
 };
 
-// Export the configured axios instance
-export default api;
+// Default export for backward compatibility
+export default {
+  teacherAPI,
+  appointmentAPI,
+  studentAPI,
+  apiHelpers,
+  api
+};

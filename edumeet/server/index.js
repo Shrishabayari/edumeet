@@ -11,6 +11,7 @@ const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/adminRoutes');
 const teacherRoutes = require('./routes/teacherRoutes');
+const appointmentRoutes =require('./routes/appointmentRoutes');
 
 // Import database connection
 const connectDB = require('./config/db');
@@ -91,6 +92,8 @@ if (process.env.NODE_ENV === 'development') {
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/teachers', teacherRoutes);
+app.use('/api/appointments', appointmentRoutes);
+
 
 // Health check
 app.get('/api/health', (req, res) => {
