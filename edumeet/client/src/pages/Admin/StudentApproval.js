@@ -1,8 +1,77 @@
 import React, { useState, useEffect } from 'react';
 import { User, CheckCircle, XCircle, Clock, Mail, Phone, GraduationCap, BookOpen, Users, AlertCircle } from 'lucide-react';
 
-// Import your existing API service
-import { adminAPI, apiHelpers } from '../../services/api'; // Adjust path as needed
+// Mock API for demonstration - replace with your actual API
+const mockApi = {
+  getPendingRegistrations: () => Promise.resolve({
+    data: [
+      {
+        _id: '1',
+        name: 'John Doe',
+        email: 'john@example.com',
+        phone: '+1234567890',
+        studentId: 'STU001',
+        grade: '10th',
+        department: 'Science',
+        role: 'student',
+        approvalStatus: 'pending',
+        createdAt: '2024-01-15T10:30:00Z'
+      },
+      {
+        _id: '2',
+        name: 'Jane Smith',
+        email: 'jane@example.com',
+        phone: '+1234567891',
+        studentId: 'STU002',
+        grade: '11th',
+        department: 'Arts',
+        role: 'student',
+        approvalStatus: 'pending',
+        createdAt: '2024-01-16T09:15:00Z'
+      }
+    ]
+  }),
+  getAllUsersForAdmin: () => Promise.resolve({
+    data: [
+      {
+        _id: '1',
+        name: 'John Doe',
+        email: 'john@example.com',
+        phone: '+1234567890',
+        studentId: 'STU001',
+        grade: '10th',
+        department: 'Science',
+        role: 'student',
+        approvalStatus: 'approved',
+        createdAt: '2024-01-15T10:30:00Z',
+        approvedAt: '2024-01-16T14:20:00Z',
+        approvedBy: { name: 'Admin User' }
+      },
+      {
+        _id: '3',
+        name: 'Bob Wilson',
+        email: 'bob@example.com',
+        phone: '+1234567892',
+        studentId: 'STU003',
+        grade: '12th',
+        department: 'Commerce',
+        role: 'student',
+        approvalStatus: 'rejected',
+        createdAt: '2024-01-14T11:45:00Z',
+        rejectionReason: 'Incomplete documentation'
+      }
+    ]
+  }),
+  approveUser: (id) => Promise.resolve({ success: true, message: 'User approved successfully' }),
+  rejectUser: (id, reason) => Promise.resolve({ success: true, message: 'User rejected successfully' }),
+  getAdminProfile: () => Promise.resolve({ data: { name: 'Admin User', email: 'admin@example.com' } })
+};
+
+const tokenManager = {
+  getAdminToken: () => 'mock-admin-token',
+  removeAdminToken: () => {},
+  clearAllTokens: () => {}
+};
 
 const StudentApproval = () => {
   const [pendingUsers, setPendingUsers] = useState([]);
@@ -14,6 +83,7 @@ const StudentApproval = () => {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
 
@@ -24,30 +94,19 @@ const StudentApproval = () => {
         setCheckingAuth(true);
         setError('');
         
-        // First, try to initialize token from localStorage
-        apiHelpers.initializeToken();
-        
-        // Check if token exists in memory or localStorage
-        let token = apiHelpers.getToken();
-        
-        // If no token in memory, try localStorage directly
-        if (!token && typeof window !== 'undefined' && window.localStorage) {
-          token = localStorage.getItem('adminToken');
-          if (token) {
-            apiHelpers.setAuthToken(token);
-          }
-        }
+        // Check if admin token exists
+        const token = tokenManager.getAdminToken();
         
         if (token) {
-          console.log('Token found, verifying authentication...');
+          console.log('Admin token found, verifying authentication...');
           // Verify token by making an API call
-          await adminAPI.getProfile();
+          await mockApi.getAdminProfile();
           setIsAuthenticated(true);
           console.log('Authentication successful');
         } else {
-          console.log('No token found');
+          console.log('No admin token found');
           setIsAuthenticated(false);
-          setError('No authentication token found. Please login.');
+          setError('No authentication token found. Please login as admin.');
         }
       } catch (error) {
         console.error('Authentication check failed:', error);
@@ -55,11 +114,7 @@ const StudentApproval = () => {
         setError('Authentication failed. Please login again.');
         
         // Clear invalid token
-        apiHelpers.clearAuthToken();
-        if (typeof window !== 'undefined' && window.localStorage) {
-          localStorage.removeItem('adminToken');
-          localStorage.removeItem('adminData');
-        }
+        tokenManager.removeAdminToken();
       } finally {
         setCheckingAuth(false);
       }
@@ -81,38 +136,39 @@ const StudentApproval = () => {
   const fetchPendingUsers = async () => {
     setLoading(true);
     setError('');
+    setSuccess('');
+    
     try {
       console.log('Fetching pending users...');
-      const response = await adminAPI.getUsers();
-      console.log('Users response:', response);
+      const response = await mockApi.getPendingRegistrations();
+      console.log('Pending users response:', response);
       
-      // Handle different response formats
+      // Handle different response formats more robustly
       let users = [];
-      if (response.data) {
-        users = Array.isArray(response.data) ? response.data : response.data.users || [];
-      } else if (response.users) {
-        users = Array.isArray(response.users) ? response.users : [];
+      if (response?.data) {
+        users = Array.isArray(response.data) ? response.data : [response.data];
       } else if (Array.isArray(response)) {
         users = response;
+      } else if (response?.users) {
+        users = Array.isArray(response.users) ? response.users : [response.users];
       }
       
-      console.log('Processed users:', users);
-      
-      // Filter for pending users
-      const pending = users.filter(user => 
-        user.approvalStatus === 'pending' || 
-        user.status === 'pending'
+      // Filter only pending users
+      const pendingOnly = users.filter(user => 
+        user.approvalStatus === 'pending' || user.status === 'pending'
       );
       
-      console.log('Pending users:', pending);
-      setPendingUsers(pending);
+      console.log('Processed pending users:', pendingOnly);
+      setPendingUsers(pendingOnly);
+      
     } catch (error) {
       console.error('Error fetching pending users:', error);
       setError('Failed to fetch pending registrations. Please try again.');
       
       // If it's an auth error, reset authentication
-      if (error.message.includes('401') || error.message.includes('Authentication')) {
+      if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
         setIsAuthenticated(false);
+        tokenManager.removeAdminToken();
       }
     } finally {
       setLoading(false);
@@ -122,30 +178,34 @@ const StudentApproval = () => {
   const fetchAllUsers = async () => {
     setLoading(true);
     setError('');
+    setSuccess('');
+    
     try {
       console.log('Fetching all users...');
-      const response = await adminAPI.getUsers();
+      const response = await mockApi.getAllUsersForAdmin();
       console.log('All users response:', response);
       
-      // Handle different response formats
+      // Handle different response formats more robustly
       let users = [];
-      if (response.data) {
-        users = Array.isArray(response.data) ? response.data : response.data.users || [];
-      } else if (response.users) {
-        users = Array.isArray(response.users) ? response.users : [];
+      if (response?.data) {
+        users = Array.isArray(response.data) ? response.data : [response.data];
       } else if (Array.isArray(response)) {
         users = response;
+      } else if (response?.users) {
+        users = Array.isArray(response.users) ? response.users : [response.users];
       }
       
       console.log('All processed users:', users);
       setAllUsers(users);
+      
     } catch (error) {
       console.error('Error fetching all users:', error);
       setError('Failed to fetch users. Please try again.');
       
       // If it's an auth error, reset authentication
-      if (error.message.includes('401') || error.message.includes('Authentication')) {
+      if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
         setIsAuthenticated(false);
+        tokenManager.removeAdminToken();
       }
     } finally {
       setLoading(false);
@@ -153,29 +213,43 @@ const StudentApproval = () => {
   };
 
   const handleApprove = async (userId) => {
+    if (!userId) {
+      setError('Invalid user ID');
+      return;
+    }
+
     setActionLoading(userId);
     setError('');
+    setSuccess('');
+    
     try {
       console.log('Approving user:', userId);
       
-      // Find the user to determine the role
+      // Find the user to get their details
       const user = pendingUsers.find(u => u._id === userId);
       if (!user) {
-        throw new Error('User not found');
+        throw new Error('User not found in pending list');
       }
       
-      if (user.role === 'teacher') {
-        await adminAPI.updateTeacherStatus(userId, 'approved');
+      // Call the API to approve the user
+      const response = await mockApi.approveUser(userId);
+      console.log('Approval response:', response);
+      
+      if (response.success || response.data?.success) {
+        // Remove user from pending list
+        setPendingUsers(prev => prev.filter(user => user._id !== userId));
+        
+        // Show success message
+        setSuccess(`User ${user.name || user.fullName} approved successfully!`);
+        
+        // Auto-clear success message after 3 seconds
+        setTimeout(() => setSuccess(''), 3000);
+        
+        console.log('User approved successfully!');
       } else {
-        // For students, you might need to implement this endpoint
-        // For now, throw an error to indicate it's not implemented
-        throw new Error('Student approval endpoint not implemented yet. Please contact developer.');
+        throw new Error(response.message || 'Approval failed');
       }
       
-      // Remove user from pending list
-      setPendingUsers(prev => prev.filter(user => user._id !== userId));
-      
-      console.log('User approved successfully!');
     } catch (error) {
       console.error('Error approving user:', error);
       setError(`Failed to approve user: ${error.message}`);
@@ -185,30 +259,42 @@ const StudentApproval = () => {
   };
 
   const handleReject = async () => {
-    if (!selectedUser) return;
+    if (!selectedUser) {
+      setError('No user selected for rejection');
+      return;
+    }
     
     setActionLoading(selectedUser._id);
     setError('');
+    setSuccess('');
+    
     try {
-      console.log('Rejecting user:', selectedUser._id);
+      console.log('Rejecting user:', selectedUser._id, 'with reason:', rejectionReason);
       
-      // Use the existing updateTeacherStatus function if it's a teacher
-      if (selectedUser.role === 'teacher') {
-        await adminAPI.updateTeacherStatus(selectedUser._id, 'rejected');
+      // Call the API to reject the user
+      const response = await mockApi.rejectUser(selectedUser._id, rejectionReason);
+      console.log('Rejection response:', response);
+      
+      if (response.success || response.data?.success) {
+        // Remove user from pending list
+        setPendingUsers(prev => prev.filter(user => user._id !== selectedUser._id));
+        
+        // Show success message
+        setSuccess(`User ${selectedUser.name || selectedUser.fullName} rejected successfully!`);
+        
+        // Reset modal state
+        setShowRejectModal(false);
+        setSelectedUser(null);
+        setRejectionReason('');
+        
+        // Auto-clear success message after 3 seconds
+        setTimeout(() => setSuccess(''), 3000);
+        
+        console.log('User rejected successfully!');
       } else {
-        // For students, you might need to add a new API endpoint
-        throw new Error('Student rejection endpoint not implemented yet. Please contact developer.');
+        throw new Error(response.message || 'Rejection failed');
       }
       
-      // Remove user from pending list
-      setPendingUsers(prev => prev.filter(user => user._id !== selectedUser._id));
-      
-      // Reset modal state
-      setShowRejectModal(false);
-      setSelectedUser(null);
-      setRejectionReason('');
-      
-      console.log('User rejected successfully!');
     } catch (error) {
       console.error('Error rejecting user:', error);
       setError(`Failed to reject user: ${error.message}`);
@@ -218,20 +304,29 @@ const StudentApproval = () => {
   };
 
   const openRejectModal = (user) => {
+    if (!user) {
+      setError('Invalid user selected');
+      return;
+    }
     setSelectedUser(user);
     setShowRejectModal(true);
+    setError(''); // Clear any existing errors
   };
 
   const closeRejectModal = () => {
     setShowRejectModal(false);
     setSelectedUser(null);
     setRejectionReason('');
+    setError(''); // Clear any existing errors
   };
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     try {
-      return new Date(dateString).toLocaleDateString('en-US', {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid Date';
+      
+      return date.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -239,6 +334,7 @@ const StudentApproval = () => {
         minute: '2-digit'
       });
     } catch (error) {
+      console.error('Date formatting error:', error);
       return 'Invalid Date';
     }
   };
@@ -283,8 +379,8 @@ const StudentApproval = () => {
             <User className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">{user.name || 'N/A'}</h3>
-            <p className="text-sm text-gray-500 capitalize">{user.role || 'Unknown'}</p>
+            <h3 className="text-lg font-semibold text-gray-900">{user.name || user.fullName || 'N/A'}</h3>
+            <p className="text-sm text-gray-500 capitalize">{user.role || 'Student'}</p>
           </div>
         </div>
         {getStatusBadge(user.approvalStatus || user.status)}
@@ -303,28 +399,32 @@ const StudentApproval = () => {
           </div>
         )}
         
-        {user.role === 'student' && user.grade && (
+        {user.studentId && (
           <div className="flex items-center text-sm text-gray-600">
             <GraduationCap className="w-4 h-4 mr-2" />
-            {user.grade}
+            ID: {user.studentId}
           </div>
         )}
         
-        {user.role === 'teacher' && (
-          <>
-            {user.subject && (
-              <div className="flex items-center text-sm text-gray-600">
-                <BookOpen className="w-4 h-4 mr-2" />
-                {user.subject}
-              </div>
-            )}
-            {user.department && (
-              <div className="flex items-center text-sm text-gray-600">
-                <Users className="w-4 h-4 mr-2" />
-                {user.department}
-              </div>
-            )}
-          </>
+        {user.grade && (
+          <div className="flex items-center text-sm text-gray-600">
+            <BookOpen className="w-4 h-4 mr-2" />
+            Grade: {user.grade}
+          </div>
+        )}
+        
+        {user.department && (
+          <div className="flex items-center text-sm text-gray-600">
+            <Users className="w-4 h-4 mr-2" />
+            {user.department}
+          </div>
+        )}
+        
+        {user.subject && (
+          <div className="flex items-center text-sm text-gray-600">
+            <BookOpen className="w-4 h-4 mr-2" />
+            Subject: {user.subject}
+          </div>
         )}
       </div>
       
@@ -350,6 +450,11 @@ const StudentApproval = () => {
               Approved by: {user.approvedBy.name || user.approvedBy || 'Admin'}
             </span>
           </div>
+          {user.approvedAt && (
+            <p className="text-sm text-green-700 mt-1">
+              Approved on: {formatDate(user.approvedAt)}
+            </p>
+          )}
         </div>
       )}
       
@@ -358,7 +463,7 @@ const StudentApproval = () => {
           <button
             onClick={() => handleApprove(user._id)}
             disabled={actionLoading === user._id}
-            className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
           >
             {actionLoading === user._id ? (
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -373,7 +478,7 @@ const StudentApproval = () => {
           <button
             onClick={() => openRejectModal(user)}
             disabled={actionLoading === user._id}
-            className="flex-1 bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            className="flex-1 bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
           >
             <XCircle className="w-4 h-4 mr-2" />
             Reject
@@ -410,10 +515,14 @@ const StudentApproval = () => {
               {error || 'Please login as an admin to access this page.'}
             </p>
             <button
-              onClick={() => window.location.href = '/admin/login'}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+              onClick={() => {
+                // Clear any existing tokens and redirect to login
+                tokenManager.clearAllTokens();
+                window.location.href = '/admin/login';
+              }}
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
             >
-              Go to Login
+              Go to Admin Login
             </button>
           </div>
         </div>
@@ -425,9 +534,25 @@ const StudentApproval = () => {
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="mt-2 text-gray-600">Manage user registrations and approvals</p>
+          <h1 className="text-3xl font-bold text-gray-900">Student Approval Dashboard</h1>
+          <p className="mt-2 text-gray-600">Manage student registrations and approvals</p>
         </div>
+        
+        {/* Success Message */}
+        {success && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-md">
+            <div className="flex items-center">
+              <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
+              <span className="text-sm font-medium text-green-800">{success}</span>
+            </div>
+            <button
+              onClick={() => setSuccess('')}
+              className="mt-2 text-sm text-green-600 hover:text-green-800 underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         
         {/* Error Message */}
         {error && (
@@ -438,7 +563,7 @@ const StudentApproval = () => {
             </div>
             <button
               onClick={() => setError('')}
-              className="mt-2 text-sm text-red-600 hover:text-red-800"
+              className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
             >
               Dismiss
             </button>
@@ -451,7 +576,7 @@ const StudentApproval = () => {
             <nav className="-mb-px flex space-x-8">
               <button
                 onClick={() => setActiveTab('pending')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
                   activeTab === 'pending'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -467,13 +592,18 @@ const StudentApproval = () => {
               
               <button
                 onClick={() => setActiveTab('all')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
                   activeTab === 'all'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
                 All Users
+                {allUsers.length > 0 && (
+                  <span className="ml-2 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">
+                    {allUsers.length}
+                  </span>
+                )}
               </button>
             </nav>
           </div>
@@ -491,13 +621,23 @@ const StudentApproval = () => {
               <>
                 {activeTab === 'pending' && (
                   <div>
-                    <h2 className="text-xl font-semibold text-gray-900 mb-6">
-                      Pending Registrations ({pendingUsers.length})
-                    </h2>
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl font-semibold text-gray-900">
+                        Pending Registrations ({pendingUsers.length})
+                      </h2>
+                      <button
+                        onClick={fetchPendingUsers}
+                        disabled={loading}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm"
+                      >
+                        {loading ? 'Refreshing...' : 'Refresh'}
+                      </button>
+                    </div>
                     {pendingUsers.length === 0 ? (
                       <div className="text-center py-12">
                         <Clock className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                         <p className="text-gray-500">No pending registrations</p>
+                        <p className="text-sm text-gray-400 mt-2">New registrations will appear here for approval</p>
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -511,13 +651,23 @@ const StudentApproval = () => {
                 
                 {activeTab === 'all' && (
                   <div>
-                    <h2 className="text-xl font-semibold text-gray-900 mb-6">
-                      All Users ({allUsers.length})
-                    </h2>
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl font-semibold text-gray-900">
+                        All Users ({allUsers.length})
+                      </h2>
+                      <button
+                        onClick={fetchAllUsers}
+                        disabled={loading}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm"
+                      >
+                        {loading ? 'Refreshing...' : 'Refresh'}
+                      </button>
+                    </div>
                     {allUsers.length === 0 ? (
                       <div className="text-center py-12">
                         <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                         <p className="text-gray-500">No users found</p>
+                        <p className="text-sm text-gray-400 mt-2">Registered users will appear here</p>
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -542,7 +692,7 @@ const StudentApproval = () => {
               Reject User Registration
             </h3>
             <p className="text-sm text-gray-600 mb-4">
-              Are you sure you want to reject {selectedUser?.name}'s registration?
+              Are you sure you want to reject <strong>{selectedUser?.name || selectedUser?.fullName}</strong>'s registration?
             </p>
             
             <div className="mb-4">
@@ -552,7 +702,7 @@ const StudentApproval = () => {
               <textarea
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 resize-none"
                 rows="3"
                 placeholder="Please provide a reason for rejection..."
                 maxLength={500}
@@ -565,14 +715,15 @@ const StudentApproval = () => {
             <div className="flex space-x-3">
               <button
                 onClick={closeRejectModal}
-                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400"
+                disabled={actionLoading === selectedUser?._id}
+                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400 disabled:opacity-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleReject}
                 disabled={actionLoading === selectedUser?._id}
-                className="flex-1 bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {actionLoading === selectedUser?._id ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mx-auto"></div>

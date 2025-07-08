@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, User, Mail, Phone, BookOpen, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { teacherAPI, appointmentAPI } from '../../services/api'; // Adjust path as needed
+import { apiMethods } from '../../services/api'; // Updated import
 
 const TeacherSchedule = () => {
   const [teachers, setTeachers] = useState([]);
@@ -24,7 +24,7 @@ const TeacherSchedule = () => {
   // Valid day names for validation
   const VALID_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-  // Helper function to get next date for a given day - FIXED
+  // Helper function to get next date for a given day
   const getNextDateForDay = (dayName) => {
     if (!dayName || typeof dayName !== 'string') {
       console.error('Invalid day name (not a string):', dayName);
@@ -69,7 +69,7 @@ const TeacherSchedule = () => {
     }
   };
 
-  // FIXED: Enhanced default availability with more comprehensive slots
+  // Enhanced default availability with more comprehensive slots
   const getDefaultAvailability = () => {
     return [
       { 
@@ -99,7 +99,10 @@ const TeacherSchedule = () => {
     try {
       setLoading(true);
       setError('');
-      const data = await teacherAPI.getTeachers();
+      
+      // Use the correct API method from your apiMethods
+      const response = await apiMethods.getAllTeachers();
+      const data = response.data;
       
       // Handle different response formats
       let teachersArray = [];
@@ -144,7 +147,9 @@ const TeacherSchedule = () => {
 
   const fetchAppointments = async () => {
     try {
-      const data = await appointmentAPI.getAppointments();
+      // Use the correct API method from your apiMethods
+      const response = await apiMethods.getAllAppointments();
+      const data = response.data;
       
       // Handle different response formats
       let appointmentsArray = [];
@@ -168,7 +173,7 @@ const TeacherSchedule = () => {
     }
   };
 
-  // FIXED: Better availability fetching with comprehensive slot handling
+  // Better availability fetching with comprehensive slot handling
   const fetchTeacherAvailability = async (teacherId) => {
     try {
       const teacher = teachers.find(t => (t.id || t._id) === teacherId);
@@ -284,11 +289,12 @@ const TeacherSchedule = () => {
 
       console.log('Sending appointment data:', appointmentData);
 
-      const response = await appointmentAPI.bookAppointment(appointmentData);
+      // Use the correct API method with retry logic
+      const response = await apiMethods.bookAppointmentWithRetry(appointmentData);
 
       // Update local state
       setAppointments(prevAppointments => 
-        Array.isArray(prevAppointments) ? [...prevAppointments, response] : [response]
+        Array.isArray(prevAppointments) ? [...prevAppointments, response.data] : [response.data]
       );
       
       // Refresh data
@@ -329,7 +335,8 @@ const TeacherSchedule = () => {
       setLoading(true);
       setError('');
 
-      await appointmentAPI.cancelAppointment(appointmentId);
+      // Use the correct API method from your apiMethods
+      await apiMethods.cancelAppointment(appointmentId);
 
       // Update local state
       setAppointments(prevAppointments => 
@@ -532,8 +539,8 @@ const TeacherSchedule = () => {
                       </div>
                       <div>
                         <h3 className="text-xl font-semibold text-gray-800">{appointment.teacherName}</h3>
-                        <h5 className="text-x font-semibold text-gray-800">{appointment.teacher.email}</h5>
-                        <p className="text-gray-600"> {formatDateForDisplay(appointment.appointmentDate)}</p>
+                        <h5 className="text-sm font-semibold text-gray-600">{appointment.teacher?.email}</h5>
+                        <p className="text-gray-600">{formatDateForDisplay(appointment.appointmentDate)}</p>
                         <p className="text-sm text-gray-500">{appointment.timeSlot} - {appointment.student?.subject || 'General'}</p>
                       </div>
                     </div>
@@ -617,7 +624,7 @@ const TeacherSchedule = () => {
                   </div>
                 </div>
 
-                {/* Time Selection - FIXED to show ALL slots */}
+                {/* Time Selection */}
                 {selectedDay && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-3">Select Time</label>
@@ -699,6 +706,7 @@ const TeacherSchedule = () => {
                       onChange={handleInputChange}
                       className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
+                    
                   </div>
                     
                   <textarea

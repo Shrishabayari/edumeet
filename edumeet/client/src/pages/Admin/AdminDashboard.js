@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from 'react-router-dom';
-import { PlusCircle, MapPin, Users, Globe, Zap, LogOut, User, AlertCircle } from 'lucide-react';
-import apiServices from "../../services/api"; // Adjust path as needed
+import { PlusCircle, MapPin, Users, Globe, Zap, LogOut, User, AlertCircle, BookOpen, UserCheck } from 'lucide-react';
+
+// Use the same API configuration as your existing api.js
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet-server.onrender.com' || 'http://localhost:5000';
 
 // API Helper functions for token management
 const apiHelpers = {
   initializeToken: () => {
     const token = localStorage.getItem('adminToken');
-    if (token) {
-      apiServices.api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    }
+    return token;
   },
   
   getToken: () => {
@@ -18,12 +18,11 @@ const apiHelpers = {
   
   setToken: (token) => {
     localStorage.setItem('adminToken', token);
-    apiServices.api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
   },
   
   removeToken: () => {
     localStorage.removeItem('adminToken');
-    delete apiServices.api.defaults.headers.common['Authorization'];
+    localStorage.removeItem('admin');
   },
   
   isAuthenticated: () => {
@@ -35,32 +34,67 @@ const apiHelpers = {
   }
 };
 
-// Admin API functions
+// Admin API functions using fetch (consistent with your login component)
 const adminAPI = {
   getProfile: async () => {
     try {
-      const response = await apiServices.api.get('/admin/profile');
-      return response.data;
+      const token = apiHelpers.getToken();
+      const response = await fetch(`${API_BASE_URL}/admin/profile`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      return await response.json();
     } catch (error) {
+      console.error('Profile API error:', error);
       throw error;
     }
   },
   
   getDashboardStats: async () => {
     try {
-      const response = await apiServices.api.get('/admin/dashboard-stats');
-      return response.data;
+      const token = apiHelpers.getToken();
+      const response = await fetch(`${API_BASE_URL}/admin/dashboard/stats`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      return await response.json();
     } catch (error) {
+      console.error('Dashboard stats API error:', error);
       throw error;
     }
   },
   
   logout: async () => {
     try {
-      await apiServices.api.post('/admin/logout');
+      const token = apiHelpers.getToken();
+      await fetch(`${API_BASE_URL}/admin/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
       apiHelpers.logout();
       return { success: true };
     } catch (error) {
+      console.error('Logout API error:', error);
       // Force logout even if API call fails
       apiHelpers.logout();
       return { success: true };
@@ -75,11 +109,11 @@ const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Array of dashboard items with their details
+  // Updated dashboard items to match educational platform
   const dashboardItems = [
     {
       title: "Add Teacher",
-      description: "Register a new electric vehicle charging station to the system.",
+      description: "Register a new teacher and send them setup credentials.",
       icon: <PlusCircle className="w-10 h-10 text-blue-600 group-hover:text-white transition-colors duration-300" />,
       bgColor: "bg-blue-50",
       hoverBg: "hover:bg-blue-600",
@@ -88,21 +122,21 @@ const AdminDashboard = () => {
     },
     {
       title: "Student Approval",
-      description: "View, edit, and manage all registered EV charging stations.",
-      icon: <MapPin className="w-10 h-10 text-green-600 group-hover:text-white transition-colors duration-300" />,
+      description: "Review and approve pending student registrations.",
+      icon: <UserCheck className="w-10 h-10 text-green-600 group-hover:text-white transition-colors duration-300" />,
       bgColor: "bg-green-50",
       hoverBg: "hover:bg-green-600",
       textColor: "text-green-800",
       path: "/admin/approval",
     },
     {
-      title: "View Bunk Locations",
-      description: "See all EV bunk locations on an interactive map.",
-      icon: <Globe className="w-10 h-10 text-yellow-600 group-hover:text-white transition-colors duration-300" />,
-      bgColor: "bg-yellow-50",
-      hoverBg: "hover:bg-yellow-600",
-      textColor: "text-yellow-800",
-      path: "/admin/view-bunk-locations",
+      title: "View Teachers",
+      description: "Manage all registered teachers and their profiles.",
+      icon: <BookOpen className="w-10 h-10 text-purple-600 group-hover:text-white transition-colors duration-300" />,
+      bgColor: "bg-purple-50",
+      hoverBg: "hover:bg-purple-600",
+      textColor: "text-purple-800",
+      path: "/admin/teachers",
     },
     {
       title: "Manage Users",
@@ -111,37 +145,58 @@ const AdminDashboard = () => {
       bgColor: "bg-red-50",
       hoverBg: "hover:bg-red-600",
       textColor: "text-red-800",
-      path: "/admin/registered-users",
+      path: "/admin/users",
+    },
+    {
+      title: "Appointments",
+      description: "View all appointments and meeting schedules.",
+      icon: <Globe className="w-10 h-10 text-yellow-600 group-hover:text-white transition-colors duration-300" />,
+      bgColor: "bg-yellow-50",
+      hoverBg: "hover:bg-yellow-600",
+      textColor: "text-yellow-800",
+      path: "/admin/appointments",
     },
     {
       title: "My Profile",
-      description: "Get a high-level overview of system performance and statistics.",
+      description: "View and update your administrative profile.",
       icon: <Zap className="w-10 h-10 text-indigo-600 group-hover:text-white transition-colors duration-300" />,
       bgColor: "bg-indigo-50",
       hoverBg: "hover:bg-indigo-600",
       textColor: "text-indigo-800",
-      path: "/admin/my-profile",
+      path: "/admin/profile",
     },
   ];
 
   useEffect(() => {
     const loadDashboardData = async () => {
       try {
-        // Initialize token first
-        apiHelpers.initializeToken();
-        
         // Check if authenticated
         if (!apiHelpers.isAuthenticated()) {
           navigate('/admin/login');
           return;
         }
 
-        // Load admin profile
+        // Try to get admin data from localStorage first
+        const storedAdmin = localStorage.getItem('admin');
+        if (storedAdmin) {
+          try {
+            setAdminData(JSON.parse(storedAdmin));
+          } catch (e) {
+            console.log('Error parsing stored admin data');
+          }
+        }
+
+        // Load admin profile from API
         try {
           const profile = await adminAPI.getProfile();
           setAdminData(profile);
         } catch (profileError) {
-          console.log('Profile loading failed, continuing without profile data');
+          console.log('Profile loading failed:', profileError);
+          // If it's an authentication error, redirect to login
+          if (profileError.message.includes('401') || profileError.message.includes('403')) {
+            navigate('/admin/login');
+            return;
+          }
         }
 
         // Load dashboard stats
@@ -149,7 +204,8 @@ const AdminDashboard = () => {
           const dashboardStats = await adminAPI.getDashboardStats();
           setStats(dashboardStats);
         } catch (statsError) {
-          console.log('Stats loading failed, continuing without stats');
+          console.log('Stats loading failed:', statsError);
+          // Continue without stats - not critical
         }
 
       } catch (error) {
@@ -157,7 +213,7 @@ const AdminDashboard = () => {
         setError('Failed to load dashboard data. Please try refreshing the page.');
         
         // If it's an authentication error, redirect to login
-        if (error.response?.status === 401 || error.response?.status === 403) {
+        if (error.message.includes('401') || error.message.includes('403')) {
           navigate('/admin/login');
         }
       } finally {
@@ -193,7 +249,7 @@ const AdminDashboard = () => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-red-600 mx-auto mb-4"></div>
           <p className="text-lg text-gray-600">Loading dashboard...</p>
         </div>
       </div>
@@ -212,7 +268,7 @@ const AdminDashboard = () => {
                   Admin Dashboard
                 </h1>
                 <p className="text-xl text-gray-600 lg:text-2xl">
-                  Welcome to the administration panel. Manage your EV Charge Hub efficiently.
+                  Welcome to the administration panel. Manage your EduMeet platform efficiently.
                 </p>
               </div>
               
@@ -221,7 +277,9 @@ const AdminDashboard = () => {
                   <div className="flex items-center space-x-3 bg-gray-50 rounded-lg px-4 py-2">
                     <User className="w-5 h-5 text-gray-600" />
                     <div>
-                      <p className="text-sm font-medium text-gray-900">{adminData.name}</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {adminData.name || adminData.username || 'Admin'}
+                      </p>
                       <p className="text-xs text-gray-600">{adminData.email}</p>
                     </div>
                   </div>
@@ -251,7 +309,7 @@ const AdminDashboard = () => {
             {stats && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 {Object.entries(stats).map(([key, value]) => (
-                  <div key={key} className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-100">
+                  <div key={key} className="bg-gradient-to-r from-red-50 to-pink-50 rounded-lg p-4 border border-red-100">
                     <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">
                       {key.replace(/([A-Z])/g, ' $1').trim()}
                     </h3>
@@ -286,17 +344,25 @@ const AdminDashboard = () => {
             ))}
           </div>
 
-          {/* Token Status (Debug - remove in production) */}
-          <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-            <p className="text-sm text-gray-600">
-              <strong>Token Status:</strong> 
-              <span className={`ml-2 px-2 py-1 rounded text-xs ${
-                apiHelpers.getToken() ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-              }`}>
-                {apiHelpers.getToken() ? 'Valid' : 'Invalid'}
-              </span>
-            </p>
-          </div>
+          {/* Debug Info - Remove in production */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mt-8 p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-600">
+                <strong>Debug Info:</strong>
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Token Status: 
+                <span className={`ml-2 px-2 py-1 rounded text-xs ${
+                  apiHelpers.getToken() ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                }`}>
+                  {apiHelpers.getToken() ? 'Valid' : 'Invalid'}
+                </span>
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                API URL: {API_BASE_URL}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

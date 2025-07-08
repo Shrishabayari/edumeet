@@ -22,7 +22,7 @@ router.post('/login', loginAdmin);
 // Protected routes (authentication required)
 router.get('/profile', authenticateAdmin, getAdminProfile);
 router.put('/profile', authenticateAdmin, updateAdminProfile);
-router.get('/dashboard/stats', authenticateAdmin, getDashboardStats);
+router.get('/dashboard', authenticateAdmin, getDashboardStats);
 router.get('/users', authenticateAdmin, getUsers);
 router.get('/appointments', authenticateAdmin, getAllAppointments);
 router.patch('/teachers/:teacherId/status', authenticateAdmin, updateTeacherStatus);
