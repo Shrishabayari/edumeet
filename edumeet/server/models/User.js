@@ -25,8 +25,8 @@ const userSchema = new mongoose.Schema({
   role: {
     type: String,
     enum: {
-      values: ['student'],
-      message: 'Role must be student'
+      values: ['student', 'teacher', 'admin'],
+      message: 'Role must be student, teacher, or admin'
     },
     default: 'student',
     index: true
@@ -42,12 +42,27 @@ const userSchema = new mongoose.Schema({
     },
     grade: {
       type: String,
-      required: true
+      required: function() {
+        return this.role === 'student';
+      }
     },
     studentId: {
       type: String,
       unique: true,
       sparse: true
+    },
+    // Teacher specific fields
+    subject: {
+      type: String,
+      required: function() {
+        return this.role === 'teacher';
+      }
+    },
+    department: {
+      type: String,
+      required: function() {
+        return this.role === 'teacher';
+      }
     }
   },
   isActive: {
@@ -58,6 +73,25 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Admin approval system
+  approvalStatus: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  },
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  approvedAt: {
+    type: Date
+  },
+  rejectedAt: {
+    type: Date
+  },
+  rejectionReason: {
+    type: String
+  },
   lastLogin: Date,
   passwordResetToken: String,
   passwordResetExpires: Date
@@ -65,14 +99,14 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Hash password
+// Hash password before saving
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   this.password = await bcrypt.hash(this.password, 12);
   next();
 });
 
-// Auto-generate student ID
+// Auto-generate student ID for students
 userSchema.pre('save', async function(next) {
   if (this.role === 'student' && !this.profile.studentId) {
     const year = new Date().getFullYear();
@@ -82,10 +116,12 @@ userSchema.pre('save', async function(next) {
   next();
 });
 
+// Compare password method
 userSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
+// Remove sensitive fields from JSON output
 userSchema.methods.toJSON = function() {
   const obj = this.toObject();
   delete obj.password;
@@ -94,8 +130,34 @@ userSchema.methods.toJSON = function() {
   return obj;
 };
 
+// Find user by email with password
 userSchema.statics.findByEmail = function(email) {
   return this.findOne({ email }).select('+password');
+};
+
+// Check if user can login (approved and active)
+userSchema.methods.canLogin = function() {
+  return this.isActive && this.approvalStatus === 'approved';
+};
+
+// Approve user method
+userSchema.methods.approve = function(adminId) {
+  this.approvalStatus = 'approved';
+  this.approvedBy = adminId;
+  this.approvedAt = new Date();
+  this.rejectedAt = undefined;
+  this.rejectionReason = undefined;
+  return this.save();
+};
+
+// Reject user method
+userSchema.methods.reject = function(adminId, reason) {
+  this.approvalStatus = 'rejected';
+  this.rejectedAt = new Date();
+  this.rejectionReason = reason;
+  this.approvedBy = undefined;
+  this.approvedAt = undefined;
+  return this.save();
 };
 
 module.exports = mongoose.model('User', userSchema);

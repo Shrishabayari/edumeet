@@ -8,6 +8,7 @@ import Home from './components/home';
  import AdminDashboard from './pages/Admin/AdminDashboard';
  import RegistrationForm from './pages/User/RegisterPage';
  import LoginPage from './pages/User/LoginPage';
+ import StudentApproval from './pages/Admin/StudentApproval';
  import AdminTeacherManagement from './pages/Admin/AddTeacher';
  import TeacherLogin from './pages/Teacher/TeacherLogin';
  import TeacherDashboard from './pages/Teacher/TeacherDashboard';
@@ -26,6 +27,7 @@ function App() {
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
               <Route path="/user/register" element={<RegistrationForm />} />
               <Route path="/user/login" element={<LoginPage />} />
+              <Route path="/admin/approval" element={<StudentApproval />} />
               <Route path="/admin/teacher-register" element={<AdminTeacherManagement />} />
               <Route path="/teacher/login" element={<TeacherLogin />} />
               <Route path="/teacher/dashboard" element={<TeacherDashboard />} />

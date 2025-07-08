@@ -1,12 +1,19 @@
-// controllers/adminController.js
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const Admin = require('../models/Admin'); // You'll need to create this model too
+const Admin = require('../models/Admin');
 
 // Register Admin
 const registerAdmin = async (req, res) => {
   try {
     const { email, password, name } = req.body;
+
+    // Validate input
+    if (!email || !password || !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide all required fields'
+      });
+    }
 
     // Check if admin already exists
     const existingAdmin = await Admin.findOne({ email });
@@ -32,10 +39,12 @@ const registerAdmin = async (req, res) => {
 
     // Generate JWT token
     const token = jwt.sign(
-      { adminId: admin._id, email: admin.email },
+      { adminId: admin._id, email: admin.email, role: 'admin' },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '7d' }
     );
+
+    console.log('Admin registered successfully, token generated:', token);
 
     res.status(201).json({
       success: true,
@@ -44,14 +53,16 @@ const registerAdmin = async (req, res) => {
       admin: {
         id: admin._id,
         name: admin.name,
-        email: admin.email
+        email: admin.email,
+        role: admin.role
       }
     });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error during registration'
+      message: 'Server error during registration',
+      error: error.message
     });
   }
 };
@@ -61,9 +72,20 @@ const loginAdmin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email and password'
+      });
+    }
+
+    console.log('Login attempt for email:', email);
+
     // Find admin
     const admin = await Admin.findOne({ email });
     if (!admin) {
+      console.log('Admin not found for email:', email);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
@@ -73,6 +95,7 @@ const loginAdmin = async (req, res) => {
     // Check password
     const isMatch = await bcrypt.compare(password, admin.password);
     if (!isMatch) {
+      console.log('Password mismatch for email:', email);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
@@ -81,10 +104,12 @@ const loginAdmin = async (req, res) => {
 
     // Generate JWT token
     const token = jwt.sign(
-      { adminId: admin._id, email: admin.email },
+      { adminId: admin._id, email: admin.email, role: 'admin' },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '7d' }
     );
+
+    console.log('Admin logged in successfully, token generated:', token);
 
     res.json({
       success: true,
@@ -93,19 +118,245 @@ const loginAdmin = async (req, res) => {
       admin: {
         id: admin._id,
         name: admin.name,
-        email: admin.email
+        email: admin.email,
+        role: admin.role
       }
     });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error during login'
+      message: 'Server error during login',
+      error: error.message
+    });
+  }
+};
+// Add these methods to your adminController.js
+
+// Get admin profile
+const getAdminProfile = async (req, res) => {
+  try {
+    const adminId = req.admin.id; // From authentication middleware
+    
+    // Fetch admin from database (adjust based on your database setup)
+    const admin = await Admin.findById(adminId).select('-password');
+    
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: admin
+    });
+  } catch (error) {
+    console.error('Error fetching admin profile:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
     });
   }
 };
 
+// Update admin profile
+const updateAdminProfile = async (req, res) => {
+  try {
+    const adminId = req.admin.id;
+    const updateData = req.body;
+
+    // Remove password from update data if present
+    delete updateData.password;
+
+    const updatedAdmin = await Admin.findByIdAndUpdate(
+      adminId,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!updatedAdmin) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: updatedAdmin,
+      message: 'Profile updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating admin profile:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
+
+// Get dashboard stats
+const getDashboardStats = async (req, res) => {
+  try {
+    // Fetch counts from your database
+    const totalTeachers = await Teacher.countDocuments();
+    const totalStudents = await Student.countDocuments();
+    const totalAppointments = await Appointment.countDocuments();
+    const pendingAppointments = await Appointment.countDocuments({ status: 'pending' });
+    const approvedTeachers = await Teacher.countDocuments({ status: 'approved' });
+    const pendingTeachers = await Teacher.countDocuments({ status: 'pending' });
+
+    res.json({
+      success: true,
+      data: {
+        totalTeachers,
+        totalStudents,
+        totalAppointments,
+        pendingAppointments,
+        approvedTeachers,
+        pendingTeachers
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
+
+// Get all users
+const getUsers = async (req, res) => {
+  try {
+    const teachers = await Teacher.find().select('-password');
+    const students = await Student.find().select('-password');
+
+    res.json({
+      success: true,
+      data: {
+        teachers,
+        students
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
+
+// Get all appointments
+const getAllAppointments = async (req, res) => {
+  try {
+    const appointments = await Appointment.find()
+      .populate('teacherId', 'name email subject')
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: appointments
+    });
+  } catch (error) {
+    console.error('Error fetching appointments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
+
+// Update teacher status
+const updateTeacherStatus = async (req, res) => {
+  try {
+    const { teacherId } = req.params;
+    const { status } = req.body;
+
+    if (!['approved', 'rejected', 'pending'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status'
+      });
+    }
+
+    const teacher = await Teacher.findByIdAndUpdate(
+      teacherId,
+      { status },
+      { new: true }
+    ).select('-password');
+
+    if (!teacher) {
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: teacher,
+      message: `Teacher ${status} successfully`
+    });
+  } catch (error) {
+    console.error('Error updating teacher status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
+
+// Delete user
+const deleteUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { type } = req.query;
+
+    let deletedUser;
+    if (type === 'teacher') {
+      deletedUser = await Teacher.findByIdAndDelete(userId);
+    } else if (type === 'student') {
+      deletedUser = await Student.findByIdAndDelete(userId);
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user type'
+      });
+    }
+
+    if (!deletedUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
+
+// Export all functions
 module.exports = {
   registerAdmin,
-  loginAdmin
+  loginAdmin,
+  getAdminProfile,
+  updateAdminProfile,
+  getDashboardStats,
+  getUsers,
+  getAllAppointments,
+  updateTeacherStatus,
+  deleteUser
 };

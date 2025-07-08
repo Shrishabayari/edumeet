@@ -65,8 +65,9 @@ exports.register = async (req, res) => {
       name: name.trim(),
       email: email.toLowerCase(),
       password,
-      role,
-      profile: {}
+      role: role || 'student',
+      profile: {},
+      approvalStatus: 'pending' // Set to pending by default
     };
 
     // Add profile data if provided
@@ -87,8 +88,21 @@ exports.register = async (req, res) => {
     // Create user
     const user = await User.create(userData);
 
-    // Send success response with token
-    createSendToken(user, 201, res, 'Registration successful');
+    // Return success response without token (user needs approval first)
+    res.status(201).json({
+      success: true,
+      message: 'Registration successful! Your account is pending admin approval. You will be notified once approved.',
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          approvalStatus: user.approvalStatus,
+          profile: user.profile
+        }
+      }
+    });
 
   } catch (error) {
     console.error('Registration error:', error);
@@ -154,6 +168,21 @@ exports.login = async (req, res) => {
       return res.status(401).json({
         success: false,
         message: 'Account is deactivated. Please contact support.'
+      });
+    }
+
+    // Check approval status
+    if (user.approvalStatus === 'pending') {
+      return res.status(401).json({
+        success: false,
+        message: 'Your account is pending admin approval. Please wait for approval before logging in.'
+      });
+    }
+
+    if (user.approvalStatus === 'rejected') {
+      return res.status(401).json({
+        success: false,
+        message: `Your account has been rejected. ${user.rejectionReason ? 'Reason: ' + user.rejectionReason : 'Please contact support for more information.'}`
       });
     }
 
@@ -296,6 +325,156 @@ exports.updateProfile = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error during profile update'
+    });
+  }
+};
+
+// @desc    Get pending registrations (Admin only)
+// @route   GET /api/auth/admin/pending
+// @access  Private (Admin)
+exports.getPendingRegistrations = async (req, res) => {
+  try {
+    const pendingUsers = await User.find({ 
+      approvalStatus: 'pending' 
+    }).select('-password').sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: pendingUsers.length,
+      data: {
+        users: pendingUsers
+      }
+    });
+  } catch (error) {
+    console.error('Get pending registrations error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
+
+// @desc    Approve user registration (Admin only)
+// @route   PUT /api/auth/admin/approve/:id
+// @access  Private (Admin)
+exports.approveUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (user.approvalStatus !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'User is not pending approval'
+      });
+    }
+
+    await user.approve(req.user.id);
+
+    res.status(200).json({
+      success: true,
+      message: 'User approved successfully',
+      data: {
+        user
+      }
+    });
+  } catch (error) {
+    console.error('Approve user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during approval'
+    });
+  }
+};
+
+// @desc    Reject user registration (Admin only)
+// @route   PUT /api/auth/admin/reject/:id
+// @access  Private (Admin)
+exports.rejectUser = async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const user = await User.findById(req.params.id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (user.approvalStatus !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'User is not pending approval'
+      });
+    }
+
+    await user.reject(req.user.id, reason);
+
+    res.status(200).json({
+      success: true,
+      message: 'User rejected successfully',
+      data: {
+        user
+      }
+    });
+  } catch (error) {
+    console.error('Reject user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during rejection'
+    });
+  }
+};
+
+// @desc    Get all users with approval status (Admin only)
+// @route   GET /api/auth/admin/users
+// @access  Private (Admin)
+exports.getAllUsers = async (req, res) => {
+  try {
+    const { status, role, page = 1, limit = 10 } = req.query;
+    
+    const filter = {};
+    if (status) filter.approvalStatus = status;
+    if (role) filter.role = role;
+
+    const options = {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      select: '-password',
+      sort: { createdAt: -1 }
+    };
+
+    const users = await User.find(filter)
+      .select('-password')
+      .populate('approvedBy', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await User.countDocuments(filter);
+
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / limit),
+      data: {
+        users
+      }
+    });
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
     });
   }
 };

@@ -1,7 +1,133 @@
-import React, { useState } from "react";
-import api from "../../services/api";
+import React, { useState, useEffect } from "react";
+import apiServices from "../../services/api";
 import { useNavigate, Link } from "react-router-dom";
 import { Mail, Lock, AlertCircle, CheckCircle, Eye, EyeOff } from 'lucide-react';
+
+// API Helper functions for token management
+const apiHelpers = {
+  initializeToken: () => {
+    const token = localStorage.getItem('adminToken');
+    if (token) {
+      // Set token in API headers if it exists
+      apiServices.api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+  },
+  
+  getToken: () => {
+    return localStorage.getItem('adminToken');
+  },
+  
+  setToken: (token) => {
+    localStorage.setItem('adminToken', token);
+    apiServices.api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  },
+  
+  removeToken: () => {
+    localStorage.removeItem('adminToken');
+    delete apiServices.api.defaults.headers.common['Authorization'];
+  },
+  
+  isAuthenticated: () => {
+    return !!localStorage.getItem('adminToken');
+  },
+  
+  logout: () => {
+    apiHelpers.removeToken();
+  },
+  
+  testConnection: async () => {
+    try {
+      const response = await apiServices.api.get('/admin/test-connection');
+      return response.status === 200;
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      return false;
+    }
+  }
+};
+
+// Admin API functions
+const adminAPI = {
+  login: async (credentials) => {
+    try {
+      const response = await apiServices.api.post('/admin/login', credentials);
+      
+      if (response.data.token) {
+        apiHelpers.setToken(response.data.token);
+        return {
+          success: true,
+          data: response.data,
+          message: 'Login successful'
+        };
+      } else {
+        return {
+          success: false,
+          message: 'No token received'
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Login failed'
+      };
+    }
+  },
+  
+  register: async (userData) => {
+    try {
+      const response = await apiServices.api.post('/admin/register', userData);
+      
+      if (response.data.token) {
+        apiHelpers.setToken(response.data.token);
+        return {
+          success: true,
+          data: response.data,
+          message: 'Registration successful'
+        };
+      } else {
+        return {
+          success: false,
+          message: 'No token received'
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Registration failed'
+      };
+    }
+  },
+  
+  getProfile: async () => {
+    try {
+      const response = await apiServices.api.get('/admin/profile');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  getDashboardStats: async () => {
+    try {
+      const response = await apiServices.api.get('/admin/dashboard-stats');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  logout: async () => {
+    try {
+      await apiServices.api.post('/admin/logout');
+      apiHelpers.logout();
+      return { success: true };
+    } catch (error) {
+      // Force logout even if API call fails
+      apiHelpers.logout();
+      return { success: true };
+    }
+  }
+};
 
 const AdminLogin = () => {
   const [email, setEmail] = useState("");
@@ -13,6 +139,16 @@ const AdminLogin = () => {
 
   const navigate = useNavigate();
 
+  // Initialize token on component mount
+  useEffect(() => {
+    apiHelpers.initializeToken();
+    
+    // Check if already authenticated
+    if (apiHelpers.isAuthenticated()) {
+      navigate("/admin/dashboard");
+    }
+  }, [navigate]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -20,24 +156,66 @@ const AdminLogin = () => {
     setLoading(true); 
 
     try {
-      const response = await api.post("/admin/login", {
+      console.log('Attempting admin login...');
+      
+      const response = await adminAPI.login({
         email,
         password,
       });
 
-      console.log("Admin Login Response Data:", response.data);
-      console.log("Token received from Admin Login:", response.data.token);
+      console.log('Login response:', response);
 
-      localStorage.setItem("token", response.data.token);
-      setMessage("Login successful! Redirecting to dashboard...");
-
-      setTimeout(() => {
-        navigate("/admin/teacher-register");
-      }, 1500); 
-
+      if (response.success) {
+        setMessage("Login successful! Redirecting to dashboard...");
+        
+        // Redirect to admin dashboard
+        setTimeout(() => {
+          navigate("/admin/dashboard");
+        }, 1500);
+      } else {
+        setError(response.message || 'Login failed');
+      }
     } catch (err) {
       console.error("Admin login error:", err);
-      setError(err.response?.data?.message || "Login failed. Please check your credentials.");
+      setError(err.message || "Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setError("");
+    setMessage(""); 
+    setLoading(true);
+
+    // Add name field for registration
+    const registerData = {
+      email,
+      password,
+      name: 'Admin User' // You might want to add a name field to the form
+    };
+
+    try {
+      console.log('Attempting admin registration...');
+      
+      const response = await adminAPI.register(registerData);
+      
+      console.log('Registration response:', response);
+      
+      if (response.success) {
+        setMessage('Registration successful! Redirecting to dashboard...');
+        
+        // Redirect to admin dashboard
+        setTimeout(() => {
+          navigate("/admin/dashboard");
+        }, 1500);
+      } else {
+        setError(response.message || 'Registration failed');
+      }
+    } catch (error) {
+      console.error('Registration error:', error);
+      setError(error.message || 'Network error. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -115,6 +293,7 @@ const AdminLogin = () => {
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="admin@example.com"
                       required
+                      disabled={loading}
                     />
                   </div>
                 </div>
@@ -128,45 +307,49 @@ const AdminLogin = () => {
                       <Lock className="h-5 w-5 text-gray-300" />
                     </div>
                     <input
-                      type={showPassword ? "text" : "password"} // Dynamic type based on showPassword state
+                      type={showPassword ? "text" : "password"}
                       id="password"
                       name="password"
-                      className="w-full pl-10 pr-12 py-4 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent backdrop-blur-sm transition-all" // Increased pr for eye icon
+                      className="w-full pl-10 pr-12 py-4 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent backdrop-blur-sm transition-all"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter your password"
                       required
+                      disabled={loading}
                     />
                     <button
-                      type="button" // Important: type="button" to prevent form submission
+                      type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-300 hover:text-white transition-colors focus:outline-none" // Positioning and styling for the eye icon
+                      className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-300 hover:text-white transition-colors focus:outline-none"
+                      disabled={loading}
                     >
                       {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white font-semibold py-4 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg"
-                >
-                  {loading ? (
-                    <div className="flex items-center justify-center space-x-2">
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Signing in...</span>
-                    </div>
-                  ) : (
-                    "Admin Sign in"
-                  )}
-                </button>
+                <div className="form-actions space-y-4">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white font-semibold py-4 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg"
+                  >
+                    {loading ? (
+                      <div className="flex items-center justify-center space-x-2">
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <span>Signing in...</span>
+                      </div>
+                    ) : (
+                      "Admin Sign in"
+                    )}
+                  </button>
+                </div>
               </form>
 
-              <div className="mt-2 text-center">
+              <div className="mt-6 text-center space-y-2">
                 <Link
                   to="/user/login" 
-                  className=" hover:font-bold text-white font-semibold py-3 "
+                  className="block hover:font-bold text-white font-semibold py-2"
                 >
                   User Login
                 </Link>
@@ -183,3 +366,6 @@ const AdminLogin = () => {
 };
 
 export default AdminLogin;
+
+// Export the API helpers and admin API for use in other components
+export { apiHelpers, adminAPI };

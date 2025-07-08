@@ -1,12 +1,14 @@
+// middleware/authMiddleware.js
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Teacher = require('../models/Teacher');
+const Admin = require('../models/Admin');
 
-// Protect routes - authentication middleware
+// General protect middleware for regular users
 exports.protect = async (req, res, next) => {
   try {
     let token;
-
+    
     // Check for token in header
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
@@ -43,6 +45,14 @@ exports.protect = async (req, res, next) => {
       });
     }
 
+    // Check if user is approved (except for admin)
+    if (user.role !== 'admin' && user.approvalStatus !== 'approved') {
+      return res.status(401).json({
+        success: false,
+        message: 'User account is not approved.'
+      });
+    }
+
     // Attach user to request
     req.user = user;
     next();
@@ -71,63 +81,8 @@ exports.protect = async (req, res, next) => {
   }
 };
 
-// Role-based authorization middleware
-exports.authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. Please log in.'
-      });
-    }
-
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: `Access denied. ${req.user.role} role is not authorized to access this resource.`
-      });
-    }
-
-    next();
-  };
-};
-
-// Optional authentication middleware (doesn't fail if no token)
-exports.optionalAuth = async (req, res, next) => {
-  try {
-    let token;
-
-    // Check for token in header
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-      token = req.headers.authorization.split(' ')[1];
-    }
-    // Check for token in cookies
-    else if (req.cookies.jwt) {
-      token = req.cookies.jwt;
-    }
-
-    if (token) {
-      // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      
-      // Find user by ID
-      const user = await User.findById(decoded.id);
-      if (user && user.isActive) {
-        req.user = user;
-      }
-    }
-
-    next();
-
-  } catch (error) {
-    // Continue without authentication if token is invalid
-    next();
-  }
-};
-
-
 // Enhanced protect middleware to handle both User and Teacher
-exports.protect = async (req, res, next) => {
+exports.protectMultiRole = async (req, res, next) => {
   try {
     let token;
     
@@ -217,5 +172,111 @@ exports.protect = async (req, res, next) => {
       success: false,
       message: 'Server error during authentication'
     });
+  }
+};
+
+// Admin-specific authentication middleware
+exports.authenticateAdmin = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization');
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'No token provided'
+      });
+    }
+
+    // Remove 'Bearer ' prefix if present
+    const actualToken = token.startsWith('Bearer ') ? token.slice(7) : token;
+
+    // Verify token
+    const decoded = jwt.verify(actualToken, process.env.JWT_SECRET);
+    
+    // Find admin
+    const admin = await Admin.findById(decoded.id);
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        message: 'Admin not found'
+      });
+    }
+
+    // Add admin to request object
+    req.admin = admin;
+    next();
+  } catch (error) {
+    console.error('Authentication error:', error);
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid token'
+    });
+  }
+};
+
+// Role-based authorization middleware
+exports.authorize = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access denied. Please log in.'
+      });
+    }
+
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: `Access denied. ${req.user.role} role is not authorized to access this resource.`
+      });
+    }
+
+    next();
+  };
+};
+
+// Restrict to specific roles
+exports.restrictTo = (...roles) => {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Insufficient permissions.'
+      });
+    }
+    next();
+  };
+};
+
+// Optional authentication middleware (doesn't fail if no token)
+exports.optionalAuth = async (req, res, next) => {
+  try {
+    let token;
+
+    // Check for token in header
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+    // Check for token in cookies
+    else if (req.cookies.jwt) {
+      token = req.cookies.jwt;
+    }
+
+    if (token) {
+      // Verify token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      // Find user by ID
+      const user = await User.findById(decoded.id);
+      if (user && user.isActive && (user.role === 'admin' || user.approvalStatus === 'approved')) {
+        req.user = user;
+      }
+    }
+
+    next();
+
+  } catch (error) {
+    // Continue without authentication if token is invalid
+    next();
   }
 };
