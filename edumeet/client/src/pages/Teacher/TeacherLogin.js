@@ -5,23 +5,20 @@ import {
 } from 'lucide-react';
 import { useNavigate, Link } from "react-router-dom";
 
-
-// ✅ Reusable API Client
+// ✅ API Client
 const createApiClient = () => {
   const API_URL = process.env.NODE_ENV === 'production'
     ? 'https://edumeet.onrender.com/api'
     : 'http://localhost:5000/api';
 
-  let authToken = null;
-
   const handleErrors = async (response) => {
     const data = await response.json();
     if (!response.ok) {
-      throw {
+      throw new Error(JSON.stringify({
         status: response.status,
         message: data.message || `Request failed with status ${response.status}`,
         data,
-      };
+      }));
     }
     return data;
   };
@@ -38,21 +35,13 @@ const createApiClient = () => {
         });
         return await handleErrors(response);
       } catch (error) {
-        if (error.status) throw error;
-        throw {
+        if (error.message) throw error;
+        throw new Error(JSON.stringify({
           status: 0,
           message: 'Network error. Please check your connection and server status.',
-        };
+        }));
       }
-    },
-    setAuthToken: (token) => {
-      authToken = token;
-    },
-    getToken: () => authToken,
-    clearAuthToken: () => {
-      authToken = null;
-    },
-    isAuthenticated: () => !!authToken,
+    }
   };
 };
 
@@ -94,36 +83,51 @@ const TeacherLogin = () => {
     setLoading(true);
 
     try {
-      if (!validateForm()) return;
+      if (!validateForm()) {
+        setLoading(false);
+        return;
+      }
 
       const response = await api.post("/teachers/login", {
         email,
         password,
       });
 
-      console.log("Teacher Login Response Data:", response);
-      console.log("Token received from Teacher Login:", response.token);
+      console.log("✅ Login Response:", response);
 
-      localStorage.setItem("token", response.token);
-      setMessage("Login successful! Redirecting to dashboard...");
+      // ✅ Save token and teacher info
+      if (response.token) {
+        localStorage.setItem("teacherToken", response.token);
+      }
 
+      if (response.teacher) {
+        localStorage.setItem("teacher", JSON.stringify(response.teacher));
+      }
 
+      setMessage("Login successful! Redirecting...");
       setTimeout(() => {
-        setMessage("Login successful! You would be redirected to the teacher dashboard.");
         navigate("/teacher/dashboard");
       }, 1500);
     } catch (err) {
-      console.error("Teacher login error:", err);
-      if (err.status === 401) {
+      let parsedError = {};
+      try {
+        parsedError = JSON.parse(err.message);
+      } catch {
+        parsedError = { message: err.message };
+      }
+
+      console.error("❌ Teacher login error:", parsedError);
+
+      if (parsedError.status === 401) {
         setError('Invalid email or password. Please try again.');
-      } else if (err.status === 403) {
-        setError('Account access is restricted. Please contact support.');
-      } else if (err.status === 429) {
+      } else if (parsedError.status === 403) {
+        setError('Account access is restricted. Please contact admin.');
+      } else if (parsedError.status === 429) {
         setError('Too many login attempts. Please try again later.');
-      } else if (err.status === 0) {
+      } else if (parsedError.status === 0) {
         setError('Network error. Please check your connection and try again.');
       } else {
-        setError(err.message || 'Login failed. Please try again.');
+        setError(parsedError.message || 'Login failed. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -132,16 +136,13 @@ const TeacherLogin = () => {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Background */}
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat"
         style={{
-          backgroundImage: `linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80')`
+          backgroundImage: `linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?auto=format&fit=crop&w=2070&q=80')`
         }}
       />
-
       <div className="relative z-10 min-h-screen flex flex-col lg:flex-row pt-10 pb-10">
-        {/* Left Side */}
         <div className="flex-1 flex flex-col justify-center px-8 lg:px-16">
           <div className="max-w-lg">
             <div className="flex items-center mb-6">
@@ -152,23 +153,12 @@ const TeacherLogin = () => {
                 Teacher<br />Portal
               </h1>
             </div>
-            <p className="text-lg text-gray-200 mb-8 leading-relaxed">
-              Welcome to your teaching hub. Access your classes, manage student progress, create assignments, and inspire learning with our comprehensive educational platform.
+            <p className="text-lg text-gray-200 mb-8">
+              Welcome to your teaching hub. Access your classes, manage students and appointments.
             </p>
-            <div className="flex items-center space-x-4 text-gray-300">
-              <div className="flex items-center">
-                <User className="h-5 w-5 mr-2" />
-                <span className="text-sm">Secure Access</span>
-              </div>
-              <div className="flex items-center">
-                <BookOpen className="h-5 w-5 mr-2" />
-                <span className="text-sm">Class Management</span>
-              </div>
-            </div>
           </div>
         </div>
 
-        {/* Right Side - Form */}
         <div className="flex-1 flex items-center px-8 lg:px-16">
           <div className="w-full max-w-md">
             <div className="bg-white bg-opacity-10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white border-opacity-20">
@@ -177,36 +167,31 @@ const TeacherLogin = () => {
                   <User className="h-8 w-8 text-blue-200" />
                 </div>
                 <h2 className="text-4xl font-bold text-white mb-2">Teacher Sign in</h2>
-                <div>
-                <p className="text-gray-200">
-                  Don't have an account?{' '}
-                  <Link to="/admin/login" className="text-black-300 hover:text-blue-200 underline font-medium">
-                    contact Admin
+                <p className="text-gray-200 text-sm">
+                  Don’t have an account?{' '}
+                  <Link to="/admin/login" className="text-blue-300 hover:text-white underline">
+                    Contact Admin
                   </Link>
                 </p>
-                </div>
               </div>
 
-              {/* Error Message */}
               {error && (
                 <div className="bg-red-500 bg-opacity-20 border border-red-400 text-red-100 px-4 py-3 rounded-lg mb-6 flex items-center space-x-3 text-sm">
-                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                  <AlertCircle className="w-5 h-5" />
                   <span>{error}</span>
                 </div>
               )}
 
-              {/* Success Message */}
               {message && (
                 <div className="bg-green-500 bg-opacity-20 border border-green-400 text-green-100 px-4 py-3 rounded-lg mb-6 flex items-center space-x-3 text-sm">
-                  <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                  <CheckCircle className="w-5 h-5" />
                   <span>{message}</span>
                 </div>
               )}
 
               <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Email */}
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-200 mb-2">
+                  <label htmlFor="email" className="block text-sm text-gray-200 mb-2">
                     Email Address
                   </label>
                   <div className="relative">
@@ -214,18 +199,17 @@ const TeacherLogin = () => {
                     <input
                       type="email"
                       id="email"
-                      className="w-full pl-10 pr-4 py-4 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-gray-300 focus:ring-2 focus:ring-blue-400 focus:outline-none backdrop-blur-sm"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="teacher@school.edu"
                       required
+                      className="w-full pl-10 pr-4 py-4 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-gray-300 focus:ring-2 focus:ring-blue-400 focus:outline-none backdrop-blur-sm"
                     />
                   </div>
                 </div>
 
-                {/* Password */}
                 <div>
-                  <label htmlFor="password" className="block text-sm font-medium text-gray-200 mb-2">
+                  <label htmlFor="password" className="block text-sm text-gray-200 mb-2">
                     Password
                   </label>
                   <div className="relative">
@@ -233,11 +217,11 @@ const TeacherLogin = () => {
                     <input
                       type={showPassword ? "text" : "password"}
                       id="password"
-                      className="w-full pl-10 pr-12 py-4 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-gray-300 focus:ring-2 focus:ring-blue-400 focus:outline-none backdrop-blur-sm"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter your password"
                       required
+                      className="w-full pl-10 pr-12 py-4 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-gray-300 focus:ring-2 focus:ring-blue-400 focus:outline-none backdrop-blur-sm"
                     />
                     <button
                       type="button"
@@ -249,7 +233,6 @@ const TeacherLogin = () => {
                   </div>
                 </div>
 
-                {/* Submit */}
                 <button
                   type="submit"
                   disabled={loading}

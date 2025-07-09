@@ -13,6 +13,8 @@ import Home from './components/home';
  import TeacherLogin from './pages/Teacher/TeacherLogin';
  import TeacherDashboard from './pages/Teacher/TeacherDashboard';
  import TeacherSchedule from './pages/Teacher/SheduleAppointment';
+ import AppointmentApproval from './pages/Teacher/AppointmntApprove';
+ import ViewAllAppointments from './pages/Teacher/AllAppointments';
 function App() {
   return (
     <AuthProvider>
@@ -32,6 +34,8 @@ function App() {
               <Route path="/teacher/login" element={<TeacherLogin />} />
               <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
               <Route path="/teacher/shedule-appointment" element={<TeacherSchedule />} />
+              <Route path="/teacher/approval" element={<AppointmentApproval />} />
+              <Route path="/teacher/all-appointments" element={<ViewAllAppointments />} />
 
             </Routes>
           </main>
