@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Calendar, Clock, User, Mail, Phone, BookOpen, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { apiMethods } from '../../services/api'; // Updated import
+import { apiMethods } from '../../services/api';
 
 const TeacherSchedule = () => {
   const [teachers, setTeachers] = useState([]);
@@ -27,15 +27,15 @@ const TeacherSchedule = () => {
   // Helper function to get next date for a given day
   const getNextDateForDay = (dayName) => {
     if (!dayName || typeof dayName !== 'string') {
-      console.error('Invalid day name (not a string):', dayName);
-      return new Date().toLocaleDateString('en-CA');
+      console.error('Invalid day name:', dayName);
+      return new Date().toISOString().split('T')[0];
     }
 
     const normalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1).toLowerCase();
     
     if (!VALID_DAYS.includes(normalizedDay)) {
-      console.error('Invalid day name:', dayName, 'normalized:', normalizedDay);
-      return new Date().toLocaleDateString('en-CA');
+      console.error('Invalid day name:', dayName);
+      return new Date().toISOString().split('T')[0];
     }
     
     const today = new Date();
@@ -52,7 +52,7 @@ const TeacherSchedule = () => {
     const targetDate = new Date(today);
     targetDate.setDate(today.getDate() + daysUntilTarget);
     
-    return targetDate.toLocaleDateString('en-CA'); // Returns YYYY-MM-DD format
+    return targetDate.toISOString().split('T')[0]; // Returns YYYY-MM-DD format
   };
 
   // Helper function to format date for display
@@ -69,7 +69,7 @@ const TeacherSchedule = () => {
     }
   };
 
-  // Enhanced default availability with more comprehensive slots
+  // Default availability with proper time slots
   const getDefaultAvailability = () => {
     return [
       { 
@@ -95,41 +95,48 @@ const TeacherSchedule = () => {
     ];
   };
 
-  const fetchTeachers = async () => {
+  // Helper function to check if a time slot is already booked
+  const isTimeSlotBooked = (teacherId, day, time, date) => {
+    return appointments.some(appointment => {
+      const appointmentTeacherId = appointment.teacherId || appointment.teacher?.id || appointment.teacher?._id;
+      const appointmentDate = appointment.appointmentDate || appointment.date;
+      const appointmentTime = appointment.timeSlot || appointment.time;
+      
+      return (
+        appointmentTeacherId === teacherId &&
+        appointmentDate === date &&
+        appointmentTime === time &&
+        appointment.status !== 'cancelled'
+      );
+    });
+  };
+
+  // Fetch teachers with better error handling - wrapped in useCallback
+  const fetchTeachers = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
       
-      // Use the correct API method from your apiMethods
       const response = await apiMethods.getAllTeachers();
-      const data = response.data;
+      let teachersData = response.data;
       
       // Handle different response formats
-      let teachersArray = [];
-      if (Array.isArray(data)) {
-        teachersArray = data;
-      } else if (data && Array.isArray(data.teachers)) {
-        teachersArray = data.teachers;
-      } else if (data && Array.isArray(data.data)) {
-        teachersArray = data.data;
-      } else if (data && data.success && Array.isArray(data.data)) {
-        teachersArray = data.data;
-      } else {
-        console.warn('API returned unexpected data format:', data);
-        teachersArray = [];
-        setError('Teachers data format is invalid');
+      if (teachersData && typeof teachersData === 'object') {
+        if (Array.isArray(teachersData.data)) {
+          teachersData = teachersData.data;
+        } else if (Array.isArray(teachersData.teachers)) {
+          teachersData = teachersData.teachers;
+        } else if (!Array.isArray(teachersData)) {
+          teachersData = [];
+        }
       }
       
-      // Ensure each teacher has a valid ID and add default availability
-      const validTeachers = teachersArray.filter(teacher => {
-        const hasValidId = teacher.id || teacher._id;
-        if (!hasValidId) {
-          console.warn('Teacher missing ID:', teacher);
-        }
-        return hasValidId;
+      // Ensure each teacher has required fields
+      const validTeachers = teachersData.filter(teacher => {
+        return teacher && (teacher.id || teacher._id) && teacher.name;
       }).map(teacher => ({
         ...teacher,
-        // Use default availability if not present or invalid
+        id: teacher.id || teacher._id,
         availability: teacher.availability && Array.isArray(teacher.availability) && teacher.availability.length > 0 
           ? teacher.availability 
           : getDefaultAvailability()
@@ -137,121 +144,117 @@ const TeacherSchedule = () => {
       
       setTeachers(validTeachers);
     } catch (error) {
-      setError('Failed to load teachers. Please try again.');
       console.error('Error fetching teachers:', error);
+      setError('Failed to load teachers. Please try again.');
       setTeachers([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchAppointments = async () => {
+  // Fetch appointments with better error handling - wrapped in useCallback
+  const fetchAppointments = useCallback(async () => {
     try {
-      // Use the correct API method from your apiMethods
       const response = await apiMethods.getAllAppointments();
-      const data = response.data;
+      let appointmentsData = response.data;
       
       // Handle different response formats
-      let appointmentsArray = [];
-      if (Array.isArray(data)) {
-        appointmentsArray = data;
-      } else if (data && Array.isArray(data.appointments)) {
-        appointmentsArray = data.appointments;
-      } else if (data && Array.isArray(data.data)) {
-        appointmentsArray = data.data;
-      } else if (data && data.success && Array.isArray(data.data)) {
-        appointmentsArray = data.data;
-      } else {
-        console.warn('Appointments API returned unexpected data format:', data);
-        appointmentsArray = [];
+      if (appointmentsData && typeof appointmentsData === 'object') {
+        if (Array.isArray(appointmentsData.data)) {
+          appointmentsData = appointmentsData.data;
+        } else if (Array.isArray(appointmentsData.appointments)) {
+          appointmentsData = appointmentsData.appointments;
+        } else if (!Array.isArray(appointmentsData)) {
+          appointmentsData = [];
+        }
       }
       
-      setAppointments(appointmentsArray);
+      // Ensure each appointment has required fields
+      const validAppointments = appointmentsData.filter(appointment => {
+        return appointment && (appointment.id || appointment._id);
+      }).map(appointment => ({
+        ...appointment,
+        id: appointment.id || appointment._id
+      }));
+      
+      setAppointments(validAppointments);
     } catch (error) {
       console.error('Error fetching appointments:', error);
       setAppointments([]);
     }
-  };
+  }, []);
 
-  // Better availability fetching with comprehensive slot handling
-  const fetchTeacherAvailability = async (teacherId) => {
-    try {
-      const teacher = teachers.find(t => (t.id || t._id) === teacherId);
-      
-      if (teacher && teacher.availability) {
-        console.log('Raw teacher availability:', teacher.availability);
-        
-        // If availability is already in correct format, validate and return
-        if (Array.isArray(teacher.availability)) {
-          const validAvailability = teacher.availability.filter(daySlot => {
-            if (!daySlot || typeof daySlot !== 'object') return false;
-            if (!daySlot.day || typeof daySlot.day !== 'string') return false;
-            if (daySlot.day.includes(':') || daySlot.day.includes('AM') || daySlot.day.includes('PM')) return false;
-            
-            const normalizedDay = daySlot.day.charAt(0).toUpperCase() + daySlot.day.slice(1).toLowerCase();
-            if (!VALID_DAYS.includes(normalizedDay)) return false;
-            
-            daySlot.day = normalizedDay;
-            if (!Array.isArray(daySlot.slots)) daySlot.slots = [];
-            
-            return true;
-          });
-          
-          if (validAvailability.length > 0) {
-            console.log('Valid object-format availability found:', validAvailability);
-            return validAvailability;
-          }
-          
-          // Check if it's array of time strings and convert
-          const timeSlots = teacher.availability.filter(item => 
-            typeof item === 'string' && (item.includes(':') || item.includes('AM') || item.includes('PM'))
-          );
-          
-          if (timeSlots.length > 0) {
-            console.log('Found time slots, converting to weekly format:', timeSlots);
-            
-            const cleanTimeSlots = timeSlots.map(slot => {
-              const startTime = slot.split(' - ')[0];
-              return startTime;
-            }).filter(time => time);
-            
-            const sortedSlots = cleanTimeSlots.sort((a, b) => {
-              const timeA = new Date(`2000/01/01 ${a}`);
-              const timeB = new Date(`2000/01/01 ${b}`);
-              return timeA - timeB;
-            });
-            
-            // Create availability for all weekdays with the same slots
-            const weeklyAvailability = [];
-            const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-            
-            weekdays.forEach(day => {
-              weeklyAvailability.push({
-                day: day,
-                slots: [...sortedSlots] // Copy all slots to each day
-              });
-            });
-            
-            console.log('Converted to weekly availability:', weeklyAvailability);
-            return weeklyAvailability;
-          }
-        }
-      }
-      
-      console.log('Using default availability for teacher:', teacherId);
-      return getDefaultAvailability();
-    } catch (error) {
-      console.error('Error fetching teacher availability:', error);
+  // Process teacher availability
+  const processTeacherAvailability = (teacher) => {
+    if (!teacher || !teacher.availability) {
       return getDefaultAvailability();
     }
+
+    let availability = teacher.availability;
+    
+    // If availability is already in the correct format
+    if (Array.isArray(availability) && availability.length > 0) {
+      const firstItem = availability[0];
+      
+      // Check if it's in the correct object format
+      if (firstItem && typeof firstItem === 'object' && firstItem.day && Array.isArray(firstItem.slots)) {
+        return availability.filter(daySlot => {
+          const normalizedDay = daySlot.day.charAt(0).toUpperCase() + daySlot.day.slice(1).toLowerCase();
+          return VALID_DAYS.includes(normalizedDay);
+        }).map(daySlot => ({
+          ...daySlot,
+          day: daySlot.day.charAt(0).toUpperCase() + daySlot.day.slice(1).toLowerCase()
+        }));
+      }
+      
+      // If it's an array of time strings, convert to weekly format
+      if (firstItem && typeof firstItem === 'string' && (firstItem.includes(':') || firstItem.includes('AM') || firstItem.includes('PM'))) {
+        const timeSlots = availability.filter(item => 
+          typeof item === 'string' && (item.includes(':') || item.includes('AM') || item.includes('PM'))
+        );
+        
+        // Create availability for weekdays
+        const weeklyAvailability = [];
+        const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        
+        weekdays.forEach(day => {
+          weeklyAvailability.push({
+            day: day,
+            slots: [...timeSlots]
+          });
+        });
+        
+        return weeklyAvailability;
+      }
+    }
+    
+    return getDefaultAvailability();
   };
 
-  // Load teachers and appointments on component mount
+  // Get available time slots for a specific day
+  const getAvailableTimeSlots = (teacher, day) => {
+    if (!teacher || !day) return [];
+    
+    const teacherId = teacher.id || teacher._id;
+    const date = getNextDateForDay(day);
+    const availability = processTeacherAvailability(teacher);
+    
+    const dayAvailability = availability.find(avail => avail.day === day);
+    if (!dayAvailability) return [];
+    
+    // Filter out booked slots
+    return dayAvailability.slots.filter(time => 
+      !isTimeSlotBooked(teacherId, day, time, date)
+    );
+  };
+
+  // Load data on component mount
   useEffect(() => {
     fetchTeachers();
     fetchAppointments();
-  }, []);
+  }, [fetchTeachers, fetchAppointments]);
 
+  // Handle appointment booking
   const handleBookAppointment = async () => {
     if (!selectedTeacher || !selectedDay || !selectedTime || !studentInfo.name || !studentInfo.email) {
       setError('Please fill in all required fields');
@@ -262,22 +265,22 @@ const TeacherSchedule = () => {
       setLoading(true);
       setError('');
 
-      // Format the date properly
-      const nextDate = getNextDateForDay(selectedDay);
-      const formattedDate = nextDate; // Already in YYYY-MM-DD format
-
-      // Ensure teacherId is properly formatted
       const teacherId = selectedTeacher.id || selectedTeacher._id;
+      const appointmentDate = getNextDateForDay(selectedDay);
       
-      if (!teacherId) {
-        throw new Error('Invalid teacher selected');
+      // Check if the slot is still available
+      if (isTimeSlotBooked(teacherId, selectedDay, selectedTime, appointmentDate)) {
+        setError('This time slot is no longer available. Please select another time.');
+        return;
       }
 
       const appointmentData = {
         teacherId: teacherId,
         day: selectedDay,
         time: selectedTime,
-        date: formattedDate,
+        date: appointmentDate,
+        appointmentDate: appointmentDate,
+        timeSlot: selectedTime,
         student: {
           name: studentInfo.name.trim(),
           email: studentInfo.email.trim(),
@@ -287,39 +290,37 @@ const TeacherSchedule = () => {
         }
       };
 
-      console.log('Sending appointment data:', appointmentData);
+      console.log('Booking appointment:', appointmentData);
 
-      // Use the correct API method with retry logic
       const response = await apiMethods.bookAppointmentWithRetry(appointmentData);
-
-      // Update local state
-      setAppointments(prevAppointments => 
-        Array.isArray(prevAppointments) ? [...prevAppointments, response.data] : [response.data]
-      );
       
-      // Refresh data
-      await fetchTeachers();
-      await fetchAppointments();
+      // Add the new appointment to local state
+      const newAppointment = {
+        ...response.data,
+        id: response.data.id || response.data._id,
+        teacherName: selectedTeacher.name,
+        teacher: selectedTeacher
+      };
       
+      setAppointments(prev => [...prev, newAppointment]);
+      
+      // Close modal and show confirmation
       setShowBookingModal(false);
       setShowConfirmation(true);
       
       // Reset form
       resetForm();
-
+      
+      // Refresh data
+      await fetchAppointments();
+      
       setTimeout(() => setShowConfirmation(false), 3000);
 
     } catch (error) {
       console.error('Error booking appointment:', error);
       
-      // Handle different error types
-      if (error.response && error.response.data) {
-        if (error.response.data.errors) {
-          const validationErrors = error.response.data.errors.map(err => err.msg).join(', ');
-          setError(`Validation failed: ${validationErrors}`);
-        } else {
-          setError(error.response.data.message || 'Failed to book appointment');
-        }
+      if (error.response?.data?.message) {
+        setError(error.response.data.message);
       } else if (error.message) {
         setError(error.message);
       } else {
@@ -330,66 +331,48 @@ const TeacherSchedule = () => {
     }
   };
 
+  // Handle appointment cancellation
   const cancelAppointment = async (appointmentId) => {
     try {
       setLoading(true);
       setError('');
 
-      // Use the correct API method from your apiMethods
       await apiMethods.cancelAppointment(appointmentId);
-
-      // Update local state
-      setAppointments(prevAppointments => 
-        Array.isArray(prevAppointments) 
-          ? prevAppointments.filter(apt => (apt.id || apt._id) !== appointmentId)
-          : []
-      );
+      
+      // Remove from local state
+      setAppointments(prev => prev.filter(apt => apt.id !== appointmentId));
       
       // Refresh data
-      await fetchTeachers();
+      await fetchAppointments();
 
     } catch (error) {
-      setError('Failed to cancel appointment. Please try again.');
       console.error('Error canceling appointment:', error);
+      setError('Failed to cancel appointment. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  // Handle input changes
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setStudentInfo(prev => ({ ...prev, [name]: value }));
   };
 
-  const openBookingModal = async (teacher) => {
+  // Open booking modal
+  const openBookingModal = (teacher) => {
     setSelectedTeacher(teacher);
     setShowBookingModal(true);
     setError('');
-    
-    // Show loading state
-    setSelectedTeacher({ ...teacher, availability: null, loading: true });
-    
-    // Fetch fresh availability data
-    try {
-      const teacherId = teacher.id || teacher._id;
-      const availability = await fetchTeacherAvailability(teacherId);
-      setSelectedTeacher({ ...teacher, availability, loading: false });
-      
-      if (!availability || availability.length === 0) {
-        setError('No availability found for this teacher');
-      }
-    } catch (error) {
-      console.error('Error fetching availability:', error);
-      setError('Failed to load teacher availability');
-      setSelectedTeacher({ ...teacher, availability: getDefaultAvailability(), loading: false });
-    }
   };
 
+  // Close booking modal
   const closeBookingModal = () => {
     setShowBookingModal(false);
     resetForm();
   };
 
+  // Reset form
   const resetForm = () => {
     setSelectedTeacher(null);
     setSelectedDay('');
@@ -403,10 +386,6 @@ const TeacherSchedule = () => {
     });
     setError('');
   };
-
-  // Ensure arrays are always arrays for safe rendering
-  const safeTeachers = Array.isArray(teachers) ? teachers : [];
-  const safeAppointments = Array.isArray(appointments) ? appointments : [];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
@@ -466,7 +445,7 @@ const TeacherSchedule = () => {
               }`}
             >
               <BookOpen className="w-5 h-5 inline mr-2" />
-              My Appointments ({safeAppointments.length})
+              My Appointments ({appointments.length})
             </button>
           </div>
         </div>
@@ -474,15 +453,15 @@ const TeacherSchedule = () => {
         {/* Book Appointment Tab */}
         {activeTab === 'book' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-            {safeTeachers.length === 0 ? (
+            {teachers.length === 0 ? (
               <div className="col-span-full bg-white rounded-2xl shadow-xl p-12 text-center">
                 <User className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-xl font-semibold text-gray-600 mb-2">No teachers available</h3>
                 <p className="text-gray-500">Please check back later or contact support.</p>
               </div>
             ) : (
-              safeTeachers.map(teacher => (
-                <div key={teacher.id || teacher._id} className="bg-white rounded-2xl shadow-xl overflow-hidden transform hover:scale-105 transition-all duration-300">
+              teachers.map(teacher => (
+                <div key={teacher.id} className="bg-white rounded-2xl shadow-xl overflow-hidden transform hover:scale-105 transition-all duration-300">
                   <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-6">
                     <div className="flex items-center space-x-4">
                       <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center">
@@ -523,25 +502,33 @@ const TeacherSchedule = () => {
         {/* My Appointments Tab */}
         {activeTab === 'appointments' && (
           <div className="space-y-4">
-            {safeAppointments.length === 0 ? (
+            {appointments.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-xl p-12 text-center">
                 <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-xl font-semibold text-gray-600 mb-2">No appointments yet</h3>
                 <p className="text-gray-500">Book your first appointment to get started!</p>
               </div>
             ) : (
-              safeAppointments.map(appointment => (
-                <div key={appointment.id || appointment._id} className="bg-white rounded-2xl shadow-xl p-6">
+              appointments.map(appointment => (
+                <div key={appointment.id} className="bg-white rounded-2xl shadow-xl p-6">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-4">
                       <div className="bg-gradient-to-r from-green-400 to-blue-500 p-3 rounded-full">
                         <User className="w-6 h-6 text-white" />
                       </div>
                       <div>
-                        <h3 className="text-xl font-semibold text-gray-800">{appointment.teacherName}</h3>
-                        <h5 className="text-sm font-semibold text-gray-600">{appointment.teacher?.email}</h5>
-                        <p className="text-gray-600">{formatDateForDisplay(appointment.appointmentDate)}</p>
-                        <p className="text-sm text-gray-500">{appointment.timeSlot} - {appointment.student?.subject || 'General'}</p>
+                        <h3 className="text-xl font-semibold text-gray-800">
+                          {appointment.teacherName || appointment.teacher?.name}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          {appointment.teacher?.email || appointment.teacherEmail}
+                        </p>
+                        <p className="text-gray-600">
+                          {formatDateForDisplay(appointment.appointmentDate || appointment.date)}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          {appointment.timeSlot || appointment.time} - {appointment.student?.subject || 'General'}
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center space-x-3">
@@ -550,7 +537,7 @@ const TeacherSchedule = () => {
                         <span className="text-sm font-medium">{appointment.status || 'Confirmed'}</span>
                       </div>
                       <button
-                        onClick={() => cancelAppointment(appointment.id || appointment._id)}
+                        onClick={() => cancelAppointment(appointment.id)}
                         className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors duration-200"
                       >
                         Cancel
@@ -585,42 +572,28 @@ const TeacherSchedule = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-3">Select Day</label>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    {selectedTeacher.loading ? (
-                      <div className="col-span-full text-center py-8">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                        <p className="text-gray-500">Loading availability...</p>
-                      </div>
-                    ) : Array.isArray(selectedTeacher.availability) && selectedTeacher.availability.length > 0 ? (
-                      selectedTeacher.availability.map(daySlot => (
-                        <button
-                          key={daySlot.day}
-                          onClick={() => {
-                            setSelectedDay(daySlot.day);
-                            setSelectedTime('');
-                          }}
-                          className={`p-3 rounded-lg border-2 transition-all duration-200 ${
-                            selectedDay === daySlot.day
-                              ? 'border-blue-500 bg-blue-50 text-blue-700'
-                              : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                        >
-                          <div className="font-medium">{daySlot.day}</div>
-                          <div className="text-sm text-gray-500">{formatDateForDisplay(getNextDateForDay(daySlot.day))}</div>
-                          <div className="text-xs text-gray-400">{daySlot.slots.length} slots</div>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="col-span-full text-center py-8">
-                        <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                        <p className="text-gray-500">No availability found</p>
-                        <button
-                          onClick={() => openBookingModal(selectedTeacher)}
-                          className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
-                        >
-                          Retry loading
-                        </button>
-                      </div>
-                    )}
+                    {processTeacherAvailability(selectedTeacher).map(daySlot => (
+                      <button
+                        key={daySlot.day}
+                        onClick={() => {
+                          setSelectedDay(daySlot.day);
+                          setSelectedTime('');
+                        }}
+                        className={`p-3 rounded-lg border-2 transition-all duration-200 ${
+                          selectedDay === daySlot.day
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="font-medium">{daySlot.day}</div>
+                        <div className="text-sm text-gray-500">
+                          {formatDateForDisplay(getNextDateForDay(daySlot.day))}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {getAvailableTimeSlots(selectedTeacher, daySlot.day).length} available
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -629,41 +602,26 @@ const TeacherSchedule = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-3">Select Time</label>
                     <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-3">
-                      {selectedTeacher.loading ? (
+                      {getAvailableTimeSlots(selectedTeacher, selectedDay).map((time, index) => (
+                        <button
+                          key={`${time}-${index}`}
+                          onClick={() => setSelectedTime(time)}
+                          className={`p-3 rounded-lg border-2 transition-all duration-200 ${
+                            selectedTime === time
+                              ? 'border-blue-500 bg-blue-50 text-blue-700'
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <Clock className="w-4 h-4 mx-auto mb-1" />
+                          <div className="text-sm font-medium">{time}</div>
+                        </button>
+                      ))}
+                      {getAvailableTimeSlots(selectedTeacher, selectedDay).length === 0 && (
                         <div className="col-span-full text-center py-4">
-                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                          <p className="text-gray-500 text-sm">Loading times...</p>
+                          <Clock className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                          <p className="text-gray-500 text-sm">No available slots for {selectedDay}</p>
                         </div>
-                      ) : (() => {
-                          const selectedDayData = Array.isArray(selectedTeacher.availability) 
-                            ? selectedTeacher.availability.find(day => day.day === selectedDay)
-                            : null;
-                          
-                          const availableSlots = selectedDayData?.slots || [];
-                          
-                          return availableSlots.length > 0 ? (
-                            availableSlots.map((time, index) => (
-                              <button
-                                key={`${time}-${index}`}
-                                onClick={() => setSelectedTime(time)}
-                                className={`p-3 rounded-lg border-2 transition-all duration-200 ${
-                                  selectedTime === time
-                                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                    : 'border-gray-200 hover:border-gray-300'
-                                }`}
-                              >
-                                <Clock className="w-4 h-4 mx-auto mb-1" />
-                                <div className="text-sm font-medium">{time}</div>
-                              </button>
-                            ))
-                          ) : (
-                            <div className="col-span-full text-center py-4">
-                              <Clock className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                              <p className="text-gray-500 text-sm">No available slots for {selectedDay}</p>
-                            </div>
-                          );
-                        })()
-                      }
+                      )}
                     </div>
                   </div>
                 )}
@@ -706,7 +664,6 @@ const TeacherSchedule = () => {
                       onChange={handleInputChange}
                       className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
-                    
                   </div>
                     
                   <textarea
@@ -729,7 +686,7 @@ const TeacherSchedule = () => {
                   </button>
                   <button
                     onClick={handleBookAppointment}
-                    disabled={loading}
+                    disabled={loading || !selectedDay || !selectedTime || !studentInfo.name || !studentInfo.email}
                     className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-semibold disabled:opacity-50"
                   >
                     {loading ? 'Booking...' : 'Book Appointment'}
@@ -740,7 +697,7 @@ const TeacherSchedule = () => {
           </div>
         )}
 
-       {/* Confirmation Modal */}
+        {/* Confirmation Modal */}
         {showConfirmation && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center">
