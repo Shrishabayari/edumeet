@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiMethods } from '../../services/api'; // adjust path as needed
 
-const ScheduleAppointment = () => {
+const UserScheduleAppointments = () => {
   const [teachers, setTeachers] = useState([]);
   const [formData, setFormData] = useState({
     teacher: '',
@@ -103,11 +103,7 @@ const ScheduleAppointment = () => {
             className="w-full p-2 border rounded"
           >
             <option value="">-- Select Teacher --</option>
-            {teachers.map((teacher) => (
-              <option key={teacher._id} value={teacher._id}>
-                {teacher.name}
-              </option>
-            ))}
+            
           </select>
         </div>
 
@@ -183,4 +179,4 @@ const ScheduleAppointment = () => {
   );
 };
 
-export default ScheduleAppointment;
+export default UserScheduleAppointments;

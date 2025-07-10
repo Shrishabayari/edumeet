@@ -26,7 +26,7 @@ const UserDashboard = () => {
       bgColor: "bg-blue-50",
       hoverBg: "hover:bg-blue-600",
       textColor: "text-blue-800",
-      path: "/teacher/shedule-appointment",
+      path: "/user/appointments",
     },
     {
       title: "Manage Approvals",
