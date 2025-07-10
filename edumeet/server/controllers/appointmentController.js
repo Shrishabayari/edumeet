@@ -134,7 +134,7 @@ const bookAppointment = async (req, res) => {
 
     const { teacherId, day, time, date, student } = req.body;
 
-    // Normalize time slot
+    // Normalize time slot - FIXED: Handle both formats properly
     const normalizeTimeSlot = (input) => {
       const mapping = {
         '9:00 AM': '9:00 AM - 10:00 AM',
@@ -169,29 +169,45 @@ const bookAppointment = async (req, res) => {
       });
     }
 
-    // Parse appointment date
+    // Parse appointment date - FIXED: Better date validation
     const appointmentDate = new Date(date);
+    if (isNaN(appointmentDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment date format'
+      });
+    }
+
     const now = new Date();
-    if (appointmentDate < now.setHours(0, 0, 0, 0)) {
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const appointmentDay = new Date(appointmentDate.getFullYear(), appointmentDate.getMonth(), appointmentDate.getDate());
+    
+    if (appointmentDay < today) {
       return res.status(400).json({
         success: false,
         message: 'Cannot book appointment in the past'
       });
     }
 
-    // Check if slot is already booked
+    // Check if slot is already booked - FIXED: Better date range query
+    const startOfDay = new Date(appointmentDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(appointmentDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
     const existingAppointment = await Appointment.findOne({
       teacher: teacherId,
       appointmentDate: {
-        $gte: new Date(appointmentDate.setHours(0, 0, 0, 0)),
-        $lt: new Date(appointmentDate.setHours(23, 59, 59, 999))
+        $gte: startOfDay,
+        $lte: endOfDay
       },
       timeSlot: normalizedTime,
       status: { $in: ['pending', 'confirmed'] }
     });
 
     if (existingAppointment) {
-      return res.status(400).json({
+      return res.status(409).json({ // Changed to 409 Conflict
         success: false,
         message: 'This time slot is already booked'
       });
@@ -201,7 +217,7 @@ const bookAppointment = async (req, res) => {
     const appointment = new Appointment({
       teacher: teacherId,
       student,
-      appointmentDate: new Date(date),
+      appointmentDate: appointmentDate,
       timeSlot: normalizedTime,
       status: 'pending'
     });
@@ -266,11 +282,28 @@ const updateAppointment = async (req, res) => {
     const appointmentId = req.params.id;
     const { status, notes } = req.body;
 
+    // Validate status if provided
+    const validStatuses = ['pending', 'confirmed', 'cancelled', 'completed'];
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status value'
+      });
+    }
+
     const appointment = await Appointment.findById(appointmentId);
     if (!appointment) {
       return res.status(404).json({
         success: false,
         message: 'Appointment not found'
+      });
+    }
+
+    // Check if update is allowed based on current status
+    if (appointment.status === 'completed' && status !== 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot modify completed appointment'
       });
     }
 
@@ -334,6 +367,13 @@ const cancelAppointment = async (req, res) => {
       });
     }
 
+    if (appointment.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'Appointment is already cancelled'
+      });
+    }
+
     // Update status to cancelled
     appointment.status = 'cancelled';
     appointment.updatedAt = new Date();
@@ -368,6 +408,14 @@ const getTeacherAppointments = async (req, res) => {
   try {
     const { teacherId } = req.params;
     const { status, date, page = 1, limit = 10 } = req.query;
+
+    // Validate teacher ID format
+    if (!teacherId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
+    }
 
     // Build filter
     const filter = { teacher: teacherId };
@@ -442,12 +490,23 @@ const getAppointmentStats = async (req, res) => {
       { $limit: 12 }
     ]);
 
+    // ADDED: Teacher-wise stats
+    const teacherStats = await Appointment.aggregate([
+      { $group: { _id: '$teacher', count: { $sum: 1 } } },
+      { $lookup: { from: 'teachers', localField: '_id', foreignField: '_id', as: 'teacherInfo' } },
+      { $unwind: '$teacherInfo' },
+      { $project: { teacherName: '$teacherInfo.name', count: 1 } },
+      { $sort: { count: -1 } },
+      { $limit: 10 }
+    ]);
+
     res.status(200).json({
       success: true,
       data: {
         totalAppointments,
         statusStats,
-        monthlyStats
+        monthlyStats,
+        teacherStats
       }
     });
   } catch (error) {

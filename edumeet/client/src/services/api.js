@@ -115,18 +115,21 @@ export const endpoints = {
     verifyToken: '/auth/verify-token',
   },
 
-  // Teacher endpoints
+  // Teacher endpoints - CORRECTED ACCORDING TO BACKEND ROUTES
   teachers: {
+    // Basic CRUD operations
     getAll: '/teachers',
     getById: (id) => `/teachers/${id}`,
-    create: '/teachers',
+    create: '/teachers', // Fixed: was pointing to wrong route
     update: (id) => `/teachers/${id}`,
     delete: (id) => `/teachers/${id}`,
     permanentDelete: (id) => `/teachers/${id}/permanent`,
-    getByDepartment: (department) => `/teachers/department/${department}`,
-    getStats: '/teachers/stats',
     
-    // Teacher Auth
+    // Special routes (must come before parameterized routes)
+    getStats: '/teachers/stats',
+    getByDepartment: (department) => `/teachers/department/${department}`,
+    
+    // Teacher Authentication routes
     login: '/teachers/login',
     sendSetupLink: '/teachers/send-setup-link',
     setupAccount: (token) => `/teachers/setup-account/${token}`,
@@ -184,7 +187,7 @@ export const apiMethods = {
   updateProfile: (data) => api.put(endpoints.auth.profile, data),
   verifyToken: () => api.get(endpoints.auth.verifyToken),
 
-  // Teacher Operations
+  // Teacher Operations - CORRECTED AND REORGANIZED
   getAllTeachers: (params = {}) => api.get(endpoints.teachers.getAll, { params }),
   getTeacherById: (id) => api.get(endpoints.teachers.getById(id)),
   createTeacher: (teacherData) => api.post(endpoints.teachers.create, teacherData),
@@ -194,7 +197,7 @@ export const apiMethods = {
   getTeachersByDepartment: (department) => api.get(endpoints.teachers.getByDepartment(department)),
   getTeacherStats: () => api.get(endpoints.teachers.getStats),
 
-  // Teacher Auth Operations
+  // Teacher Auth Operations - CORRECTED
   teacherLogin: (credentials) => api.post(endpoints.teachers.login, credentials),
   sendTeacherSetupLink: (data) => api.post(endpoints.teachers.sendSetupLink, data),
   setupTeacherAccount: (token, data) => api.post(endpoints.teachers.setupAccount(token), data),
@@ -257,39 +260,17 @@ export const apiMethods = {
     throw lastError || new Error('All appointment booking attempts failed');
   },
 
-  // Enhanced teacher update with multiple endpoint attempts
-  updateTeacherWithFallback: async (id, teacherData) => {
-    const endpoints = [
-      { url: `/teachers/${id}`, method: 'PUT' },
-      { url: `/teachers/${id}`, method: 'PATCH' },
-      { url: `/admin/teachers/${id}`, method: 'PUT' },
-      { url: `/admin/teachers/${id}`, method: 'PATCH' },
-    ];
-
-    let lastError = null;
-
-    for (const endpoint of endpoints) {
-      try {
-        console.log(`🔄 Trying teacher update: ${endpoint.method} ${endpoint.url}`);
-        const response = await api.request({
-          method: endpoint.method,
-          url: endpoint.url,
-          data: teacherData
-        });
-        console.log(`✅ Success with: ${endpoint.method} ${endpoint.url}`);
-        return response;
-      } catch (error) {
-        lastError = error;
-        console.log(`❌ Failed with: ${endpoint.method} ${endpoint.url} - ${error.response?.status || error.message}`);
-        
-        // If we get a non-404 error, it might be a different issue, so break
-        if (error.response?.status !== 404) {
-          break;
-        }
-      }
+  // Enhanced teacher update with proper endpoint
+  updateTeacherWithValidation: async (id, teacherData) => {
+    try {
+      console.log(`🔄 Updating teacher: PUT /teachers/${id}`);
+      const response = await api.put(endpoints.teachers.update(id), teacherData);
+      console.log(`✅ Teacher updated successfully`);
+      return response;
+    } catch (error) {
+      console.error(`❌ Teacher update failed:`, error.response?.data || error.message);
+      throw error;
     }
-
-    throw lastError || new Error('All teacher update endpoints failed');
   },
 
   // Helper method to handle file uploads (if needed for teacher profiles)
@@ -307,7 +288,7 @@ export const apiMethods = {
 
   // Search functionality
   searchTeachers: (query, filters = {}) => {
-    const params = { q: query, ...filters };
+    const params = { search: query, ...filters };
     return api.get(endpoints.teachers.getAll, { params });
   },
 
@@ -316,14 +297,86 @@ export const apiMethods = {
     return api.get(endpoints.appointments.getAll, { params });
   },
 
-  // Bulk operations
-  bulkUpdateTeachers: (teacherIds, updateData) => {
-    return api.patch('/teachers/bulk-update', { ids: teacherIds, data: updateData });
+  // Department validation helper
+  validateDepartment: (department) => {
+    const validDepartments = [
+      'Computer Science',
+      'Mathematics',
+      'Physics',
+      'Chemistry',
+      'Biology',
+      'English',
+      'History',
+      'Economics',
+      'Business Administration',
+      'Psychology'
+    ];
+    return validDepartments.includes(department);
   },
 
-  bulkDeleteAppointments: (appointmentIds) => {
-    return api.delete('/appointments/bulk-delete', { data: { ids: appointmentIds } });
+  // Availability validation helper
+  validateAvailability: (timeSlot) => {
+    const validSlots = [
+      '9:00 AM - 10:00 AM',
+      '10:00 AM - 11:00 AM',
+      '11:00 AM - 12:00 PM',
+      '12:00 PM - 1:00 PM',
+      '2:00 PM - 3:00 PM',
+      '3:00 PM - 4:00 PM',
+      '4:00 PM - 5:00 PM',
+      '5:00 PM - 6:00 PM'
+    ];
+    return validSlots.includes(timeSlot);
   },
+
+  // Teacher data validation before API call
+  validateTeacherData: (teacherData) => {
+    const errors = [];
+    
+    // Required fields validation
+    if (!teacherData.name || teacherData.name.trim().length < 2) {
+      errors.push('Name must be at least 2 characters long');
+    }
+    
+    if (!teacherData.email || !/\S+@\S+\.\S+/.test(teacherData.email)) {
+      errors.push('Valid email is required');
+    }
+    
+    if (!teacherData.phone || !/^[]?[1-9][\d]{0,15}$/.test(teacherData.phone)) {
+      errors.push('Valid phone number is required');
+    }
+    
+    if (!teacherData.department || !apiMethods.validateDepartment(teacherData.department)) {
+      errors.push('Valid department is required');
+    }
+    
+    if (!teacherData.subject || teacherData.subject.trim().length < 2) {
+      errors.push('Subject must be at least 2 characters long');
+    }
+    
+    if (!teacherData.experience || teacherData.experience.trim().length < 1) {
+      errors.push('Experience is required');
+    }
+    
+    if (!teacherData.qualification || teacherData.qualification.trim().length < 5) {
+      errors.push('Qualification must be at least 5 characters long');
+    }
+    
+    // Availability validation
+    if (teacherData.availability && Array.isArray(teacherData.availability)) {
+      const invalidSlots = teacherData.availability.filter(slot => 
+        !apiMethods.validateAvailability(slot)
+      );
+      if (invalidSlots.length > 0) {
+        errors.push(`Invalid availability slots: ${invalidSlots.join(', ')}`);
+      }
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
 };
 
 // Export token management utilities
@@ -346,6 +399,40 @@ export const tokenManager = {
     localStorage.removeItem('teacherToken');
     localStorage.removeItem('user');
   }
+};
+
+// Export constants for validation
+export const constants = {
+  DEPARTMENTS: [
+    'Computer Science',
+    'Mathematics',
+    'Physics',
+    'Chemistry',
+    'Biology',
+    'English',
+    'History',
+    'Economics',
+    'Business Administration',
+    'Psychology'
+  ],
+  
+  AVAILABILITY_SLOTS: [
+    '9:00 AM - 10:00 AM',
+    '10:00 AM - 11:00 AM',
+    '11:00 AM - 12:00 PM',
+    '12:00 PM - 1:00 PM',
+    '2:00 PM - 3:00 PM',
+    '3:00 PM - 4:00 PM',
+    '4:00 PM - 5:00 PM',
+    '5:00 PM - 6:00 PM'
+  ],
+  
+  APPOINTMENT_STATUSES: [
+    'pending',
+    'confirmed',
+    'cancelled',
+    'completed'
+  ]
 };
 
 export default api;

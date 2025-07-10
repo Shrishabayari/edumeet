@@ -245,7 +245,7 @@ const AdminLogin = () => {
                     Teacher Login
                   </Link>
                   <span>|</span>
-                  <Link to="/login" className="hover:text-white underline">
+                  <Link to="/user/login" className="hover:text-white underline">
                     Student Login
                   </Link>
                 </div>

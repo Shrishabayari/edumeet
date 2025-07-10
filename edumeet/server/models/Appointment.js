@@ -1,3 +1,4 @@
+// models/Appointment.js
 const mongoose = require('mongoose');
 
 const appointmentSchema = new mongoose.Schema({
@@ -46,20 +47,26 @@ const appointmentSchema = new mongoose.Schema({
   timeSlot: {
     type: String,
     required: [true, 'Time slot is required'],
-    enum: [
-      '9:00 AM - 10:00 AM',
-      '10:00 AM - 11:00 AM',
-      '11:00 AM - 12:00 PM',
-      '12:00 PM - 1:00 PM',
-      '2:00 PM - 3:00 PM',
-      '3:00 PM - 4:00 PM',
-      '4:00 PM - 5:00 PM',
-      '5:00 PM - 6:00 PM'
-    ]
+    enum: {
+      values: [
+        '9:00 AM - 10:00 AM',
+        '10:00 AM - 11:00 AM',
+        '11:00 AM - 12:00 PM',
+        '12:00 PM - 1:00 PM',
+        '2:00 PM - 3:00 PM',
+        '3:00 PM - 4:00 PM',
+        '4:00 PM - 5:00 PM',
+        '5:00 PM - 6:00 PM'
+      ],
+      message: 'Please select a valid time slot'
+    }
   },
   status: {
     type: String,
-    enum: ['pending', 'confirmed', 'cancelled', 'completed'],
+    enum: {
+      values: ['pending', 'confirmed', 'cancelled', 'completed'],
+      message: 'Status must be one of: pending, confirmed, cancelled, completed'
+    },
     default: 'pending'
   },
   notes: {
@@ -83,10 +90,55 @@ appointmentSchema.pre('save', function(next) {
   next();
 });
 
-// Index for efficient queries
-appointmentSchema.index({ teacher: 1, appointmentDate: 1, timeSlot: 1 });
+// Custom validation: Prevent booking in the past
+appointmentSchema.pre('save', function(next) {
+  if (this.isNew) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const appointmentDay = new Date(this.appointmentDate.getFullYear(), this.appointmentDate.getMonth(), this.appointmentDate.getDate());
+    
+    if (appointmentDay < today) {
+      const error = new Error('Cannot book appointment in the past');
+      error.name = 'ValidationError';
+      return next(error);
+    }
+  }
+  next();
+});
+
+// Indexes for efficient queries
+appointmentSchema.index({ teacher: 1, appointmentDate: 1, timeSlot: 1 }, { unique: false });
 appointmentSchema.index({ 'student.email': 1 });
 appointmentSchema.index({ status: 1 });
+appointmentSchema.index({ createdAt: -1 });
+
+// Compound index for checking slot availability
+appointmentSchema.index({ 
+  teacher: 1, 
+  appointmentDate: 1, 
+  timeSlot: 1, 
+  status: 1 
+}, { 
+  name: 'appointment_availability_check',
+  partialFilterExpression: { 
+    status: { $in: ['pending', 'confirmed'] } 
+  }
+});
+
+// Virtual for formatted date
+appointmentSchema.virtual('formattedDate').get(function() {
+  return this.appointmentDate.toLocaleDateString();
+});
+
+// Virtual for formatted time
+appointmentSchema.virtual('formattedTime').get(function() {
+  return this.timeSlot;
+});
+
+// Ensure virtual fields are included in JSON output
+appointmentSchema.set('toJSON', { virtuals: true });
+appointmentSchema.set('toObject', { virtuals: true });
 
 const Appointment = mongoose.model('Appointment', appointmentSchema);
+
 module.exports = Appointment;

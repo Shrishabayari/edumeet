@@ -1,717 +1,489 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, Clock, User, Mail, Phone, BookOpen, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { apiMethods } from '../../services/api';
+import React, { useState, useEffect } from 'react';
+import { Calendar, Clock, User, Mail, Phone, MessageSquare, CheckCircle, XCircle, Eye } from 'lucide-react';
 
 const TeacherSchedule = () => {
-  const [teachers, setTeachers] = useState([]);
   const [appointments, setAppointments] = useState([]);
-  const [selectedTeacher, setSelectedTeacher] = useState(null);
-  const [selectedDay, setSelectedDay] = useState('');
-  const [selectedTime, setSelectedTime] = useState('');
-  const [studentInfo, setStudentInfo] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    subject: '',
-    message: ''
-  });
-  const [showBookingModal, setShowBookingModal] = useState(false);
-  const [showConfirmation, setShowConfirmation] = useState(false);
-  const [activeTab, setActiveTab] = useState('book');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [filter, setFilter] = useState({
+    status: '',
+    date: '',
+    search: ''
+  });
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    totalPages: 1,
+    totalAppointments: 0
+  });
 
-  // Valid day names for validation
-  const VALID_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  // Get teacher ID from localStorage or context
+  const teacherId = localStorage.getItem('teacherId') || '60f1b2b3c4d5e6f7g8h9i0j1'; // fallback for demo
 
-  // Helper function to get next date for a given day
-  const getNextDateForDay = (dayName) => {
-    if (!dayName || typeof dayName !== 'string') {
-      console.error('Invalid day name:', dayName);
-      return new Date().toISOString().split('T')[0];
-    }
-
-    const normalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1).toLowerCase();
-    
-    if (!VALID_DAYS.includes(normalizedDay)) {
-      console.error('Invalid day name:', dayName);
-      return new Date().toISOString().split('T')[0];
-    }
-    
-    const today = new Date();
-    const targetDay = VALID_DAYS.indexOf(normalizedDay);
-    const todayDay = today.getDay();
-    
-    let daysUntilTarget = targetDay - todayDay;
-    
-    // If target day is today or has passed this week, get next week's date
-    if (daysUntilTarget <= 0) {
-      daysUntilTarget += 7;
-    }
-    
-    const targetDate = new Date(today);
-    targetDate.setDate(today.getDate() + daysUntilTarget);
-    
-    return targetDate.toISOString().split('T')[0]; // Returns YYYY-MM-DD format
-  };
-
-  // Helper function to format date for display
-  const formatDateForDisplay = (dateString) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric'
-      });
-    } catch (error) {
-      return dateString;
-    }
-  };
-
-  // Default availability with proper time slots
-  const getDefaultAvailability = () => {
-    return [
-      { 
-        day: 'Monday', 
-        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
-      },
-      { 
-        day: 'Tuesday', 
-        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
-      },
-      { 
-        day: 'Wednesday', 
-        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
-      },
-      { 
-        day: 'Thursday', 
-        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
-      },
-      { 
-        day: 'Friday', 
-        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
-      }
-    ];
-  };
-
-  // Helper function to check if a time slot is already booked
-  const isTimeSlotBooked = (teacherId, day, time, date) => {
-    return appointments.some(appointment => {
-      const appointmentTeacherId = appointment.teacherId || appointment.teacher?.id || appointment.teacher?._id;
-      const appointmentDate = appointment.appointmentDate || appointment.date;
-      const appointmentTime = appointment.timeSlot || appointment.time;
-      
-      return (
-        appointmentTeacherId === teacherId &&
-        appointmentDate === date &&
-        appointmentTime === time &&
-        appointment.status !== 'cancelled'
-      );
-    });
-  };
-
-  // Fetch teachers with better error handling - wrapped in useCallback
-  const fetchTeachers = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError('');
-      
-      const response = await apiMethods.getAllTeachers();
-      let teachersData = response.data;
-      
-      // Handle different response formats
-      if (teachersData && typeof teachersData === 'object') {
-        if (Array.isArray(teachersData.data)) {
-          teachersData = teachersData.data;
-        } else if (Array.isArray(teachersData.teachers)) {
-          teachersData = teachersData.teachers;
-        } else if (!Array.isArray(teachersData)) {
-          teachersData = [];
-        }
-      }
-      
-      // Ensure each teacher has required fields
-      const validTeachers = teachersData.filter(teacher => {
-        return teacher && (teacher.id || teacher._id) && teacher.name;
-      }).map(teacher => ({
-        ...teacher,
-        id: teacher.id || teacher._id,
-        availability: teacher.availability && Array.isArray(teacher.availability) && teacher.availability.length > 0 
-          ? teacher.availability 
-          : getDefaultAvailability()
-      }));
-      
-      setTeachers(validTeachers);
-    } catch (error) {
-      console.error('Error fetching teachers:', error);
-      setError('Failed to load teachers. Please try again.');
-      setTeachers([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Fetch appointments with better error handling - wrapped in useCallback
-  const fetchAppointments = useCallback(async () => {
-    try {
-      const response = await apiMethods.getAllAppointments();
-      let appointmentsData = response.data;
-      
-      // Handle different response formats
-      if (appointmentsData && typeof appointmentsData === 'object') {
-        if (Array.isArray(appointmentsData.data)) {
-          appointmentsData = appointmentsData.data;
-        } else if (Array.isArray(appointmentsData.appointments)) {
-          appointmentsData = appointmentsData.appointments;
-        } else if (!Array.isArray(appointmentsData)) {
-          appointmentsData = [];
-        }
-      }
-      
-      // Ensure each appointment has required fields
-      const validAppointments = appointmentsData.filter(appointment => {
-        return appointment && (appointment.id || appointment._id);
-      }).map(appointment => ({
-        ...appointment,
-        id: appointment.id || appointment._id
-      }));
-      
-      setAppointments(validAppointments);
-    } catch (error) {
-      console.error('Error fetching appointments:', error);
-      setAppointments([]);
-    }
-  }, []);
-
-  // Process teacher availability
-  const processTeacherAvailability = (teacher) => {
-    if (!teacher || !teacher.availability) {
-      return getDefaultAvailability();
-    }
-
-    let availability = teacher.availability;
-    
-    // If availability is already in the correct format
-    if (Array.isArray(availability) && availability.length > 0) {
-      const firstItem = availability[0];
-      
-      // Check if it's in the correct object format
-      if (firstItem && typeof firstItem === 'object' && firstItem.day && Array.isArray(firstItem.slots)) {
-        return availability.filter(daySlot => {
-          const normalizedDay = daySlot.day.charAt(0).toUpperCase() + daySlot.day.slice(1).toLowerCase();
-          return VALID_DAYS.includes(normalizedDay);
-        }).map(daySlot => ({
-          ...daySlot,
-          day: daySlot.day.charAt(0).toUpperCase() + daySlot.day.slice(1).toLowerCase()
-        }));
-      }
-      
-      // If it's an array of time strings, convert to weekly format
-      if (firstItem && typeof firstItem === 'string' && (firstItem.includes(':') || firstItem.includes('AM') || firstItem.includes('PM'))) {
-        const timeSlots = availability.filter(item => 
-          typeof item === 'string' && (item.includes(':') || item.includes('AM') || item.includes('PM'))
-        );
-        
-        // Create availability for weekdays
-        const weeklyAvailability = [];
-        const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-        
-        weekdays.forEach(day => {
-          weeklyAvailability.push({
-            day: day,
-            slots: [...timeSlots]
-          });
-        });
-        
-        return weeklyAvailability;
-      }
-    }
-    
-    return getDefaultAvailability();
-  };
-
-  // Get available time slots for a specific day
-  const getAvailableTimeSlots = (teacher, day) => {
-    if (!teacher || !day) return [];
-    
-    const teacherId = teacher.id || teacher._id;
-    const date = getNextDateForDay(day);
-    const availability = processTeacherAvailability(teacher);
-    
-    const dayAvailability = availability.find(avail => avail.day === day);
-    if (!dayAvailability) return [];
-    
-    // Filter out booked slots
-    return dayAvailability.slots.filter(time => 
-      !isTimeSlotBooked(teacherId, day, time, date)
-    );
-  };
-
-  // Load data on component mount
   useEffect(() => {
-    fetchTeachers();
     fetchAppointments();
-  }, [fetchTeachers, fetchAppointments]);
+  }, [filter, pagination.currentPage]);
 
-  // Handle appointment booking
-  const handleBookAppointment = async () => {
-    if (!selectedTeacher || !selectedDay || !selectedTime || !studentInfo.name || !studentInfo.email) {
-      setError('Please fill in all required fields');
-      return;
-    }
-
+  const fetchAppointments = async () => {
     try {
       setLoading(true);
-      setError('');
+      const queryParams = new URLSearchParams({
+        page: pagination.currentPage.toString(),
+        limit: '10',
+        ...(filter.status && { status: filter.status }),
+        ...(filter.date && { date: filter.date }),
+        ...(filter.search && { studentEmail: filter.search })
+      });
 
-      const teacherId = selectedTeacher.id || selectedTeacher._id;
-      const appointmentDate = getNextDateForDay(selectedDay);
-      
-      // Check if the slot is still available
-      if (isTimeSlotBooked(teacherId, selectedDay, selectedTime, appointmentDate)) {
-        setError('This time slot is no longer available. Please select another time.');
-        return;
-      }
-
-      const appointmentData = {
-        teacherId: teacherId,
-        day: selectedDay,
-        time: selectedTime,
-        date: appointmentDate,
-        appointmentDate: appointmentDate,
-        timeSlot: selectedTime,
-        student: {
-          name: studentInfo.name.trim(),
-          email: studentInfo.email.trim(),
-          phone: studentInfo.phone.trim() || '',
-          subject: studentInfo.subject.trim() || '',
-          message: studentInfo.message.trim() || ''
+      const response = await fetch(`/api/appointments/teacher/${teacherId}?${queryParams}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
         }
-      };
+      });
 
-      console.log('Booking appointment:', appointmentData);
-
-      const response = await apiMethods.bookAppointmentWithRetry(appointmentData);
-      
-      // Add the new appointment to local state
-      const newAppointment = {
-        ...response.data,
-        id: response.data.id || response.data._id,
-        teacherName: selectedTeacher.name,
-        teacher: selectedTeacher
-      };
-      
-      setAppointments(prev => [...prev, newAppointment]);
-      
-      // Close modal and show confirmation
-      setShowBookingModal(false);
-      setShowConfirmation(true);
-      
-      // Reset form
-      resetForm();
-      
-      // Refresh data
-      await fetchAppointments();
-      
-      setTimeout(() => setShowConfirmation(false), 3000);
-
-    } catch (error) {
-      console.error('Error booking appointment:', error);
-      
-      if (error.response?.data?.message) {
-        setError(error.response.data.message);
-      } else if (error.message) {
-        setError(error.message);
-      } else {
-        setError('Failed to book appointment. Please try again.');
+      if (!response.ok) {
+        throw new Error('Failed to fetch appointments');
       }
+
+      const data = await response.json();
+      setAppointments(data.data || []);
+      setPagination(data.pagination || {});
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle appointment cancellation
-  const cancelAppointment = async (appointmentId) => {
+  const updateAppointmentStatus = async (appointmentId, newStatus, notes = '') => {
     try {
-      setLoading(true);
-      setError('');
+      const response = await fetch(`/api/appointments/${appointmentId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: newStatus, notes })
+      });
 
-      await apiMethods.cancelAppointment(appointmentId);
-      
-      // Remove from local state
-      setAppointments(prev => prev.filter(apt => apt.id !== appointmentId));
-      
-      // Refresh data
-      await fetchAppointments();
+      if (!response.ok) {
+        throw new Error('Failed to update appointment');
+      }
 
-    } catch (error) {
-      console.error('Error canceling appointment:', error);
-      setError('Failed to cancel appointment. Please try again.');
-    } finally {
-      setLoading(false);
+      const data = await response.json();
+      
+      // Update local state
+      setAppointments(appointments.map(apt => 
+        apt._id === appointmentId ? data.data : apt
+      ));
+      
+      setShowModal(false);
+      setSelectedAppointment(null);
+    } catch (err) {
+      setError(err.message);
     }
   };
 
-  // Handle input changes
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setStudentInfo(prev => ({ ...prev, [name]: value }));
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'pending': return 'bg-yellow-100 text-yellow-800';
+      case 'confirmed': return 'bg-green-100 text-green-800';
+      case 'cancelled': return 'bg-red-100 text-red-800';
+      case 'completed': return 'bg-blue-100 text-blue-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
   };
 
-  // Open booking modal
-  const openBookingModal = (teacher) => {
-    setSelectedTeacher(teacher);
-    setShowBookingModal(true);
-    setError('');
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'pending': return <Clock className="w-4 h-4" />;
+      case 'confirmed': return <CheckCircle className="w-4 h-4" />;
+      case 'cancelled': return <XCircle className="w-4 h-4" />;
+      case 'completed': return <CheckCircle className="w-4 h-4" />;
+      default: return <Clock className="w-4 h-4" />;
+    }
   };
 
-  // Close booking modal
-  const closeBookingModal = () => {
-    setShowBookingModal(false);
-    resetForm();
-  };
-
-  // Reset form
-  const resetForm = () => {
-    setSelectedTeacher(null);
-    setSelectedDay('');
-    setSelectedTime('');
-    setStudentInfo({
-      name: '',
-      email: '',
-      phone: '',
-      subject: '',
-      message: ''
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
     });
-    setError('');
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">EduMeet</h1>
-          <p className="text-gray-600">Schedule appointments with your teachers</p>
-        </div>
+  const AppointmentModal = ({ appointment, onClose, onUpdate }) => {
+    const [notes, setNotes] = useState(appointment?.notes || '');
+    const [actionType, setActionType] = useState('');
 
-        {/* Error Alert */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6">
-            <div className="flex items-center">
-              <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
-              <span className="text-red-700">{error}</span>
+    const handleAction = () => {
+      if (actionType) {
+        onUpdate(appointment._id, actionType, notes);
+      }
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Appointment Details</h2>
               <button
-                onClick={() => setError('')}
-                className="ml-auto text-red-500 hover:text-red-700"
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
               >
-                <XCircle className="w-5 h-5" />
+                ×
               </button>
             </div>
-          </div>
-        )}
 
-        {/* Loading Indicator */}
-        {loading && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-2xl p-8 text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading...</p>
-            </div>
-          </div>
-        )}
-
-        {/* Navigation Tabs */}
-        <div className="bg-white rounded-2xl shadow-xl mb-6">
-          <div className="flex">
-            <button
-              onClick={() => setActiveTab('book')}
-              className={`flex-1 py-4 px-6 rounded-tl-2xl transition-all duration-200 ${
-                activeTab === 'book' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <Calendar className="w-5 h-5 inline mr-2" />
-              Book Appointment
-            </button>
-            <button
-              onClick={() => setActiveTab('appointments')}
-              className={`flex-1 py-4 px-6 rounded-tr-2xl transition-all duration-200 ${
-                activeTab === 'appointments' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <BookOpen className="w-5 h-5 inline mr-2" />
-              My Appointments ({appointments.length})
-            </button>
-          </div>
-        </div>
-
-        {/* Book Appointment Tab */}
-        {activeTab === 'book' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-            {teachers.length === 0 ? (
-              <div className="col-span-full bg-white rounded-2xl shadow-xl p-12 text-center">
-                <User className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-600 mb-2">No teachers available</h3>
-                <p className="text-gray-500">Please check back later or contact support.</p>
-              </div>
-            ) : (
-              teachers.map(teacher => (
-                <div key={teacher.id} className="bg-white rounded-2xl shadow-xl overflow-hidden transform hover:scale-105 transition-all duration-300">
-                  <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-6">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center">
-                        <User className="w-8 h-8 text-blue-600" />
-                      </div>
-                      <div className="text-white">
-                        <h3 className="text-xl font-bold">{teacher.name}</h3>
-                        <p className="text-blue-100">{teacher.subject}</p>
-                      </div>
-                    </div>
+            <div className="space-y-6">
+              {/* Student Information */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-gray-900 mb-3">Student Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex items-center space-x-2">
+                    <User className="w-4 h-4 text-gray-500" />
+                    <span className="text-gray-700">{appointment.student.name}</span>
                   </div>
-                  
-                  <div className="p-6">
-                    <div className="space-y-3 mb-6">
-                      <div className="flex items-center text-gray-600">
-                        <Mail className="w-4 h-4 mr-2" />
-                        <span className="text-sm">{teacher.email}</span>
-                      </div>
-                      <div className="flex items-center text-gray-600">
-                        <Phone className="w-4 h-4 mr-2" />
-                        <span className="text-sm">{teacher.phone}</span>
-                      </div>
-                    </div>
-                    
-                    <button
-                      onClick={() => openBookingModal(teacher)}
-                      className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-3 rounded-xl font-semibold hover:from-blue-600 hover:to-purple-700 transition-all duration-200 transform hover:scale-105"
-                    >
-                      Schedule Appointment
-                    </button>
+                  <div className="flex items-center space-x-2">
+                    <Mail className="w-4 h-4 text-gray-500" />
+                    <span className="text-gray-700">{appointment.student.email}</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Phone className="w-4 h-4 text-gray-500" />
+                    <span className="text-gray-700">{appointment.student.phone}</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <MessageSquare className="w-4 h-4 text-gray-500" />
+                    <span className="text-gray-700">{appointment.student.subject}</span>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* My Appointments Tab */}
-        {activeTab === 'appointments' && (
-          <div className="space-y-4">
-            {appointments.length === 0 ? (
-              <div className="bg-white rounded-2xl shadow-xl p-12 text-center">
-                <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-600 mb-2">No appointments yet</h3>
-                <p className="text-gray-500">Book your first appointment to get started!</p>
-              </div>
-            ) : (
-              appointments.map(appointment => (
-                <div key={appointment.id} className="bg-white rounded-2xl shadow-xl p-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <div className="bg-gradient-to-r from-green-400 to-blue-500 p-3 rounded-full">
-                        <User className="w-6 h-6 text-white" />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-semibold text-gray-800">
-                          {appointment.teacherName || appointment.teacher?.name}
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          {appointment.teacher?.email || appointment.teacherEmail}
-                        </p>
-                        <p className="text-gray-600">
-                          {formatDateForDisplay(appointment.appointmentDate || appointment.date)}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          {appointment.timeSlot || appointment.time} - {appointment.student?.subject || 'General'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <div className="flex items-center text-green-600">
-                        <CheckCircle className="w-5 h-5 mr-1" />
-                        <span className="text-sm font-medium">{appointment.status || 'Confirmed'}</span>
-                      </div>
-                      <button
-                        onClick={() => cancelAppointment(appointment.id)}
-                        className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors duration-200"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* Booking Modal */}
-        {showBookingModal && selectedTeacher && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-6 rounded-t-2xl">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-2xl font-bold text-white">Book Appointment</h2>
-                  <button
-                    onClick={closeBookingModal}
-                    className="text-white hover:text-gray-200 transition-colors"
-                  >
-                    <XCircle className="w-6 h-6" />
-                  </button>
-                </div>
-                <p className="text-blue-100 mt-2">with {selectedTeacher.name}</p>
-              </div>
-              
-              <div className="p-6 space-y-6">
-                {/* Day Selection */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">Select Day</label>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    {processTeacherAvailability(selectedTeacher).map(daySlot => (
-                      <button
-                        key={daySlot.day}
-                        onClick={() => {
-                          setSelectedDay(daySlot.day);
-                          setSelectedTime('');
-                        }}
-                        className={`p-3 rounded-lg border-2 transition-all duration-200 ${
-                          selectedDay === daySlot.day
-                            ? 'border-blue-500 bg-blue-50 text-blue-700'
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        <div className="font-medium">{daySlot.day}</div>
-                        <div className="text-sm text-gray-500">
-                          {formatDateForDisplay(getNextDateForDay(daySlot.day))}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          {getAvailableTimeSlots(selectedTeacher, daySlot.day).length} available
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Time Selection */}
-                {selectedDay && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-3">Select Time</label>
-                    <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-3">
-                      {getAvailableTimeSlots(selectedTeacher, selectedDay).map((time, index) => (
-                        <button
-                          key={`${time}-${index}`}
-                          onClick={() => setSelectedTime(time)}
-                          className={`p-3 rounded-lg border-2 transition-all duration-200 ${
-                            selectedTime === time
-                              ? 'border-blue-500 bg-blue-50 text-blue-700'
-                              : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                        >
-                          <Clock className="w-4 h-4 mx-auto mb-1" />
-                          <div className="text-sm font-medium">{time}</div>
-                        </button>
-                      ))}
-                      {getAvailableTimeSlots(selectedTeacher, selectedDay).length === 0 && (
-                        <div className="col-span-full text-center py-4">
-                          <Clock className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-gray-500 text-sm">No available slots for {selectedDay}</p>
-                        </div>
-                      )}
-                    </div>
+                {appointment.student.message && (
+                  <div className="mt-3">
+                    <p className="text-sm text-gray-600">
+                      <strong>Message:</strong> {appointment.student.message}
+                    </p>
                   </div>
                 )}
+              </div>
 
-                {/* Student Information */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold text-gray-800">Student Information</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <input
-                      type="text"
-                      name="name"
-                      placeholder="Your Name *"
-                      value={studentInfo.name}
-                      onChange={handleInputChange}
-                      className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    />
-                    <input
-                      type="email"
-                      name="email"
-                      placeholder="Your Email *"
-                      value={studentInfo.email}
-                      onChange={handleInputChange}
-                      className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    />
-                    <input
-                      type="tel"
-                      name="phone"
-                      placeholder="Your Phone"
-                      value={studentInfo.phone}
-                      onChange={handleInputChange}
-                      className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    <input
-                      type="text"
-                      name="subject"
-                      placeholder="Subject/Topic"
-                      value={studentInfo.subject}
-                      onChange={handleInputChange}
-                      className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+              {/* Appointment Details */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-gray-900 mb-3">Appointment Details</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="w-4 h-4 text-gray-500" />
+                    <span className="text-gray-700">{formatDate(appointment.appointmentDate)}</span>
                   </div>
-                    
-                  <textarea
-                    name="message"
-                    placeholder="Additional message or questions..."
-                    value={studentInfo.message}
-                    onChange={handleInputChange}
-                    rows={3}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  ></textarea>
+                  <div className="flex items-center space-x-2">
+                    <Clock className="w-4 h-4 text-gray-500" />
+                    <span className="text-gray-700">{appointment.timeSlot}</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {getStatusIcon(appointment.status)}
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(appointment.status)}`}>
+                      {appointment.status.toUpperCase()}
+                    </span>
+                  </div>
                 </div>
+              </div>
 
-                {/* Actions */}
-                <div className="flex gap-3">
+              {/* Notes Section */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Notes (Optional)
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows="3"
+                  placeholder="Add any notes about this appointment..."
+                />
+              </div>
+
+              {/* Action Buttons */}
+              {appointment.status !== 'completed' && appointment.status !== 'cancelled' && (
+                <div className="flex flex-wrap gap-3">
+                  {appointment.status === 'pending' && (
+                    <>
+                      <button
+                        onClick={() => setActionType('confirmed')}
+                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                      >
+                        Confirm Appointment
+                      </button>
+                      <button
+                        onClick={() => setActionType('cancelled')}
+                        className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                      >
+                        Cancel Appointment
+                      </button>
+                    </>
+                  )}
+                  {appointment.status === 'confirmed' && (
+                    <>
+                      <button
+                        onClick={() => setActionType('completed')}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                      >
+                        Mark as Completed
+                      </button>
+                      <button
+                        onClick={() => setActionType('cancelled')}
+                        className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                      >
+                        Cancel Appointment
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {actionType && (
+                <div className="flex justify-end space-x-3 pt-4 border-t">
                   <button
-                    onClick={closeBookingModal}
-                    className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200"
+                    onClick={() => setActionType('')}
+                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
                   >
                     Cancel
                   </button>
                   <button
-                    onClick={handleBookAppointment}
-                    disabled={loading || !selectedDay || !selectedTime || !studentInfo.name || !studentInfo.email}
-                    className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-semibold disabled:opacity-50"
+                    onClick={handleAction}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                   >
-                    {loading ? 'Booking...' : 'Book Appointment'}
+                    Confirm Action
                   </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto p-6">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">My Appointments</h1>
+        <p className="text-gray-600">Manage your scheduled appointments with students</p>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white p-6 rounded-lg shadow-sm mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Status
+            </label>
+            <select
+              value={filter.status}
+              onChange={(e) => setFilter({ ...filter, status: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">All Status</option>
+              <option value="pending">Pending</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Date
+            </label>
+            <input
+              type="date"
+              value={filter.date}
+              onChange={(e) => setFilter({ ...filter, date: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Search Student
+            </label>
+            <input
+              type="text"
+              placeholder="Enter student email..."
+              value={filter.search}
+              onChange={(e) => setFilter({ ...filter, search: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              onClick={() => setFilter({ status: '', date: '', search: '' })}
+              className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+            >
+              Clear Filters
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
+          <p className="text-red-800">{error}</p>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading ? (
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-2 text-gray-600">Loading appointments...</p>
+        </div>
+      ) : (
+        <>
+          {/* Appointments List */}
+          <div className="bg-white rounded-lg shadow-sm">
+            {appointments.length === 0 ? (
+              <div className="text-center py-12">
+                <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No appointments found</h3>
+                <p className="text-gray-500">No appointments match your current filters.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Student
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Date & Time
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Subject
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {appointments.map((appointment) => (
+                      <tr key={appointment._id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {appointment.student.name}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {appointment.student.email}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {formatDate(appointment.appointmentDate)}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {appointment.timeSlot}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {appointment.student.subject}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(appointment.status)}`}>
+                            {getStatusIcon(appointment.status)}
+                            <span className="ml-1">{appointment.status.toUpperCase()}</span>
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <button
+                            onClick={() => {
+                              setSelectedAppointment(appointment);
+                              setShowModal(true);
+                            }}
+                            className="text-blue-600 hover:text-blue-900 flex items-center space-x-1"
+                          >
+                            <Eye className="w-4 h-4" />
+                            <span>View</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Pagination */}
+          {pagination.totalPages > 1 && (
+            <div className="flex items-center justify-between px-6 py-3 bg-white border-t border-gray-200 sm:px-6">
+              <div className="flex-1 flex justify-between sm:hidden">
+                <button
+                  onClick={() => setPagination({ ...pagination, currentPage: pagination.currentPage - 1 })}
+                  disabled={pagination.currentPage === 1}
+                  className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setPagination({ ...pagination, currentPage: pagination.currentPage + 1 })}
+                  disabled={pagination.currentPage === pagination.totalPages}
+                  className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+              <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-gray-700">
+                    Showing page <span className="font-medium">{pagination.currentPage}</span> of{' '}
+                    <span className="font-medium">{pagination.totalPages}</span>
+                  </p>
+                </div>
+                <div>
+                  <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
+                    <button
+                      onClick={() => setPagination({ ...pagination, currentPage: pagination.currentPage - 1 })}
+                      disabled={pagination.currentPage === 1}
+                      className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      onClick={() => setPagination({ ...pagination, currentPage: pagination.currentPage + 1 })}
+                      disabled={pagination.currentPage === pagination.totalPages}
+                      className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </nav>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </>
+      )}
 
-        {/* Confirmation Modal */}
-        {showConfirmation && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center">
-              <div className="bg-green-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
-                <CheckCircle className="w-8 h-8 text-green-600" />
-              </div>
-              <h3 className="text-2xl font-bold text-gray-800 mb-2">Appointment Confirmed!</h3>
-              <p className="text-gray-600 mb-4">
-                Your appointment has been successfully booked. You'll receive a confirmation email shortly.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Modal */}
+      {showModal && selectedAppointment && (
+        <AppointmentModal
+          appointment={selectedAppointment}
+          onClose={() => {
+            setShowModal(false);
+            setSelectedAppointment(null);
+          }}
+          onUpdate={updateAppointmentStatus}
+        />
+      )}
     </div>
   );
 };
