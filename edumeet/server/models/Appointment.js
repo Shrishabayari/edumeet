@@ -1,11 +1,15 @@
-// models/Appointment.js
 const mongoose = require('mongoose');
 
 const appointmentSchema = new mongoose.Schema({
-  teacher: {
+  teacherId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Teacher',
-    required: [true, 'Teacher is required']
+    required: [true, 'Teacher ID is required']
+  },
+  teacherName: {
+    type: String,
+    required: [true, 'Teacher name is required'],
+    trim: true
   },
   student: {
     name: {
@@ -13,40 +17,54 @@ const appointmentSchema = new mongoose.Schema({
       required: [true, 'Student name is required'],
       trim: true,
       minlength: [2, 'Student name must be at least 2 characters'],
-      maxlength: [50, 'Student name cannot exceed 50 characters']
+      maxlength: [100, 'Student name cannot exceed 100 characters']
     },
     email: {
       type: String,
       required: [true, 'Student email is required'],
-      lowercase: true,
       trim: true,
+      lowercase: true,
       match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
     },
     phone: {
       type: String,
-      required: [true, 'Student phone is required'],
       trim: true,
-      match: [/^[\+]?[1-9][\d]{0,15}$/, 'Please provide a valid phone number']
+      validate: {
+        validator: function(v) {
+          // Allow empty string or valid phone number
+          return !v || /^[\+]?[\d\s\-\(\)]{7,20}$/.test(v);
+        },
+        message: 'Please provide a valid phone number'
+      }
     },
     subject: {
       type: String,
-      required: [true, 'Subject is required'],
       trim: true,
-      maxlength: [100, 'Subject cannot exceed 100 characters']
+      maxlength: [200, 'Subject cannot exceed 200 characters']
     },
     message: {
       type: String,
       trim: true,
-      maxlength: [500, 'Message cannot exceed 500 characters']
+      maxlength: [1000, 'Message cannot exceed 1000 characters']
     }
   },
-  appointmentDate: {
-    type: Date,
-    required: [true, 'Appointment date is required']
+  day: {
+    type: String,
+    required: [true, 'Day is required'],
+    enum: {
+      values: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+      message: 'Invalid day of the week'
+    }
+  },
+  time: {
+    type: String,
+    required: [true, 'Time is required'],
+    trim: true
   },
   timeSlot: {
     type: String,
     required: [true, 'Time slot is required'],
+    trim: true,
     enum: {
       values: [
         '9:00 AM - 10:00 AM',
@@ -58,14 +76,28 @@ const appointmentSchema = new mongoose.Schema({
         '4:00 PM - 5:00 PM',
         '5:00 PM - 6:00 PM'
       ],
-      message: 'Please select a valid time slot'
+      message: 'Invalid time slot'
     }
+  },
+  date: {
+    type: Date,
+    required: [true, 'Date is required'],
+    validate: {
+      validator: function(v) {
+        return v instanceof Date && !isNaN(v);
+      },
+      message: 'Please provide a valid date'
+    }
+  },
+  appointmentDate: {
+    type: String,
+    required: [true, 'Appointment date string is required']
   },
   status: {
     type: String,
     enum: {
       values: ['pending', 'confirmed', 'cancelled', 'completed'],
-      message: 'Status must be one of: pending, confirmed, cancelled, completed'
+      message: 'Invalid status'
     },
     default: 'pending'
   },
@@ -84,61 +116,85 @@ const appointmentSchema = new mongoose.Schema({
   }
 });
 
-// Update timestamp on save
+// Pre-save middleware to update updatedAt
 appointmentSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   next();
 });
 
-// Custom validation: Prevent booking in the past
-appointmentSchema.pre('save', function(next) {
-  if (this.isNew) {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const appointmentDay = new Date(this.appointmentDate.getFullYear(), this.appointmentDate.getMonth(), this.appointmentDate.getDate());
-    
-    if (appointmentDay < today) {
-      const error = new Error('Cannot book appointment in the past');
-      error.name = 'ValidationError';
-      return next(error);
-    }
-  }
+// Pre-update middleware to update updatedAt
+appointmentSchema.pre(['updateOne', 'findOneAndUpdate'], function(next) {
+  this.set({ updatedAt: Date.now() });
   next();
 });
 
-// Indexes for efficient queries
-appointmentSchema.index({ teacher: 1, appointmentDate: 1, timeSlot: 1 }, { unique: false });
-appointmentSchema.index({ 'student.email': 1 });
+// Index for efficient queries
+appointmentSchema.index({ teacherId: 1, date: 1, timeSlot: 1 });
 appointmentSchema.index({ status: 1 });
 appointmentSchema.index({ createdAt: -1 });
-
-// Compound index for checking slot availability
-appointmentSchema.index({ 
-  teacher: 1, 
-  appointmentDate: 1, 
-  timeSlot: 1, 
-  status: 1 
-}, { 
-  name: 'appointment_availability_check',
-  partialFilterExpression: { 
-    status: { $in: ['pending', 'confirmed'] } 
-  }
-});
+appointmentSchema.index({ 'student.email': 1 });
 
 // Virtual for formatted date
 appointmentSchema.virtual('formattedDate').get(function() {
-  return this.appointmentDate.toLocaleDateString();
+  return this.date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
 });
 
-// Virtual for formatted time
-appointmentSchema.virtual('formattedTime').get(function() {
-  return this.timeSlot;
+// Virtual for appointment duration (assuming 1 hour slots)
+appointmentSchema.virtual('duration').get(function() {
+  return '1 hour';
 });
 
-// Ensure virtual fields are included in JSON output
-appointmentSchema.set('toJSON', { virtuals: true });
+// Instance method to check if appointment is upcoming
+appointmentSchema.methods.isUpcoming = function() {
+  return this.date > new Date() && this.status !== 'cancelled';
+};
+
+// Instance method to check if appointment can be cancelled
+appointmentSchema.methods.canBeCancelled = function() {
+  const now = new Date();
+  const appointmentTime = new Date(this.date);
+  const hoursUntilAppointment = (appointmentTime - now) / (1000 * 60 * 60);
+  
+  return hoursUntilAppointment > 24 && this.status === 'pending';
+};
+
+// Static method to find conflicts
+appointmentSchema.statics.findConflicts = function(teacherId, date, timeSlot) {
+  return this.findOne({
+    teacherId,
+    date,
+    timeSlot,
+    status: { $ne: 'cancelled' }
+  });
+};
+
+// Static method to get appointments by date range
+appointmentSchema.statics.getByDateRange = function(startDate, endDate) {
+  return this.find({
+    date: {
+      $gte: startDate,
+      $lte: endDate
+    }
+  }).populate('teacherId', 'name email phone subject');
+};
+
+// Ensure virtual fields are serialized
+appointmentSchema.set('toJSON', { 
+  virtuals: true,
+  transform: function(doc, ret) {
+    delete ret.__v;
+    return ret;
+  }
+});
+
 appointmentSchema.set('toObject', { virtuals: true });
 
-const Appointment = mongoose.model('Appointment', appointmentSchema);
+// Create model
+const Appointment = mongoose.models.Appointment || mongoose.model('Appointment', appointmentSchema);
 
 module.exports = Appointment;

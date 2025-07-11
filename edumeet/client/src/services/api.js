@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // Prioritize environment variable, then remote server, then local development server
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet-server.onrender.com' || 'http://localhost:5000';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com' || 'http://localhost:5000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

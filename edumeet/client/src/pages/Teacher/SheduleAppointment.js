@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, User, Mail, Phone, BookOpen, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { apiMethods } from '../../services/api'; // Updated import
+import { apiMethods } from '../../services/api';
 
 const TeacherSchedule = () => {
   const [teachers, setTeachers] = useState([]);
@@ -28,14 +28,14 @@ const TeacherSchedule = () => {
   const getNextDateForDay = (dayName) => {
     if (!dayName || typeof dayName !== 'string') {
       console.error('Invalid day name (not a string):', dayName);
-      return new Date().toLocaleDateString('en-CA');
+      return new Date().toISOString().split('T')[0];
     }
 
     const normalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1).toLowerCase();
     
     if (!VALID_DAYS.includes(normalizedDay)) {
       console.error('Invalid day name:', dayName, 'normalized:', normalizedDay);
-      return new Date().toLocaleDateString('en-CA');
+      return new Date().toISOString().split('T')[0];
     }
     
     const today = new Date();
@@ -52,7 +52,7 @@ const TeacherSchedule = () => {
     const targetDate = new Date(today);
     targetDate.setDate(today.getDate() + daysUntilTarget);
     
-    return targetDate.toLocaleDateString('en-CA'); // Returns YYYY-MM-DD format
+    return targetDate.toISOString().split('T')[0]; // Returns YYYY-MM-DD format
   };
 
   // Helper function to format date for display
@@ -100,7 +100,6 @@ const TeacherSchedule = () => {
       setLoading(true);
       setError('');
       
-      // Use the correct API method from your apiMethods
       const response = await apiMethods.getAllTeachers();
       const data = response.data;
       
@@ -147,7 +146,6 @@ const TeacherSchedule = () => {
 
   const fetchAppointments = async () => {
     try {
-      // Use the correct API method from your apiMethods
       const response = await apiMethods.getAllAppointments();
       const data = response.data;
       
@@ -228,7 +226,7 @@ const TeacherSchedule = () => {
             weekdays.forEach(day => {
               weeklyAvailability.push({
                 day: day,
-                slots: [...sortedSlots] // Copy all slots to each day
+                slots: [...sortedSlots]
               });
             });
             
@@ -264,7 +262,6 @@ const TeacherSchedule = () => {
 
       // Format the date properly
       const nextDate = getNextDateForDay(selectedDay);
-      const formattedDate = nextDate; // Already in YYYY-MM-DD format
 
       // Ensure teacherId is properly formatted
       const teacherId = selectedTeacher.id || selectedTeacher._id;
@@ -277,7 +274,7 @@ const TeacherSchedule = () => {
         teacherId: teacherId,
         day: selectedDay,
         time: selectedTime,
-        date: formattedDate,
+        date: nextDate,
         student: {
           name: studentInfo.name.trim(),
           email: studentInfo.email.trim(),
@@ -289,8 +286,8 @@ const TeacherSchedule = () => {
 
       console.log('Sending appointment data:', appointmentData);
 
-      // Use the correct API method with retry logic
-      const response = await apiMethods.bookAppointmentWithRetry(appointmentData);
+      // Use the bookAppointment method instead of bookAppointmentWithRetry
+      const response = await apiMethods.bookAppointment(appointmentData);
 
       // Update local state
       setAppointments(prevAppointments => 
@@ -335,7 +332,6 @@ const TeacherSchedule = () => {
       setLoading(true);
       setError('');
 
-      // Use the correct API method from your apiMethods
       await apiMethods.cancelAppointment(appointmentId);
 
       // Update local state
@@ -706,9 +702,7 @@ const TeacherSchedule = () => {
                       onChange={handleInputChange}
                       className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
-                    
                   </div>
-                    
                   <textarea
                     name="message"
                     placeholder="Additional message or questions..."

@@ -1,89 +1,47 @@
+const mongoose = require('mongoose');
 const Appointment = require('../models/Appointment');
 const Teacher = require('../models/Teacher');
-const { validationResult } = require('express-validator');
 
-// @desc    Get all appointments
-// @route   GET /api/appointments
-// @access  Private
+// Get all appointments
 const getAllAppointments = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      status,
-      teacherId,
-      studentEmail,
-      date,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
-
-    // Build filter object
-    const filter = {};
+    console.log('Fetching all appointments...');
     
-    if (status) filter.status = status;
-    if (teacherId) filter.teacher = teacherId;
-    if (studentEmail) filter['student.email'] = studentEmail;
-    if (date) {
-      const startDate = new Date(date);
-      const endDate = new Date(date);
-      endDate.setDate(endDate.getDate() + 1);
-      filter.appointmentDate = { $gte: startDate, $lt: endDate };
-    }
-
-    // Build sort object
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    // Execute query with pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const appointments = await Appointment.find()
+      .populate('teacherId', 'name email phone subject')
+      .sort({ createdAt: -1 });
     
-    const appointments = await Appointment.find(filter)
-      .populate('teacher', 'name email department subject')
-      .sort(sort)
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    // Map appointments to include teacherName for frontend compatibility
-    const appointmentsWithTeacherName = appointments.map(appointment => {
-      const appointmentObj = appointment.toObject();
-      return {
-        ...appointmentObj,
-        teacherName: appointment.teacher?.name || 'Unknown Teacher'
-      };
-    });
-
-    const totalAppointments = await Appointment.countDocuments(filter);
-    const totalPages = Math.ceil(totalAppointments / parseInt(limit));
-
-    res.status(200).json({
+    console.log(`Found ${appointments.length} appointments`);
+    
+    res.json({
       success: true,
-      data: appointmentsWithTeacherName,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalAppointments,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
-      }
+      data: appointments,
+      count: appointments.length
     });
   } catch (error) {
     console.error('Error fetching appointments:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error while fetching appointments',
+      message: 'Failed to fetch appointments',
       error: error.message
     });
   }
 };
 
-// @desc    Get single appointment
-// @route   GET /api/appointments/:id
-// @access  Private
+// Get appointment by ID
 const getAppointmentById = async (req, res) => {
   try {
-    const appointment = await Appointment.findById(req.params.id)
-      .populate('teacher', 'name email department subject phone');
+    const { id } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID'
+      });
+    }
+    
+    const appointment = await Appointment.findById(id)
+      .populate('teacherId', 'name email phone subject');
     
     if (!appointment) {
       return res.status(404).json({
@@ -91,68 +49,38 @@ const getAppointmentById = async (req, res) => {
         message: 'Appointment not found'
       });
     }
-
-    // Add teacherName for frontend compatibility
-    const appointmentObj = appointment.toObject();
-    appointmentObj.teacherName = appointment.teacher?.name || 'Unknown Teacher';
-
-    res.status(200).json({
+    
+    res.json({
       success: true,
-      data: appointmentObj
+      data: appointment
     });
   } catch (error) {
     console.error('Error fetching appointment:', error);
-    
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid appointment ID format'
-      });
-    }
-
     res.status(500).json({
       success: false,
-      message: 'Server error while fetching appointment',
+      message: 'Failed to fetch appointment',
       error: error.message
     });
   }
 };
 
-// @desc    Book new appointment
-// @route   POST /api/appointments
-// @access  Public
+// Book new appointment
 const bookAppointment = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
+    console.log('Booking appointment with data:', req.body);
+    
+    const { teacherId, day, time, date, student } = req.body;
+    
+    // Validate required fields
+    if (!teacherId || !day || !time || !date || !student) {
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: 'Missing required fields',
+        required: ['teacherId', 'day', 'time', 'date', 'student']
       });
     }
-
-    const { teacherId, day, time, date, student } = req.body;
-
-    // Normalize time slot - FIXED: Handle both formats properly
-    const normalizeTimeSlot = (input) => {
-      const mapping = {
-        '9:00 AM': '9:00 AM - 10:00 AM',
-        '10:00 AM': '10:00 AM - 11:00 AM',
-        '11:00 AM': '11:00 AM - 12:00 PM',
-        '12:00 PM': '12:00 PM - 1:00 PM',
-        '1:00 PM': '1:00 PM - 2:00 PM',
-        '2:00 PM': '2:00 PM - 3:00 PM',
-        '3:00 PM': '3:00 PM - 4:00 PM',
-        '4:00 PM': '4:00 PM - 5:00 PM',
-        '5:00 PM': '5:00 PM - 6:00 PM'
-      };
-      return mapping[input] || input; // fallback if already in full format
-    };
-
-    const normalizedTime = normalizeTimeSlot(time);
-
-    // Verify teacher exists
+    
+    // Find teacher
     const teacher = await Teacher.findById(teacherId);
     if (!teacher) {
       return res.status(404).json({
@@ -160,360 +88,214 @@ const bookAppointment = async (req, res) => {
         message: 'Teacher not found'
       });
     }
-
-    // Check if teacher is available at this time
-    if (!teacher.availability.includes(normalizedTime)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Teacher is not available at this time'
-      });
-    }
-
-    // Parse appointment date - FIXED: Better date validation
-    const appointmentDate = new Date(date);
-    if (isNaN(appointmentDate.getTime())) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid appointment date format'
-      });
-    }
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const appointmentDay = new Date(appointmentDate.getFullYear(), appointmentDate.getMonth(), appointmentDate.getDate());
     
-    if (appointmentDay < today) {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot book appointment in the past'
-      });
-    }
-
-    // Check if slot is already booked - FIXED: Better date range query
-    const startOfDay = new Date(appointmentDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    
-    const endOfDay = new Date(appointmentDate);
-    endOfDay.setHours(23, 59, 59, 999);
-
+    // Check if slot is already booked
     const existingAppointment = await Appointment.findOne({
-      teacher: teacherId,
-      appointmentDate: {
-        $gte: startOfDay,
-        $lte: endOfDay
-      },
-      timeSlot: normalizedTime,
-      status: { $in: ['pending', 'confirmed'] }
+      teacherId,
+      day,
+      time,
+      date: new Date(date),
+      status: { $ne: 'cancelled' }
     });
-
+    
     if (existingAppointment) {
-      return res.status(409).json({ // Changed to 409 Conflict
+      return res.status(409).json({
         success: false,
         message: 'This time slot is already booked'
       });
     }
-
-    // Create new appointment
+    
+    // Create appointment
     const appointment = new Appointment({
-      teacher: teacherId,
-      student,
-      appointmentDate: appointmentDate,
-      timeSlot: normalizedTime,
+      teacherId,
+      teacherName: teacher.name,
+      student: {
+        name: student.name?.trim(),
+        email: student.email?.trim()?.toLowerCase(),
+        phone: student.phone?.trim() || '',
+        subject: student.subject?.trim() || '',
+        message: student.message?.trim() || ''
+      },
+      day,
+      time,
+      timeSlot: time,
+      date: new Date(date),
+      appointmentDate: new Date(date).toISOString(),
       status: 'pending'
     });
-
+    
     await appointment.save();
-
-    // Populate teacher info for response
-    await appointment.populate('teacher', 'name email department subject');
-
-    // Create response object with all fields the frontend expects
-    const appointmentResponse = {
-      ...appointment.toObject(),
-      day: day, // Add the day field that frontend expects
-      time: time, // Add the original time format
-      date: date, // Add the original date format
-      teacherName: appointment.teacher?.name || 'Unknown Teacher' // Add teacherName for frontend compatibility
-    };
-
+    
+    // Populate teacher details for response
+    await appointment.populate('teacherId', 'name email phone subject');
+    
+    console.log('Appointment created successfully:', appointment._id);
+    
     res.status(201).json({
       success: true,
-      message: 'Appointment booked successfully',
-      data: appointmentResponse
+      data: appointment,
+      message: 'Appointment booked successfully'
     });
+    
   } catch (error) {
     console.error('Error booking appointment:', error);
-
-    if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(err => ({
-        field: err.path,
-        message: err.message
-      }));
-
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: validationErrors
-      });
-    }
-
     res.status(500).json({
       success: false,
-      message: 'Server error while booking appointment',
+      message: 'Failed to book appointment',
       error: error.message
     });
   }
 };
 
-// @desc    Update appointment status
-// @route   PUT /api/appointments/:id
-// @access  Private
+// Update appointment
 const updateAppointment = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
+    const { id } = req.params;
+    const updates = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: 'Invalid appointment ID'
       });
     }
-
-    const appointmentId = req.params.id;
-    const { status, notes } = req.body;
-
-    // Validate status if provided
-    const validStatuses = ['pending', 'confirmed', 'cancelled', 'completed'];
-    if (status && !validStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid status value'
-      });
-    }
-
-    const appointment = await Appointment.findById(appointmentId);
+    
+    const appointment = await Appointment.findByIdAndUpdate(
+      id,
+      { ...updates, updatedAt: Date.now() },
+      { new: true, runValidators: true }
+    ).populate('teacherId', 'name email phone subject');
+    
     if (!appointment) {
       return res.status(404).json({
         success: false,
         message: 'Appointment not found'
       });
     }
-
-    // Check if update is allowed based on current status
-    if (appointment.status === 'completed' && status !== 'completed') {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot modify completed appointment'
-      });
-    }
-
-    // Update appointment
-    appointment.status = status || appointment.status;
-    appointment.notes = notes || appointment.notes;
-    appointment.updatedAt = new Date();
-
-    await appointment.save();
-
-    // Populate teacher info for response
-    await appointment.populate('teacher', 'name email department subject');
-
-    // Add teacherName for frontend compatibility
-    const appointmentObj = appointment.toObject();
-    appointmentObj.teacherName = appointment.teacher?.name || 'Unknown Teacher';
-
-    res.status(200).json({
+    
+    res.json({
       success: true,
-      message: 'Appointment updated successfully',
-      data: appointmentObj
+      data: appointment,
+      message: 'Appointment updated successfully'
     });
+    
   } catch (error) {
     console.error('Error updating appointment:', error);
-    
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid appointment ID format'
-      });
-    }
-
     res.status(500).json({
       success: false,
-      message: 'Server error while updating appointment',
+      message: 'Failed to update appointment',
       error: error.message
     });
   }
 };
 
-// @desc    Cancel appointment
-// @route   DELETE /api/appointments/:id
-// @access  Public
+// Cancel appointment
 const cancelAppointment = async (req, res) => {
   try {
-    const appointmentId = req.params.id;
-
-    const appointment = await Appointment.findById(appointmentId);
+    const { id } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID'
+      });
+    }
+    
+    const appointment = await Appointment.findByIdAndUpdate(
+      id,
+      { status: 'cancelled', updatedAt: Date.now() },
+      { new: true }
+    ).populate('teacherId', 'name email phone subject');
+    
     if (!appointment) {
       return res.status(404).json({
         success: false,
         message: 'Appointment not found'
       });
     }
-
-    // Check if appointment can be cancelled
-    if (appointment.status === 'completed') {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot cancel completed appointment'
-      });
-    }
-
-    if (appointment.status === 'cancelled') {
-      return res.status(400).json({
-        success: false,
-        message: 'Appointment is already cancelled'
-      });
-    }
-
-    // Update status to cancelled
-    appointment.status = 'cancelled';
-    appointment.updatedAt = new Date();
-    await appointment.save();
-
-    res.status(200).json({
+    
+    res.json({
       success: true,
+      data: appointment,
       message: 'Appointment cancelled successfully'
     });
+    
   } catch (error) {
     console.error('Error cancelling appointment:', error);
-    
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid appointment ID format'
-      });
-    }
-
     res.status(500).json({
       success: false,
-      message: 'Server error while cancelling appointment',
+      message: 'Failed to cancel appointment',
       error: error.message
     });
   }
 };
 
-// @desc    Get teacher's appointments
-// @route   GET /api/appointments/teacher/:teacherId
-// @access  Private
+// Get appointments for a specific teacher
 const getTeacherAppointments = async (req, res) => {
   try {
     const { teacherId } = req.params;
-    const { status, date, page = 1, limit = 10 } = req.query;
-
-    // Validate teacher ID format
-    if (!teacherId.match(/^[0-9a-fA-F]{24}$/)) {
+    
+    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid teacher ID format'
+        message: 'Invalid teacher ID'
       });
     }
-
-    // Build filter
-    const filter = { teacher: teacherId };
-    if (status) filter.status = status;
-    if (date) {
-      const startDate = new Date(date);
-      const endDate = new Date(date);
-      endDate.setDate(endDate.getDate() + 1);
-      filter.appointmentDate = { $gte: startDate, $lt: endDate };
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    const appointments = await Appointment.find(filter)
-      .populate('teacher', 'name email department subject')
-      .sort({ appointmentDate: 1, timeSlot: 1 })
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    // Map appointments to include teacherName
-    const appointmentsWithTeacherName = appointments.map(appointment => {
-      const appointmentObj = appointment.toObject();
-      return {
-        ...appointmentObj,
-        teacherName: appointment.teacher?.name || 'Unknown Teacher'
-      };
-    });
-
-    const totalAppointments = await Appointment.countDocuments(filter);
-
-    res.status(200).json({
+    const appointments = await Appointment.find({ teacherId })
+      .populate('teacherId', 'name email phone subject')
+      .sort({ date: 1 });
+    
+    res.json({
       success: true,
-      data: appointmentsWithTeacherName,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalAppointments / parseInt(limit)),
-        totalAppointments
-      }
+      data: appointments,
+      count: appointments.length
     });
+    
   } catch (error) {
     console.error('Error fetching teacher appointments:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error while fetching teacher appointments',
+      message: 'Failed to fetch teacher appointments',
       error: error.message
     });
   }
 };
 
-// @desc    Get appointment statistics
-// @route   GET /api/appointments/stats
-// @access  Private
+// Get appointment statistics
 const getAppointmentStats = async (req, res) => {
   try {
     const totalAppointments = await Appointment.countDocuments();
+    const pendingAppointments = await Appointment.countDocuments({ status: 'pending' });
+    const confirmedAppointments = await Appointment.countDocuments({ status: 'confirmed' });
+    const cancelledAppointments = await Appointment.countDocuments({ status: 'cancelled' });
+    const completedAppointments = await Appointment.countDocuments({ status: 'completed' });
     
-    const statusStats = await Appointment.aggregate([
-      { $group: { _id: '$status', count: { $sum: 1 } } }
-    ]);
-
-    const monthlyStats = await Appointment.aggregate([
-      {
-        $group: {
-          _id: {
-            year: { $year: '$appointmentDate' },
-            month: { $month: '$appointmentDate' }
-          },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { '_id.year': -1, '_id.month': -1 } },
-      { $limit: 12 }
-    ]);
-
-    // ADDED: Teacher-wise stats
-    const teacherStats = await Appointment.aggregate([
-      { $group: { _id: '$teacher', count: { $sum: 1 } } },
-      { $lookup: { from: 'teachers', localField: '_id', foreignField: '_id', as: 'teacherInfo' } },
-      { $unwind: '$teacherInfo' },
-      { $project: { teacherName: '$teacherInfo.name', count: 1 } },
-      { $sort: { count: -1 } },
-      { $limit: 10 }
-    ]);
-
-    res.status(200).json({
+    // Get appointments from last 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const recentAppointments = await Appointment.countDocuments({
+      createdAt: { $gte: sevenDaysAgo }
+    });
+    
+    res.json({
       success: true,
       data: {
-        totalAppointments,
-        statusStats,
-        monthlyStats,
-        teacherStats
+        total: totalAppointments,
+        pending: pendingAppointments,
+        confirmed: confirmedAppointments,
+        cancelled: cancelledAppointments,
+        completed: completedAppointments,
+        recent: recentAppointments
       }
     });
+    
   } catch (error) {
     console.error('Error fetching appointment stats:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error while fetching appointment statistics',
+      message: 'Failed to fetch appointment stats',
       error: error.message
     });
   }
