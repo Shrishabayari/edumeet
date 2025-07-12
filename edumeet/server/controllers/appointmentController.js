@@ -64,7 +64,36 @@ const getAppointmentById = async (req, res) => {
   }
 };
 
-// Book new appointment
+// Helper function to normalize time format
+const normalizeTimeFormat = (timeString) => {
+  if (!timeString) return timeString;
+  
+  // Remove extra spaces and normalize format
+  let normalized = timeString.trim();
+  
+  // Handle different time formats
+  if (normalized.includes(' - ')) {
+    // Extract start time from range like "3:00 PM - 4:00 PM"
+    normalized = normalized.split(' - ')[0].trim();
+  }
+  
+  // Ensure proper AM/PM format
+  if (normalized.match(/^\d{1,2}:\d{2}\s?(AM|PM)$/i)) {
+    return normalized.toUpperCase();
+  }
+  
+  // Handle 24-hour format conversion if needed
+  if (normalized.match(/^\d{1,2}:\d{2}$/)) {
+    const [hours, minutes] = normalized.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${displayHour}:${minutes} ${ampm}`;
+  }
+  
+  return normalized;
+};
+
 const bookAppointment = async (req, res) => {
   try {
     console.log('Booking appointment with data:', req.body);
@@ -80,6 +109,14 @@ const bookAppointment = async (req, res) => {
       });
     }
     
+    // Validate student required fields
+    if (!student.name || !student.email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Student name and email are required'
+      });
+    }
+    
     // Find teacher
     const teacher = await Teacher.findById(teacherId);
     if (!teacher) {
@@ -89,11 +126,15 @@ const bookAppointment = async (req, res) => {
       });
     }
     
+    // Normalize time format
+    const normalizedTime = normalizeTimeFormat(time);
+    console.log('Normalized time:', normalizedTime);
+    
     // Check if slot is already booked
     const existingAppointment = await Appointment.findOne({
       teacherId,
       day,
-      time,
+      time: normalizedTime,
       date: new Date(date),
       status: { $ne: 'cancelled' }
     });
@@ -105,8 +146,8 @@ const bookAppointment = async (req, res) => {
       });
     }
     
-    // Create appointment
-    const appointment = new Appointment({
+    // Create appointment data
+    const appointmentData = {
       teacherId,
       teacherName: teacher.name,
       student: {
@@ -117,13 +158,15 @@ const bookAppointment = async (req, res) => {
         message: student.message?.trim() || ''
       },
       day,
-      time,
-      timeSlot: time,
+      time: normalizedTime,
       date: new Date(date),
       appointmentDate: new Date(date).toISOString(),
       status: 'pending'
-    });
+    };
     
+    console.log('Creating appointment with data:', appointmentData);
+    
+    const appointment = new Appointment(appointmentData);
     await appointment.save();
     
     // Populate teacher details for response
@@ -139,6 +182,23 @@ const bookAppointment = async (req, res) => {
     
   } catch (error) {
     console.error('Error booking appointment:', error);
+    
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(err => {
+        if (err.path === 'timeSlot') {
+          return `Invalid time slot format. Expected format: "HH:MM AM/PM"`;
+        }
+        return err.message;
+      });
+      
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors,
+        details: error.message
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to book appointment',
@@ -151,13 +211,18 @@ const bookAppointment = async (req, res) => {
 const updateAppointment = async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    let updates = { ...req.body };
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid appointment ID'
       });
+    }
+    
+    // Normalize time if it's being updated
+    if (updates.time) {
+      updates.time = normalizeTimeFormat(updates.time);
     }
     
     const appointment = await Appointment.findByIdAndUpdate(
@@ -181,6 +246,16 @@ const updateAppointment = async (req, res) => {
     
   } catch (error) {
     console.error('Error updating appointment:', error);
+    
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to update appointment',

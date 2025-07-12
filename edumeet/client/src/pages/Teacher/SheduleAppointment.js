@@ -69,28 +69,67 @@ const TeacherSchedule = () => {
     }
   };
 
-  // Enhanced default availability with more comprehensive slots
   const getDefaultAvailability = () => {
     return [
       { 
         day: 'Monday', 
-        slots: ['9:00 AM - 10:00AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 AM', '1:00 PM - 2:00 AM', '2:00 PM - 3:00 AM', '3:00 PM - 4:00 AM', '4:00 PM - 5:00 AM'] 
+        slots: [
+          '9:00 AM - 10:00 AM',
+          '10:00 AM - 11:00 AM',
+          '11:00 AM - 12:00 PM',
+          '1:00 PM - 2:00 PM',
+          '2:00 PM - 3:00 PM',
+          '3:00 PM - 4:00 PM',
+          '4:00 PM - 5:00 PM'
+        ] 
       },
       { 
         day: 'Tuesday', 
-        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
+        slots: [
+          '9:00 AM - 10:00 AM',
+          '10:00 AM - 11:00 AM',
+          '11:00 AM - 12:00 PM',
+          '1:00 PM - 2:00 PM',
+          '2:00 PM - 3:00 PM',
+          '3:00 PM - 4:00 PM',
+          '4:00 PM - 5:00 PM'
+        ] 
       },
       { 
         day: 'Wednesday', 
-        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
+        slots: [
+          '9:00 AM - 10:00 AM',
+          '10:00 AM - 11:00 AM',
+          '11:00 AM - 12:00 PM',
+          '1:00 PM - 2:00 PM',
+          '2:00 PM - 3:00 PM',
+          '3:00 PM - 4:00 PM',
+          '4:00 PM - 5:00 PM'
+        ] 
       },
       { 
         day: 'Thursday', 
-        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
+        slots: [
+          '9:00 AM - 10:00 AM',
+          '10:00 AM - 11:00 AM',
+          '11:00 AM - 12:00 PM',
+          '1:00 PM - 2:00 PM',
+          '2:00 PM - 3:00 PM',
+          '3:00 PM - 4:00 PM',
+          '4:00 PM - 5:00 PM'
+        ] 
       },
       { 
         day: 'Friday', 
-        slots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'] 
+        slots: [
+          '9:00 AM - 10:00 AM',
+          '10:00 AM - 11:00 AM',
+          '11:00 AM - 12:00 PM',
+          '1:00 PM - 2:00 PM',
+          '2:00 PM - 3:00 PM',
+          '3:00 PM - 4:00 PM',
+          '4:00 PM - 5:00 PM'
+        ] 
       }
     ];
   };
@@ -208,11 +247,16 @@ const TeacherSchedule = () => {
           if (timeSlots.length > 0) {
             console.log('Found time slots, converting to weekly format:', timeSlots);
             
-            const cleanTimeSlots = timeSlots.map(slot => {
-              const startTime = slot.split(' - ')[0];
-              return startTime;
-            }).filter(time => time);
-            
+
+// If you want to ensure consistent formatting, use this version:
+const cleanTimeSlots = timeSlots.map(slot => {
+  const parts = slot.split(' - ');
+  if (parts.length === 2) {
+    // Ensure proper formatting: "9:00 AM - 10:00 AM"
+    return `${parts[0].trim()} - ${parts[1].trim()}`;
+  }
+  return slot.trim();
+}).filter(time => time);
             const sortedSlots = cleanTimeSlots.sort((a, b) => {
               const timeA = new Date(`2000/01/01 ${a}`);
               const timeB = new Date(`2000/01/01 ${b}`);
@@ -286,7 +330,6 @@ const TeacherSchedule = () => {
 
       console.log('Sending appointment data:', appointmentData);
 
-      // Use the bookAppointment method instead of bookAppointmentWithRetry
       const response = await apiMethods.bookAppointment(appointmentData);
 
       // Update local state
@@ -535,15 +578,15 @@ const TeacherSchedule = () => {
                       </div>
                       <div>
                         <h3 className="text-xl font-semibold text-gray-800">{appointment.teacherName}</h3>
-                        <h5 className="text-sm font-semibold text-gray-600">{appointment.teacher?.email}</h5>
-                        <p className="text-gray-600">{formatDateForDisplay(appointment.appointmentDate)}</p>
-                        <p className="text-sm text-gray-500">{appointment.timeSlot} - {appointment.student?.subject || 'General'}</p>
+                        <h5 className="text-sm font-semibold text-gray-600">{appointment.teacherId?.email || appointment.teacher?.email}</h5>
+                        <p className="text-gray-600">{formatDateForDisplay(appointment.date || appointment.appointmentDate)}</p>
+                        <p className="text-sm text-gray-500">{appointment.day} at {appointment.time} - {appointment.student?.subject || 'General'}</p>
                       </div>
                     </div>
                     <div className="flex items-center space-x-3">
                       <div className="flex items-center text-green-600">
                         <CheckCircle className="w-5 h-5 mr-1" />
-                        <span className="text-sm font-medium">{appointment.status || 'Confirmed'}</span>
+                        <span className="text-sm font-medium capitalize">{appointment.status || 'Pending'}</span>
                       </div>
                       <button
                         onClick={() => cancelAppointment(appointment.id || appointment._id)}
