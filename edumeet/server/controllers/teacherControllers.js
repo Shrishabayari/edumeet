@@ -3,17 +3,22 @@ const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
-// Generate JWT Token
-const signToken = (id) => {
-  return jwt.sign({ id, role: 'teacher' }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '90d'
+// ✅ First define helper function
+const signToken = (payload) => {
+  return jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: '90d'
   });
 };
 
-// Send token response
+// ✅ Then define this one (uses signToken)
 const createSendToken = (teacher, statusCode, req, res) => {
-  const token = signToken(teacher._id);
-  
+  const token = signToken({
+    id: teacher._id,
+    email: teacher.email,
+    role: 'teacher',
+  loginTime: Date.now()  // 👈 this must be here
+  });
+
   const cookieOptions = {
     expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
     httpOnly: true,
@@ -22,7 +27,6 @@ const createSendToken = (teacher, statusCode, req, res) => {
 
   res.cookie('jwt', token, cookieOptions);
 
-  // Remove password from output
   teacher.password = undefined;
 
   res.status(statusCode).json({
@@ -33,6 +37,8 @@ const createSendToken = (teacher, statusCode, req, res) => {
     }
   });
 };
+
+
 // @desc    Create new teacher
 // @route   POST /api/teachers
 // @access  Private/Admin
@@ -480,61 +486,42 @@ const getTeacherStats = async (req, res) => {
   }
 };
 
-// ==================== AUTHENTICATION METHODS ====================
-
-// @desc    Teacher login
-// @route   POST /api/teachers/login
-// @access  Public
 const teacherLogin = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
     const { email, password } = req.body;
 
-    // Check if teacher exists and is active
-    const teacher = await Teacher.findOne({ 
-      email, 
-      isActive: true 
-    }).select('+password');
-
+    const teacher = await Teacher.findOne({ email, isActive: true }).select('+password');
     if (!teacher) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials or teacher not found'
-      });
+      return res.status(401).json({ success: false, message: 'Invalid credentials or teacher not found' });
     }
 
-    // Check if teacher has set up account
     if (!teacher.hasAccount || !teacher.password) {
-      return res.status(401).json({
-        success: false,
-        message: 'Account not set up. Please contact admin for account setup link.'
-      });
+      return res.status(401).json({ success: false, message: 'Account not set up. Contact admin.' });
     }
 
-    // Check password
-    if (!(await teacher.correctPassword(password, teacher.password))) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
+    const isPasswordCorrect = await teacher.correctPassword(password, teacher.password);
+    if (!isPasswordCorrect) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    // Update last login
     teacher.lastLogin = new Date();
     await teacher.save({ validateBeforeSave: false });
 
-    // Send token
-    createSendToken(teacher, 200, req, res);
+    const token = jwt.sign(
+      { id: teacher._id, email: teacher.email, role: 'teacher', loginTime: Date.now() },
+      process.env.JWT_SECRET,
+      { expiresIn: '90d' }
+    );
+
+    teacher.password = undefined;
+
+    res.status(200).json({
+      success: true,
+      token,
+      data: { teacher }
+    });
   } catch (error) {
-    console.error('Teacher login error:', error);
+    console.error('Login error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error during login',

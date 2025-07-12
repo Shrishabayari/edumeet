@@ -247,16 +247,16 @@ const TeacherSchedule = () => {
           if (timeSlots.length > 0) {
             console.log('Found time slots, converting to weekly format:', timeSlots);
             
-
-// If you want to ensure consistent formatting, use this version:
-const cleanTimeSlots = timeSlots.map(slot => {
-  const parts = slot.split(' - ');
-  if (parts.length === 2) {
-    // Ensure proper formatting: "9:00 AM - 10:00 AM"
-    return `${parts[0].trim()} - ${parts[1].trim()}`;
-  }
-  return slot.trim();
-}).filter(time => time);
+            // If you want to ensure consistent formatting, use this version:
+            const cleanTimeSlots = timeSlots.map(slot => {
+              const parts = slot.split(' - ');
+              if (parts.length === 2) {
+                // Ensure proper formatting: "9:00 AM - 10:00 AM"
+                return `${parts[0].trim()} - ${parts[1].trim()}`;
+              }
+              return slot.trim();
+            }).filter(time => time);
+            
             const sortedSlots = cleanTimeSlots.sort((a, b) => {
               const timeA = new Date(`2000/01/01 ${a}`);
               const timeB = new Date(`2000/01/01 ${b}`);
