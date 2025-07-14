@@ -1,4 +1,4 @@
-const User = require('../models/User');
+const User = require('../models/User'); // Ensure your User model is correctly defined
 const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
 
@@ -375,7 +375,8 @@ exports.approveUser = async (req, res) => {
       });
     }
 
-    await user.approve(req.user.id);
+    // Assuming User model has an approve method
+    await user.approve(req.user.id); // Pass admin's ID as approver
 
     res.status(200).json({
       success: true,
@@ -415,7 +416,8 @@ exports.rejectUser = async (req, res) => {
       });
     }
 
-    await user.reject(req.user.id, reason);
+    // Assuming User model has a reject method
+    await user.reject(req.user.id, reason); // Pass admin's ID and reason
 
     res.status(200).json({
       success: true,
@@ -451,12 +453,13 @@ exports.getAllUsers = async (req, res) => {
       sort: { createdAt: -1 }
     };
 
+    // Corrected find and pagination logic
     const users = await User.find(filter)
       .select('-password')
-      .populate('approvedBy', 'name email')
+      .populate('approvedBy', 'name email') // Assuming 'approvedBy' field in User model
       .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .limit(options.limit)
+      .skip((options.page - 1) * options.limit);
 
     const total = await User.countDocuments(filter);
 
@@ -464,8 +467,8 @@ exports.getAllUsers = async (req, res) => {
       success: true,
       count: users.length,
       total,
-      page: parseInt(page),
-      pages: Math.ceil(total / limit),
+      page: options.page,
+      pages: Math.ceil(total / options.limit),
       data: {
         users
       }

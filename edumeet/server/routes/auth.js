@@ -1,5 +1,5 @@
 const express = require('express');
-const { body } = require('express-validator');
+const { body } = require('express-validator'); // Ensure express-validator is installed: npm install express-validator
 const {
   register,
   login,
@@ -11,7 +11,7 @@ const {
   rejectUser,
   getAllUsers
 } = require('../controllers/authController');
-const { protect, restrictTo } = require('../middleware/auth');
+const { protect, restrictTo } = require('../middleware/auth'); // Ensure correct path to auth middleware
 
 const router = express.Router();
 
@@ -122,22 +122,24 @@ router.post('/register', registerValidation, register);
 router.post('/login', loginValidation, login);
 router.post('/logout', logout);
 
-// Protected routes
+// Protected routes (require valid JWT token)
 router.get('/profile', protect, getProfile);
 router.put('/profile', protect, updateProfileValidation, updateProfile);
 
-// Token verification
+// Token verification endpoint (useful for frontend to check token validity)
 router.get('/verify-token', protect, (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Token is valid',
     data: {
-      user: req.user
+      user: req.user // req.user is set by the 'protect' middleware
     }
   });
 });
 
-// Admin only routes
+// Admin-only routes for user management (require 'admin' role)
+// Note: `protect` middleware is used here, and it sets `req.user`.
+// `restrictTo('admin')` then checks `req.user.role`.
 router.get('/admin/pending', protect, restrictTo('admin'), getPendingRegistrations);
 router.get('/admin/users', protect, restrictTo('admin'), getAllUsers);
 router.put('/admin/approve/:id', protect, restrictTo('admin'), approveUser);

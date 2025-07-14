@@ -11,7 +11,7 @@ const LoginPage = () => {
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [loginStatus, setLoginStatus] = useState(null);
+  const [loginStatus, setLoginStatus] = useState(null); // 'success', 'error', or null
 
   // API configuration
   const API_URL = process.env.NODE_ENV === 'production'
@@ -67,7 +67,7 @@ const LoginPage = () => {
     }
 
     setIsLoading(true);
-    setLoginStatus(null);
+    setLoginStatus(null); // Clear previous status
 
     try {
       // Prepare the data for API submission
@@ -107,32 +107,39 @@ const LoginPage = () => {
         
         // Store authentication data
         if (result.token) {
+          // In a real application, you would store the token here:
           if (formData.rememberMe) {
-            // Note: localStorage not available in Claude.ai artifacts
-            console.log('Would store token in localStorage');
+            localStorage.setItem('userToken', result.token); // Store in localStorage for persistence
+            console.log('Stored token in localStorage');
           } else {
-            // Note: sessionStorage not available in Claude.ai artifacts
-            console.log('Would store token in sessionStorage');
+            sessionStorage.setItem('userToken', result.token); // Store in sessionStorage for session-only
+            console.log('Stored token in sessionStorage');
           }
         }
 
         // Store user info if returned
-        if (result.user) {
+        if (result.data && result.data.user) { // Access user info via result.data.user
           const userInfo = {
-            id: result.user.id,
-            name: result.user.name,
-            email: result.user.email,
-            role: result.user.role,
-            profile: result.user.profile
+            id: result.data.user._id || result.data.user.id, // Use _id or id
+            name: result.data.user.name,
+            email: result.data.user.email,
+            role: result.data.user.role,
+            profile: result.data.user.profile
           };
-          
-          console.log('Would store user info:', userInfo);
+          // Store user info in localStorage/sessionStorage as well
+          if (formData.rememberMe) {
+            localStorage.setItem('user', JSON.stringify(userInfo));
+          } else {
+            sessionStorage.setItem('user', JSON.stringify(userInfo));
+          }
+          console.log('Stored user info:', userInfo);
         }
 
         // Redirect to dashboard after successful login
         setTimeout(() => {
           console.log('Redirecting to dashboard...');
-          window.location.href = '/user/dashboard';
+          // Ensure this path is correct for your application's routing
+          window.location.href = '/user/dashboard'; 
         }, 2000);
 
       } else {
@@ -146,18 +153,10 @@ const LoginPage = () => {
           data: result
         });
         
-        // Handle specific error types
-        if (response.status === 401) {
-          setErrors({ general: 'Invalid email or password. Please try again.' });
-        } else if (response.status === 403) {
-          setErrors({ general: 'Account is disabled. Please contact support.' });
-        } else if (response.status === 429) {
-          setErrors({ general: 'Too many login attempts. Please try again later.' });
-        } else if (result && result.message) {
-          setErrors({ general: result.message });
-        } else {
-          setErrors({ general: `Login failed (${response.status}): ${response.statusText}` });
-        }
+        // Use the specific message from the backend if available, otherwise a generic one
+        // FIX: Use result.message directly from backend response
+        const backendMessage = result && result.message ? result.message : `Login failed (${response.status}): ${response.statusText}`;
+        setErrors({ general: backendMessage });
       }
 
     } catch (error) {
@@ -177,15 +176,17 @@ const LoginPage = () => {
 
   const handleForgotPassword = () => {
     console.log('Forgot password clicked');
+    // In a real app, navigate to a forgot password page
+    // window.location.href = '/forgot-password';
   };
 
   const handleSignUpRedirect = () => {
     console.log('Redirecting to registration page...');
-    window.location.href = '/user/register';
+    window.location.href = '/user/register'; // Ensure this path is correct
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative overflow-hidden font-inter"> {/* Added font-inter */}
       {/* Animated Background Elements */}
       <div className="absolute inset-0">
         <div className="absolute top-0 left-0 w-72 h-72 bg-gradient-to-br from-blue-400/20 to-indigo-600/20 rounded-full blur-3xl animate-pulse"></div>
@@ -235,7 +236,8 @@ const LoginPage = () => {
                     </div>
                     <div className="ml-3">
                       <p className="text-sm font-semibold text-red-800">Login Failed</p>
-                      <p className="text-sm text-red-700">{errors.general}</p>
+                      {/* FIX: Display specific error message from backend */}
+                      <p className="text-sm text-red-700">{errors.general}</p> 
                     </div>
                   </div>
                 </div>
