@@ -29,7 +29,9 @@ exports.protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Find user by ID
-    const user = await User.findById(decoded.id);
+    // Note: This 'protect' middleware is for general users (students/teachers)
+    // The ID in the token for these users should be directly 'id'
+    const user = await User.findById(decoded.id); 
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -108,8 +110,9 @@ exports.protectMultiRole = async (req, res, next) => {
     let user;
     
     // Check if it's a teacher or regular user based on role in token
+    // Assuming 'decoded.role' is present in the token for multi-role protection
     if (decoded.role === 'teacher') {
-      user = await Teacher.findById(decoded.id);
+      user = await Teacher.findById(decoded.id); // Assuming teacher ID is 'id' in token
       if (!user) {
         return res.status(401).json({
           success: false,
@@ -126,7 +129,7 @@ exports.protectMultiRole = async (req, res, next) => {
       }
     } else {
       // Regular user (admin/student)
-      user = await User.findById(decoded.id);
+      user = await User.findById(decoded.id); // Assuming user ID is 'id' in token
       if (!user) {
         return res.status(401).json({
           success: false,
@@ -193,8 +196,8 @@ exports.authenticateAdmin = async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(actualToken, process.env.JWT_SECRET);
     
-    // Find admin
-    const admin = await Admin.findById(decoded.id);
+    // Find admin using 'adminId' from the decoded token payload
+    const admin = await Admin.findById(decoded.adminId); // FIX: Changed from decoded.id to decoded.adminId
     if (!admin) {
       return res.status(401).json({
         success: false,
@@ -202,14 +205,23 @@ exports.authenticateAdmin = async (req, res, next) => {
       });
     }
 
-    // Add admin to request object
-    req.admin = admin;
+    // Attach admin to request object, ensuring 'id' property is available
+    req.admin = {
+      ...admin.toObject(), // Convert Mongoose document to plain object
+      id: admin._id // Explicitly set 'id' for consistency if needed by controllers
+    };
     next();
   } catch (error) {
     console.error('Authentication error:', error);
+    let message = 'Invalid token';
+    if (error.name === 'TokenExpiredError') {
+      message = 'Token expired';
+    } else if (error.name === 'JsonWebTokenError') {
+      message = 'Invalid token signature or malformed token';
+    }
     return res.status(401).json({
       success: false,
-      message: 'Invalid token'
+      message: message
     });
   }
 };

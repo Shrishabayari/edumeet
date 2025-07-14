@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { PlusCircle, MapPin, Users, Globe, Zap, LogOut, User, AlertCircle, BookOpen, UserCheck } from 'lucide-react';
 
 // Use the same API configuration as your existing api.js
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet-server.onrender.com' || 'http://localhost:5000';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com' || 'http://localhost:5000';
 
 // API Helper functions for token management
 const apiHelpers = {
@@ -39,6 +39,10 @@ const adminAPI = {
   getProfile: async () => {
     try {
       const token = apiHelpers.getToken();
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
       const response = await fetch(`${API_BASE_URL}/admin/profile`, {
         method: 'GET',
         headers: {
@@ -48,6 +52,9 @@ const adminAPI = {
       });
       
       if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Unauthorized - Please login again');
+        }
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
@@ -61,7 +68,12 @@ const adminAPI = {
   getDashboardStats: async () => {
     try {
       const token = apiHelpers.getToken();
-      const response = await fetch(`${API_BASE_URL}/admin/dashboard/stats`, {
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
+      // Fixed: Use /admin/dashboard instead of /admin/dashboard/stats
+      const response = await fetch(`${API_BASE_URL}/admin/dashboard`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -70,6 +82,9 @@ const adminAPI = {
       });
       
       if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Unauthorized - Please login again');
+        }
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
@@ -83,13 +98,15 @@ const adminAPI = {
   logout: async () => {
     try {
       const token = apiHelpers.getToken();
-      await fetch(`${API_BASE_URL}/admin/logout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      if (token) {
+        await fetch(`${API_BASE_URL}/admin/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+      }
       
       apiHelpers.logout();
       return { success: true };
@@ -192,11 +209,18 @@ const AdminDashboard = () => {
           setAdminData(profile);
         } catch (profileError) {
           console.log('Profile loading failed:', profileError);
+          
           // If it's an authentication error, redirect to login
-          if (profileError.message.includes('401') || profileError.message.includes('403')) {
+          if (profileError.message.includes('Unauthorized') || 
+              profileError.message.includes('401') || 
+              profileError.message.includes('403')) {
+            apiHelpers.logout();
             navigate('/admin/login');
             return;
           }
+          
+          // Set a user-friendly error message
+          setError('Failed to load profile. Please try refreshing the page.');
         }
 
         // Load dashboard stats
@@ -205,7 +229,17 @@ const AdminDashboard = () => {
           setStats(dashboardStats);
         } catch (statsError) {
           console.log('Stats loading failed:', statsError);
-          // Continue without stats - not critical
+          
+          // If it's an authentication error, redirect to login
+          if (statsError.message.includes('Unauthorized') || 
+              statsError.message.includes('401') || 
+              statsError.message.includes('403')) {
+            apiHelpers.logout();
+            navigate('/admin/login');
+            return;
+          }
+          
+          // Continue without stats - not critical for basic functionality
         }
 
       } catch (error) {
@@ -213,7 +247,10 @@ const AdminDashboard = () => {
         setError('Failed to load dashboard data. Please try refreshing the page.');
         
         // If it's an authentication error, redirect to login
-        if (error.message.includes('401') || error.message.includes('403')) {
+        if (error.message.includes('Unauthorized') || 
+            error.message.includes('401') || 
+            error.message.includes('403')) {
+          apiHelpers.logout();
           navigate('/admin/login');
         }
       } finally {
@@ -360,6 +397,9 @@ const AdminDashboard = () => {
               </p>
               <p className="text-xs text-gray-500 mt-1">
                 API URL: {API_BASE_URL}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Token: {apiHelpers.getToken() ? `${apiHelpers.getToken().substring(0, 20)}...` : 'None'}
               </p>
             </div>
           )}
