@@ -1,7 +1,8 @@
+// middleware/auth.js - UPDATED with proper admin authentication
 const jwt = require('jsonwebtoken');
-const User = require('../models/User'); // Ensure your User model is correctly defined
-const Teacher = require('../models/Teacher'); // Ensure your Teacher model is correctly defined
-const Admin = require('../models/Admin'); // Ensure your Admin model is correctly defined
+const User = require('../models/User');
+const Teacher = require('../models/Teacher');
+const Admin = require('../models/Admin');
 
 // General protect middleware for regular users (students, teachers)
 exports.protect = async (req, res, next) => {
@@ -13,7 +14,7 @@ exports.protect = async (req, res, next) => {
       token = req.headers.authorization.split(' ')[1];
     }
     // Check for token in cookies (if you're using cookie-based auth)
-    else if (req.cookies && req.cookies.jwt) { // Added check for req.cookies
+    else if (req.cookies && req.cookies.jwt) {
       token = req.cookies.jwt;
     }
 
@@ -27,17 +28,10 @@ exports.protect = async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Find user by ID. The token for general users (students/teachers) should have 'id'.
-    // It could be a User or a Teacher, depending on how your system issues tokens.
-    // Assuming 'id' in token refers to the primary User model ID.
-    const user = await User.findById(decoded.id); 
+    // Find user by ID
+    const user = await User.findById(decoded.id);
     
     if (!user) {
-      // If not found in User model, try Teacher model if applicable
-      // This part might need adjustment based on how you differentiate tokens for User vs Teacher
-      // For simplicity, sticking to User model as main authentication source unless specified.
-      // If a teacher logs in via a separate teacher login, their token might point to Teacher model.
-      // For this system, assuming 'User' model covers both roles for authentication.
       return res.status(401).json({
         success: false,
         message: 'User not found. Token invalid or user does not exist.'
@@ -52,8 +46,7 @@ exports.protect = async (req, res, next) => {
       });
     }
 
-    // Check if user is approved (except for admin, who uses authenticateAdmin)
-    // This middleware is for general users, so check approval status.
+    // Check if user is approved (except for admin)
     if (user.role !== 'admin' && user.approvalStatus !== 'approved') {
       return res.status(401).json({
         success: false,
@@ -89,16 +82,17 @@ exports.protect = async (req, res, next) => {
   }
 };
 
-// Admin-specific authentication middleware
+// Admin-specific authentication middleware - FIXED
 exports.authenticateAdmin = async (req, res, next) => {
   try {
     let token;
+    
     // Check for token in header
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
     }
-    // Check for token in cookies (if you're using cookie-based auth)
-    else if (req.cookies && req.cookies.jwt) { // Added check for req.cookies
+    // Check for token in cookies
+    else if (req.cookies && req.cookies.jwt) {
       token = req.cookies.jwt;
     }
     
@@ -113,7 +107,8 @@ exports.authenticateAdmin = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
     // Find admin using 'adminId' from the decoded token payload
-    const admin = await Admin.findById(decoded.adminId); 
+    const admin = await Admin.findById(decoded.adminId);
+    
     if (!admin) {
       return res.status(401).json({
         success: false,
@@ -129,22 +124,31 @@ exports.authenticateAdmin = async (req, res, next) => {
       });
     }
 
-    // Attach admin to request object, ensuring 'id' property is available
-    req.admin = {
-      ...admin.toObject(), // Convert Mongoose document to plain object
-      id: admin._id // Explicitly set 'id' for consistency if needed by controllers
-    };
-    // For consistency with 'protect' middleware, also set req.user if needed by 'restrictTo'
-    req.user = req.admin; 
+    // Check if admin is active
+    if (!admin.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Admin account is deactivated.'
+      });
+    }
+
+    // Attach admin to request object
+    req.admin = admin;
+    // For consistency with 'protect' middleware, also set req.user
+    req.user = admin;
+    
     next();
+    
   } catch (error) {
     console.error('Authentication error (authenticateAdmin middleware):', error);
+    
     let message = 'Invalid token';
     if (error.name === 'TokenExpiredError') {
       message = 'Token expired';
     } else if (error.name === 'JsonWebTokenError') {
       message = 'Invalid token signature or malformed token';
     }
+    
     return res.status(401).json({
       success: false,
       message: message
@@ -155,7 +159,6 @@ exports.authenticateAdmin = async (req, res, next) => {
 // Role-based authorization middleware
 exports.authorize = (...roles) => {
   return (req, res, next) => {
-    // This middleware expects req.user to be set by a preceding authentication middleware (like 'protect' or 'authenticateAdmin')
     if (!req.user || !req.user.role) {
       return res.status(401).json({
         success: false,
@@ -174,10 +177,9 @@ exports.authorize = (...roles) => {
   };
 };
 
-// Restrict to specific roles (alias for authorize, kept for clarity if used differently)
+// Restrict to specific roles (alias for authorize)
 exports.restrictTo = (...roles) => {
   return (req, res, next) => {
-    // This middleware expects req.user to be set by a preceding authentication middleware
     if (!req.user || !req.user.role) {
       return res.status(401).json({
         success: false,
@@ -191,6 +193,7 @@ exports.restrictTo = (...roles) => {
         message: 'Access denied. Insufficient permissions.'
       });
     }
+    
     next();
   };
 };
@@ -215,6 +218,7 @@ exports.optionalAuth = async (req, res, next) => {
       
       // Find user by ID
       const user = await User.findById(decoded.id);
+      
       // Only attach user if found, active, and approved (or admin)
       if (user && user.isActive && (user.role === 'admin' || user.approvalStatus === 'approved')) {
         req.user = user;

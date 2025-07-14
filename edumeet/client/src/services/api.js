@@ -1,4 +1,4 @@
-// client/src/api.js (EduMeet API Configuration)
+// client/src/api.js (EduMeet API Configuration) - CORRECTED
 import axios from 'axios';
 
 // Prioritize environment variable, then remote server, then local development server
@@ -113,14 +113,22 @@ export const endpoints = {
     logout: '/auth/logout',
     profile: '/auth/profile',
     verifyToken: '/auth/verify-token',
+    
+    // User approval routes under auth (these exist in your authRoutes.js)
+    admin: {
+      pending: '/auth/admin/pending',
+      users: '/auth/admin/users',
+      approve: (id) => `/auth/admin/approve/${id}`,
+      reject: (id) => `/auth/admin/reject/${id}`,
+    }
   },
 
-  // Teacher endpoints - CORRECTED ACCORDING TO BACKEND ROUTES
+  // Teacher endpoints
   teachers: {
     // Basic CRUD operations
     getAll: '/teachers',
     getById: (id) => `/teachers/${id}`,
-    create: '/teachers', // Fixed: was pointing to wrong route
+    create: '/teachers',
     update: (id) => `/teachers/${id}`,
     delete: (id) => `/teachers/${id}`,
     permanentDelete: (id) => `/teachers/${id}/permanent`,
@@ -148,7 +156,7 @@ export const endpoints = {
     getStats: '/appointments/stats',
   },
 
-  // Admin endpoints
+  // Admin endpoints (separate from auth/admin)
   admin: {
     // Admin Auth
     register: '/admin/register',
@@ -157,7 +165,7 @@ export const endpoints = {
     updateProfile: '/admin/profile',
     
     // Admin Dashboard
-    dashboardStats: '/admin/dashboard/stats',
+    dashboardStats: '/admin/dashboard',
     
     // User Management
     getUsers: '/admin/users',
@@ -168,12 +176,6 @@ export const endpoints = {
     
     // Teacher Management
     updateTeacherStatus: (teacherId) => `/admin/teachers/${teacherId}/status`,
-    
-    // User approval (from auth routes)
-    getPendingRegistrations: '/auth/admin/pending',
-    getAllUsers: '/auth/admin/users',
-    approveUser: (id) => `/auth/admin/approve/${id}`,
-    rejectUser: (id) => `/auth/admin/reject/${id}`,
   }
 };
 
@@ -187,7 +189,7 @@ export const apiMethods = {
   updateProfile: (data) => api.put(endpoints.auth.profile, data),
   verifyToken: () => api.get(endpoints.auth.verifyToken),
 
-  // Teacher Operations - CORRECTED AND REORGANIZED
+  // Teacher Operations
   getAllTeachers: (params = {}) => api.get(endpoints.teachers.getAll, { params }),
   getTeacherById: (id) => api.get(endpoints.teachers.getById(id)),
   createTeacher: (teacherData) => api.post(endpoints.teachers.create, teacherData),
@@ -197,7 +199,7 @@ export const apiMethods = {
   getTeachersByDepartment: (department) => api.get(endpoints.teachers.getByDepartment(department)),
   getTeacherStats: () => api.get(endpoints.teachers.getStats),
 
-  // Teacher Auth Operations - CORRECTED
+  // Teacher Auth Operations
   teacherLogin: (credentials) => api.post(endpoints.teachers.login, credentials),
   sendTeacherSetupLink: (data) => api.post(endpoints.teachers.sendSetupLink, data),
   setupTeacherAccount: (token, data) => api.post(endpoints.teachers.setupAccount(token), data),
@@ -213,7 +215,7 @@ export const apiMethods = {
   getTeacherAppointments: (teacherId, params = {}) => api.get(endpoints.appointments.getByTeacher(teacherId), { params }),
   getAppointmentStats: () => api.get(endpoints.appointments.getStats),
 
-  // Admin Operations
+  // Admin Operations (separate admin routes)
   adminRegister: (adminData) => api.post(endpoints.admin.register, adminData),
   adminLogin: (credentials) => api.post(endpoints.admin.login, credentials),
   getAdminProfile: () => api.get(endpoints.admin.profile),
@@ -224,11 +226,44 @@ export const apiMethods = {
   getAdminAppointments: (params = {}) => api.get(endpoints.admin.getAllAppointments, { params }),
   updateTeacherStatus: (teacherId, statusData) => api.patch(endpoints.admin.updateTeacherStatus(teacherId), statusData),
 
-  // User Approval Operations (Admin)
-  getPendingRegistrations: () => api.get(endpoints.admin.getPendingRegistrations),
-  getAllUsersForAdmin: (params = {}) => api.get(endpoints.admin.getAllUsers, { params }),
-  approveUser: (id) => api.put(endpoints.admin.approveUser(id)),
-  rejectUser: (id, reason) => api.put(endpoints.admin.rejectUser(id), { reason }),
+  // User Approval Operations (using auth/admin routes with admin token)
+  getPendingRegistrations: () => {
+    // Use admin token for these auth/admin routes
+    const adminToken = localStorage.getItem('adminToken');
+    return api.get(endpoints.auth.admin.pending, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      }
+    });
+  },
+  
+  getAllUsersForAdmin: (params = {}) => {
+    const adminToken = localStorage.getItem('adminToken');
+    return api.get(endpoints.auth.admin.users, { 
+      params,
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      }
+    });
+  },
+  
+  approveUser: (id) => {
+    const adminToken = localStorage.getItem('adminToken');
+    return api.put(endpoints.auth.admin.approve(id), {}, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      }
+    });
+  },
+  
+  rejectUser: (id, reason) => {
+    const adminToken = localStorage.getItem('adminToken');
+    return api.put(endpoints.auth.admin.reject(id), { reason }, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      }
+    });
+  },
 
   // Enhanced appointment booking with better error handling
   bookAppointmentWithRetry: async (appointmentData) => {
@@ -342,7 +377,7 @@ export const apiMethods = {
       errors.push('Valid email is required');
     }
     
-    if (!teacherData.phone || !/^[]?[1-9][\d]{0,15}$/.test(teacherData.phone)) {
+    if (!teacherData.phone || !/^[\d]{10}$/.test(teacherData.phone)) {
       errors.push('Valid phone number is required');
     }
     

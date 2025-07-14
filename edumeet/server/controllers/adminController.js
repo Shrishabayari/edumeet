@@ -1,6 +1,10 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Admin = require('../models/Admin');
+const Teacher = require('../models/Teacher'); // Import Teacher model
+const User = require('../models/User'); // Assuming User model is needed for general user management
+const Appointment = require('../models/Appointment'); // Import Appointment model
+const Student = require('../models/User'); // Assuming students are part of the User model or a separate Student model
 
 // Register Admin
 const registerAdmin = async (req, res) => {
@@ -202,7 +206,7 @@ const getDashboardStats = async (req, res) => {
   try {
     // Fetch counts from your database
     const totalTeachers = await Teacher.countDocuments();
-    const totalStudents = await Student.countDocuments();
+    const totalStudents = await User.countDocuments({ role: 'student' }); // Assuming students are users with role 'student'
     const totalAppointments = await Appointment.countDocuments();
     const pendingAppointments = await Appointment.countDocuments({ status: 'pending' });
     const approvedTeachers = await Teacher.countDocuments({ status: 'approved' });
@@ -231,8 +235,11 @@ const getDashboardStats = async (req, res) => {
 // Get all users
 const getUsers = async (req, res) => {
   try {
-    const teachers = await Teacher.find().select('-password');
-    const students = await Student.find().select('-password');
+    // You might want to fetch all users from your general User model
+    // and filter by role on the frontend or add more specific queries here.
+    // Assuming 'User' model covers both students and teachers if they are not separate collections.
+    const teachers = await Teacher.find().select('-password'); // Fetch teachers from Teacher model
+    const students = await User.find({ role: 'student' }).select('-password'); // Fetch students from User model with role 'student'
 
     res.json({
       success: true,
@@ -314,17 +321,17 @@ const updateTeacherStatus = async (req, res) => {
 const deleteUser = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { type } = req.query;
+    const { type } = req.query; // Expecting 'teacher' or 'student'
 
     let deletedUser;
     if (type === 'teacher') {
       deletedUser = await Teacher.findByIdAndDelete(userId);
     } else if (type === 'student') {
-      deletedUser = await Student.findByIdAndDelete(userId);
+      deletedUser = await User.findByIdAndDelete(userId); // Assuming students are in User model
     } else {
       return res.status(400).json({
         success: false,
-        message: 'Invalid user type'
+        message: 'Invalid user type specified. Must be "teacher" or "student".'
       });
     }
 

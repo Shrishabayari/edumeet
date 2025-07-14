@@ -1,28 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
-// Corrected import: Ensure Mail, GraduationCap, and BookOpen are explicitly listed
 import { CheckCircle, XCircle, AlertCircle, Loader2, UserPlus, UserCheck, UserX, Info, Mail, GraduationCap, BookOpen } from 'lucide-react';
-import { apiMethods, tokenManager } from '../../services/api'; // Adjust path as necessary
+import { apiMethods, tokenManager } from '../../services/api';
 
-const AdminUserApprovalPage = () => {
+const StudentApproval= () => {
   const [pendingUsers, setPendingUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showRejectionModal, setShowRejectionModal] = useState(false);
   const [selectedUserForRejection, setSelectedUserForRejection] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
-  const [actionStatus, setActionStatus] = useState(null); // 'success' or 'error' for approval/rejection actions
+  const [actionStatus, setActionStatus] = useState(null);
 
   // Function to fetch pending registrations
   const fetchPendingRegistrations = useCallback(async () => {
     setLoading(true);
     setError('');
-    setActionStatus(null); // Clear action status on new fetch
+    setActionStatus(null);
 
     const adminToken = tokenManager.getAdminToken();
     if (!adminToken) {
       setError('Admin not authenticated. Please log in.');
       setLoading(false);
-      // Redirect to admin login if no token
       setTimeout(() => {
         window.location.href = '/admin/login';
       }, 1500);
@@ -30,24 +28,38 @@ const AdminUserApprovalPage = () => {
     }
 
     try {
-      // Use the correct API method for fetching pending registrations
       const response = await apiMethods.getPendingRegistrations();
-      // Assuming response.data.data.users contains the array of pending users
-      if (response.data && response.data.data && Array.isArray(response.data.data.users)) {
-        setPendingUsers(response.data.data.users);
-      } else {
-        setPendingUsers([]);
-        console.warn('Unexpected response format for pending registrations:', response.data);
+      console.log('Pending registrations response:', response.data);
+      
+      // Handle different possible response formats
+      let users = [];
+      if (response.data) {
+        if (response.data.data && Array.isArray(response.data.data.users)) {
+          users = response.data.data.users;
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          users = response.data.data;
+        } else if (Array.isArray(response.data.users)) {
+          users = response.data.users;
+        } else if (Array.isArray(response.data)) {
+          users = response.data;
+        }
+      }
+      
+      setPendingUsers(users);
+      
+      if (users.length === 0) {
+        console.log('No pending users found');
       }
     } catch (err) {
       console.error('Error fetching pending registrations:', err);
       setError(err.message || 'Failed to fetch pending registrations.');
       setPendingUsers([]);
-      // If 401, token might be expired or invalid, redirect to login
-      if (err.response && err.response.status === 401) {
+      
+      // If 401 or 403, token might be expired or invalid
+      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
         tokenManager.removeAdminToken();
         setTimeout(() => {
-          window.location.href = '/admin/login';
+          window.location.href = '/admin/approval';
         }, 1500);
       }
     } finally {
@@ -62,9 +74,15 @@ const AdminUserApprovalPage = () => {
 
   // Handle user approval
   const handleApproveUser = async (userId) => {
+    if (!userId) {
+      setError('Invalid user ID');
+      return;
+    }
+
     setLoading(true);
     setError('');
     setActionStatus(null);
+    
     try {
       await apiMethods.approveUser(userId);
       setActionStatus('success');
@@ -104,8 +122,9 @@ const AdminUserApprovalPage = () => {
     setLoading(true);
     setError('');
     setActionStatus(null);
+    
     try {
-      await apiMethods.rejectUser(selectedUserForRejection._id, { reason: rejectionReason.trim() });
+      await apiMethods.rejectUser(selectedUserForRejection._id, rejectionReason.trim());
       setActionStatus('success');
       closeRejectionModal();
       // Re-fetch pending users to update the list
@@ -117,6 +136,17 @@ const AdminUserApprovalPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper function to safely get user info
+  const getUserInfo = (user) => {
+    return {
+      id: user._id || user.id,
+      name: user.name || 'Unknown',
+      email: user.email || 'No email',
+      role: user.role || 'student',
+      profile: user.profile || {}
+    };
   };
 
   return (
@@ -210,110 +240,116 @@ const AdminUserApprovalPage = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {pendingUsers.map(user => (
-                  <div key={user._id} className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center mb-3">
-                        <UserPlus className="w-6 h-6 text-purple-600 mr-3" />
-                        <h3 className="text-xl font-semibold text-gray-800">{user.name}</h3>
+                {pendingUsers.map(user => {
+                  const userInfo = getUserInfo(user);
+                  return (
+                    <div key={userInfo.id} className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center mb-3">
+                          <UserPlus className="w-6 h-6 text-purple-600 mr-3" />
+                          <h3 className="text-xl font-semibold text-gray-800">{userInfo.name}</h3>
+                        </div>
+                        <p className="text-gray-600 text-sm mb-1 flex items-center">
+                          <Mail className="w-4 h-4 mr-2 text-gray-500" /> 
+                          {userInfo.email}
+                        </p>
+                        <p className="text-gray-600 text-sm mb-3 flex items-center">
+                          <Info className="w-4 h-4 mr-2 text-gray-500" /> 
+                          Role: <span className="font-medium capitalize ml-1">{userInfo.role}</span>
+                        </p>
+                        
+                        {userInfo.role === 'student' && userInfo.profile.grade && (
+                          <p className="text-gray-600 text-sm mb-3 flex items-center">
+                            <GraduationCap className="w-4 h-4 mr-2 text-gray-500" /> 
+                            Grade: <span className="font-medium ml-1">{userInfo.profile.grade}</span>
+                          </p>
+                        )}
+                        {userInfo.role === 'teacher' && userInfo.profile.subject && (
+                          <p className="text-gray-600 text-sm mb-3 flex items-center">
+                            <BookOpen className="w-4 h-4 mr-2 text-gray-500" /> 
+                            Subject: <span className="font-medium ml-1">{userInfo.profile.subject}</span>
+                          </p>
+                        )}
                       </div>
-                      <p className="text-gray-600 text-sm mb-1 flex items-center"><Mail className="w-4 h-4 mr-2 text-gray-500" /> {user.email}</p>
-                      <p className="text-gray-600 text-sm mb-3 flex items-center"><Info className="w-4 h-4 mr-2 text-gray-500" /> Role: <span className="font-medium capitalize ml-1">{user.role}</span></p>
                       
-                      {user.role === 'student' && user.profile?.grade && (
-                        <p className="text-gray-600 text-sm flex items-center"><GraduationCap className="w-4 h-4 mr-2 text-gray-500" /> Grade: <span className="font-medium ml-1">{user.profile.grade}</span></p>
-                      )}
-                      {user.role === 'teacher' && user.profile?.subject && (
-                        <p className="text-gray-600 text-sm flex items-center"><BookOpen className="w-4 h-4 mr-2 text-gray-500" /> Subject: <span className="font-medium ml-1">{user.profile.subject}</span></p>
-                      )}
-                      {user.role === 'teacher' && user.profile?.department && (
-                        <p className="text-gray-600 text-sm flex items-center"><Info className="w-4 h-4 mr-2 text-gray-500" /> Department: <span className="font-medium ml-1">{user.profile.department}</span></p>
-                      )}
+                      {/* Action Buttons */}
+                      <div className="flex space-x-3 mt-4 pt-4 border-t border-gray-100">
+                        <button
+                          onClick={() => handleApproveUser(userInfo.id)}
+                          className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors shadow-md flex items-center justify-center disabled:opacity-50"
+                          disabled={loading}
+                        >
+                          <UserCheck className="w-4 h-4 mr-2" />
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => openRejectionModal(user)}
+                          className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors shadow-md flex items-center justify-center disabled:opacity-50"
+                          disabled={loading}
+                        >
+                          <UserX className="w-4 h-4 mr-2" />
+                          Reject
+                        </button>
+                      </div>
                     </div>
-                    <div className="mt-4 flex space-x-3">
-                      <button
-                        onClick={() => handleApproveUser(user._id)}
-                        className="flex-1 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors duration-200 shadow-md flex items-center justify-center text-sm"
-                        disabled={loading}
-                      >
-                        <CheckCircle className="w-4 h-4 mr-2" /> Approve
-                      </button>
-                      <button
-                        onClick={() => openRejectionModal(user)}
-                        className="flex-1 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors duration-200 shadow-md flex items-center justify-center text-sm"
-                        disabled={loading}
-                      >
-                        <XCircle className="w-4 h-4 mr-2" /> Reject
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         )}
-      </div>
 
-      {/* Rejection Modal */}
-      {showRejectionModal && selectedUserForRejection && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl transform transition-all duration-300 scale-100 opacity-100">
-            <div className="bg-gradient-to-r from-red-500 to-rose-600 p-6 rounded-t-2xl flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-white">Reject User: {selectedUserForRejection.name}</h2>
-              <button
-                onClick={closeRejectionModal}
-                className="text-white hover:text-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded-full p-1"
-                aria-label="Close rejection modal"
-              >
-                <XCircle className="w-7 h-7" />
-              </button>
-            </div>
-            
-            <div className="p-6 space-y-4">
-              {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <div className="flex items-center">
-                    <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
-                    <span className="text-red-700 text-sm font-medium">{error}</span>
-                  </div>
-                </div>
-              )}
-              <p className="text-gray-700">Please provide a reason for rejecting this user's registration:</p>
+        {/* Rejection Modal */}
+        {showRejectionModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
+              <div className="flex items-center mb-4">
+                <UserX className="w-6 h-6 text-red-600 mr-3" />
+                <h3 className="text-xl font-semibold text-gray-800">Reject User Registration</h3>
+              </div>
+              
+              <p className="text-gray-600 mb-4">
+                You are about to reject the registration for{' '}
+                <span className="font-medium">{selectedUserForRejection?.name}</span>.
+                Please provide a reason for rejection.
+              </p>
+              
               <textarea
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 resize-y"
-                rows="4"
-                placeholder="e.g., Incomplete profile, invalid credentials, not meeting criteria..."
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
-                disabled={loading}
-              ></textarea>
-              <div className="flex justify-end space-x-3">
+                placeholder="Enter rejection reason..."
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+                rows="4"
+                maxLength="500"
+              />
+              
+              <div className="flex justify-end space-x-3 mt-6">
                 <button
                   onClick={closeRejectionModal}
-                  className="bg-gray-200 text-gray-700 px-5 py-2 rounded-lg hover:bg-gray-300 transition-colors duration-200 font-medium"
+                  className="px-6 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                   disabled={loading}
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleRejectUser}
-                  className="bg-red-600 text-white px-5 py-2 rounded-lg hover:bg-red-700 transition-colors duration-200 font-medium flex items-center justify-center"
-                  disabled={loading}
+                  className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md flex items-center justify-center disabled:opacity-50"
+                  disabled={loading || !rejectionReason.trim()}
                 >
                   {loading ? (
-                    <Loader2 className="animate-spin w-5 h-5 mr-2" />
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
-                    <UserX className="w-5 h-5 mr-2" />
+                    <UserX className="w-4 h-4 mr-2" />
                   )}
                   Reject User
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
 
-export default AdminUserApprovalPage;
+export default StudentApproval;
