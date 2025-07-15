@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from 'react-router-dom';
-import { PlusCircle, MapPin, Users, Globe, Zap, LogOut, User, AlertCircle, BookOpen, UserCheck } from 'lucide-react';
+import { PlusCircle, Users, Globe, Zap, LogOut, User, AlertCircle, BookOpen, UserCheck } from 'lucide-react';
 
 // Use the same API configuration as your existing api.js
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com' || 'http://localhost:5000';
@@ -119,6 +119,29 @@ const adminAPI = {
   }
 };
 
+// Helper function to format stat values for display
+const formatStatValue = (value) => {
+  if (value === null || value === undefined) {
+    return '0';
+  }
+  if (typeof value === 'object') {
+    if (Array.isArray(value)) {
+      return value.length.toString();
+    }
+    // If it's an object, try to get a meaningful count
+    return Object.keys(value).length.toString();
+  }
+  return value.toString();
+};
+
+// Helper function to format stat keys for display
+const formatStatKey = (key) => {
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .trim()
+    .replace(/^./, (str) => str.toUpperCase());
+};
+
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const [adminData, setAdminData] = useState(null);
@@ -226,6 +249,7 @@ const AdminDashboard = () => {
         // Load dashboard stats
         try {
           const dashboardStats = await adminAPI.getDashboardStats();
+          console.log('Dashboard stats received:', dashboardStats);
           setStats(dashboardStats);
         } catch (statsError) {
           console.log('Stats loading failed:', statsError);
@@ -342,15 +366,17 @@ const AdminDashboard = () => {
               </div>
             )}
 
-            {/* Stats Section */}
+            {/* Stats Section - Fixed */}
             {stats && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 {Object.entries(stats).map(([key, value]) => (
                   <div key={key} className="bg-gradient-to-r from-red-50 to-pink-50 rounded-lg p-4 border border-red-100">
                     <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">
-                      {key.replace(/([A-Z])/g, ' $1').trim()}
+                      {formatStatKey(key)}
                     </h3>
-                    <p className="text-2xl font-bold text-gray-900 mt-2">{value}</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-2">
+                      {formatStatValue(value)}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -401,6 +427,11 @@ const AdminDashboard = () => {
               <p className="text-xs text-gray-500 mt-1">
                 Token: {apiHelpers.getToken() ? `${apiHelpers.getToken().substring(0, 20)}...` : 'None'}
               </p>
+              {stats && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Stats: {JSON.stringify(stats)}
+                </p>
+              )}
             </div>
           )}
         </div>

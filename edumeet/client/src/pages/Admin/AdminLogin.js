@@ -63,11 +63,12 @@ const AdminLogin = () => {
       console.log("Admin Login Response:", data);
 
       if (!response.ok) {
-        throw {
-          status: response.status,
-          message: data.message || data.error || `Request failed with status ${response.status}`,
-          data,
-        };
+        // Fixed: Create proper Error object instead of throwing plain object
+        const errorMessage = data.message || data.error || `Request failed with status ${response.status}`;
+        const error = new Error(errorMessage);
+        error.status = response.status;
+        error.data = data;
+        throw error;
       }
 
       // Store admin token specifically
