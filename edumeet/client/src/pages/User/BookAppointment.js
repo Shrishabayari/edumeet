@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, User, Mail, Phone, BookOpen, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, User, Mail, Phone, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { apiMethods } from '../../services/api'; // Assuming this path is correct
 
 // Valid day names for validation
@@ -62,7 +62,7 @@ const getDefaultAvailability = () => {
   ];
 };
 
-const SheduleApppointment = ({ onAppointmentBooked }) => {
+const BookAppointment = ({ onAppointmentBooked }) => {
   const [teachers, setTeachers] = useState([]);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [selectedDay, setSelectedDay] = useState('');
@@ -579,4 +579,4 @@ const SheduleApppointment = ({ onAppointmentBooked }) => {
   );
 };
 
-export default SheduleApppointment;
+export default BookAppointment;

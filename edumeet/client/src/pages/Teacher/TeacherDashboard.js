@@ -44,7 +44,7 @@ const TeacherDashboard = () => {
       bgColor: "bg-yellow-50",
       hoverBg: "hover:bg-yellow-600",
       textColor: "text-yellow-800",
-      path: "/teacher/all-appointments",
+      path: "/teacher/Appointment-list",
     },
     {
       title: "My Profile",
