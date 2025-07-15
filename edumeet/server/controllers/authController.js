@@ -1,4 +1,4 @@
-// controllers/authController.js - UPDATED with proper admin functions
+// controllers/authController.js - FIXED version
 const { validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -223,22 +223,20 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// ADMIN FUNCTIONS - Updated to work with admin authentication
+// ADMIN FUNCTIONS - SIMPLIFIED
 
 // Get pending registrations (Admin only)
 exports.getPendingRegistrations = async (req, res) => {
   try {
-    // req.admin is set by authenticateAdmin middleware
-    if (!req.admin || req.admin.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin privileges required.'
-      });
-    }
+    console.log('Getting pending registrations...');
+    console.log('req.admin exists:', !!req.admin);
+    console.log('req.admin role:', req.admin?.role);
 
     const pendingUsers = await User.find({ 
       approvalStatus: 'pending' 
     }).sort({ createdAt: -1 });
+
+    console.log('Found pending users:', pendingUsers.length);
 
     res.json({
       success: true,
@@ -261,13 +259,9 @@ exports.getPendingRegistrations = async (req, res) => {
 // Approve user (Admin only)
 exports.approveUser = async (req, res) => {
   try {
-    // req.admin is set by authenticateAdmin middleware
-    if (!req.admin || req.admin.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin privileges required.'
-      });
-    }
+    console.log('Approving user...');
+    console.log('req.admin exists:', !!req.admin);
+    console.log('User ID to approve:', req.params.id);
 
     const { id } = req.params;
 
@@ -288,6 +282,8 @@ exports.approveUser = async (req, res) => {
 
     // Use the approve method from the schema
     await user.approve(req.admin._id);
+
+    console.log('User approved successfully');
 
     res.json({
       success: true,
@@ -312,13 +308,9 @@ exports.rejectUser = async (req, res) => {
     const validationError = handleValidationErrors(req, res);
     if (validationError) return;
 
-    // req.admin is set by authenticateAdmin middleware
-    if (!req.admin || req.admin.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin privileges required.'
-      });
-    }
+    console.log('Rejecting user...');
+    console.log('req.admin exists:', !!req.admin);
+    console.log('User ID to reject:', req.params.id);
 
     const { id } = req.params;
     const { reason } = req.body;
@@ -341,6 +333,8 @@ exports.rejectUser = async (req, res) => {
     // Use the reject method from the schema
     await user.reject(req.admin._id, reason);
 
+    console.log('User rejected successfully');
+
     res.json({
       success: true,
       message: 'User rejected successfully',
@@ -360,13 +354,8 @@ exports.rejectUser = async (req, res) => {
 // Get all users (Admin only)
 exports.getAllUsers = async (req, res) => {
   try {
-    // req.admin is set by authenticateAdmin middleware
-    if (!req.admin || req.admin.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin privileges required.'
-      });
-    }
+    console.log('Getting all users...');
+    console.log('req.admin exists:', !!req.admin);
 
     const { status, role, page = 1, limit = 10 } = req.query;
     
@@ -384,6 +373,8 @@ exports.getAllUsers = async (req, res) => {
       .limit(parseInt(limit));
 
     const total = await User.countDocuments(query);
+
+    console.log('Found users:', users.length);
 
     res.json({
       success: true,

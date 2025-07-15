@@ -1,7 +1,6 @@
-// middleware/auth.js - UPDATED with proper admin authentication
+// middleware/auth.js - FIXED version
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const Teacher = require('../models/Teacher');
 const Admin = require('../models/Admin');
 
 // General protect middleware for regular users (students, teachers)
@@ -113,14 +112,6 @@ exports.authenticateAdmin = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: 'Admin not found or token invalid.'
-      });
-    }
-
-    // Check if the user is indeed an admin
-    if (admin.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Not an administrator.'
       });
     }
 
