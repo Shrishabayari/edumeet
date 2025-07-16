@@ -6,17 +6,27 @@ const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const http = require('http');
+const socketIo = require('socket.io');
+const jwt = require('jsonwebtoken');
 
 // Import routes
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/adminRoutes');
 const teacherRoutes = require('./routes/teacherRoutes');
-const appointmentRoutes =require('./routes/appointmentRoutes');
+const appointmentRoutes = require('./routes/appointmentRoutes');
+const messageRoutes = require('./routes/messageRoutes');
 
 // Import database connection
 const connectDB = require('./config/db');
 
+// Import Message model
+const Message = require('./models/Message');
+
 const app = express();
+
+// Create HTTP server and Socket.io instance
+const server = http.createServer(app);
 
 // Connect to MongoDB
 connectDB();
@@ -41,6 +51,15 @@ const allowedOrigins = [
   'https://edumeet-1.onrender.com',
   'https://edumeet.onrender.com'
 ];
+
+// Socket.io setup with CORS
+const io = socketIo(server, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
 
 // CORS Middleware
 app.use(cors({
@@ -88,12 +107,164 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
+// Socket.io middleware for authentication
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  
+  if (!token) {
+    return next(new Error('No token provided'));
+  }
+  
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = decoded.id;
+    socket.userRole = decoded.role; // 'student' or 'teacher'
+    socket.userName = decoded.name;
+    next();
+  } catch (err) {
+    console.error('Socket authentication error:', err);
+    return next(new Error('Authentication error'));
+  }
+});
+
+// Socket.io connection handling
+io.on('connection', (socket) => {
+  console.log(`User connected: ${socket.userName} (${socket.userRole})`);
+  
+  // Join a room (could be based on class, subject, etc.)
+  socket.on('join-room', (roomId) => {
+    socket.join(roomId);
+    console.log(`${socket.userName} joined room: ${roomId}`);
+    
+    // Notify others in the room
+    socket.to(roomId).emit('user-joined', {
+      userName: socket.userName,
+      userRole: socket.userRole,
+      userId: socket.userId
+    });
+  });
+  
+  // Handle new messages
+  socket.on('send-message', async (data) => {
+    try {
+      const messageData = {
+        text: data.text,
+        sender: socket.userName,
+        senderId: socket.userId,
+        senderModel: socket.userRole === 'teacher' ? 'Teacher' : 'User',
+        role: socket.userRole,
+        roomId: data.roomId,
+        reactions: {
+          heart: 0,
+          thumbs: 0,
+          star: 0
+        }
+      };
+      
+      // Save to database
+      const savedMessage = await Message.create(messageData);
+      
+      // Convert to plain object and add id for frontend compatibility
+      const messageForClient = {
+        id: savedMessage._id,
+        text: savedMessage.text,
+        sender: savedMessage.sender,
+        senderId: savedMessage.senderId,
+        role: savedMessage.role,
+        timestamp: savedMessage.createdAt,
+        roomId: savedMessage.roomId,
+        reactions: savedMessage.reactions
+      };
+      
+      // Broadcast to all users in the room
+      io.to(data.roomId).emit('new-message', messageForClient);
+      
+    } catch (error) {
+      console.error('Error sending message:', error);
+      socket.emit('error', { message: 'Failed to send message' });
+    }
+  });
+  
+  // Handle reactions (only teachers can react)
+  socket.on('add-reaction', async (data) => {
+    if (socket.userRole !== 'teacher') {
+      return socket.emit('error', { message: 'Only teachers can react' });
+    }
+    
+    try {
+      const message = await Message.findById(data.messageId);
+      if (!message) {
+        return socket.emit('error', { message: 'Message not found' });
+      }
+      
+      // Add reaction
+      if (message.reactions[data.reactionType] !== undefined) {
+        message.reactions[data.reactionType]++;
+        await message.save();
+        
+        // Convert to client format
+        const updatedMessage = {
+          id: message._id,
+          text: message.text,
+          sender: message.sender,
+          senderId: message.senderId,
+          role: message.role,
+          timestamp: message.createdAt,
+          roomId: message.roomId,
+          reactions: message.reactions
+        };
+        
+        // Broadcast the updated message
+        io.to(message.roomId).emit('message-updated', updatedMessage);
+      } else {
+        socket.emit('error', { message: 'Invalid reaction type' });
+      }
+      
+    } catch (error) {
+      console.error('Error adding reaction:', error);
+      socket.emit('error', { message: 'Failed to add reaction' });
+    }
+  });
+  
+  // Handle typing indicators
+  socket.on('typing-start', (data) => {
+    socket.to(data.roomId).emit('user-typing', {
+      userName: socket.userName,
+      userId: socket.userId
+    });
+  });
+  
+  socket.on('typing-stop', (data) => {
+    socket.to(data.roomId).emit('user-stop-typing', {
+      userName: socket.userName,
+      userId: socket.userId
+    });
+  });
+  
+  // Handle leaving room
+  socket.on('leave-room', (roomId) => {
+    socket.leave(roomId);
+    socket.to(roomId).emit('user-left', {
+      userName: socket.userName,
+      userId: socket.userId
+    });
+  });
+  
+  // Handle disconnection
+  socket.on('disconnect', () => {
+    console.log(`User disconnected: ${socket.userName}`);
+  });
+});
+
+// Make io available to routes
+app.set('io', io);
+
 // Mount routes
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/teachers', teacherRoutes);
 app.use('/api/appointments', appointmentRoutes);
-
+app.use('/api/messages', messageRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -119,7 +290,9 @@ app.all('*', (req, res) => {
       'PUT /api/teachers/:id',
       'DELETE /api/teachers/:id',
       'GET /api/teachers/stats',
-      'GET /api/teachers/department/:department'
+      'GET /api/teachers/department/:department',
+      'GET /api/messages/room/:roomId',
+      'DELETE /api/messages/:messageId'
     ]
   });
 });
@@ -154,8 +327,9 @@ app.use((err, req, res, next) => {
 
 // Start server
 const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+  console.log(`📡 Socket.IO server ready for connections`);
 });
 
 // Unhandled promise rejections
@@ -169,3 +343,6 @@ process.on('uncaughtException', (err) => {
   console.log(`Uncaught Exception: ${err.message}`);
   process.exit(1);
 });
+
+// Export for use in other files
+module.exports = { app, io, server };

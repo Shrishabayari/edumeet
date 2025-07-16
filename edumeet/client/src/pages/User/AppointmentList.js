@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Calendar, CheckCircle, XCircle, AlertCircle, BookOpen } from 'lucide-react';
+import { User, Calendar, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { apiMethods } from '../../services/api'; // Assuming this path is correct
 
 const AppointmentList = ({ initialAppointments = [], onAppointmentUpdate }) => {

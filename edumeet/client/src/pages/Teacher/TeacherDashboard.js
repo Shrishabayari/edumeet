@@ -53,7 +53,7 @@ const TeacherDashboard = () => {
       bgColor: "bg-indigo-50",
       hoverBg: "hover:bg-indigo-400",
       textColor: "text-indigo-800",
-      path: "/teacher/profile",
+      path: "/message",
     },
   ];
 

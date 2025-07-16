@@ -176,7 +176,12 @@ export const endpoints = {
     
     // Teacher Management
     updateTeacherStatus: (teacherId) => `/admin/teachers/${teacherId}/status`,
-  }
+  },
+  messages: {
+  getByRoom: (roomId) => `/messages/room/${roomId}`,
+  delete: (id) => `/messages/${id}`,
+  getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
+}
 };
 
 // Convenience methods for common API operations

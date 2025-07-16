@@ -35,7 +35,7 @@ const UserDashboard = () => {
       bgColor: "bg-green-50",
       hoverBg: "hover:bg-green-600",
       textColor: "text-green-800",
-      path: "/teacher/approval",
+      path: "/message",
     },
     {
       title: "All Appointments",
