@@ -1,23 +1,12 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const {
-  // Student perspective
-  bookAppointmentStudent,
-  getStudentAppointments,
-  addStudentMessage,
-  
-  // Teacher perspective
-  getTeacherAppointments,
-  getPendingApprovals,
-  approveAppointment,
-  rejectAppointment,
-  addTeacherMessage,
-  
-  // Common
   getAllAppointments,
   getAppointmentById,
+  bookAppointment,
   updateAppointment,
   cancelAppointment,
+  getTeacherAppointments,
   getAppointmentStats
 } = require('../controllers/appointmentController');
 
@@ -37,12 +26,13 @@ const handleValidationErrors = (req, res, next) => {
   next();
 };
 
-// Validation middleware for student booking
+// Updated validation middleware with more flexible rules
 const bookAppointmentValidation = [
   body('teacherId')
     .notEmpty()
     .withMessage('Teacher ID is required')
     .custom((value) => {
+      // Allow both MongoDB ObjectId and regular IDs
       if (typeof value === 'string' && value.length > 0) {
         return true;
       }
@@ -59,6 +49,7 @@ const bookAppointmentValidation = [
     .notEmpty()
     .withMessage('Time is required')
     .custom((value) => {
+      // Accept various time formats
       const validTimes = [
         '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
         '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM',
@@ -71,6 +62,7 @@ const bookAppointmentValidation = [
         return true;
       }
       
+      // Also accept any time format that looks like a time
       const timeRegex = /^([0-9]{1,2}):([0-9]{2})\s?(AM|PM)(\s?-\s?([0-9]{1,2}):([0-9]{2})\s?(AM|PM))?$/i;
       if (timeRegex.test(value)) {
         return true;
@@ -83,6 +75,7 @@ const bookAppointmentValidation = [
     .notEmpty()
     .withMessage('Date is required')
     .custom((value) => {
+      // Accept various date formats
       const date = new Date(value);
       if (isNaN(date.getTime())) {
         throw new Error('Invalid date format');
@@ -104,6 +97,7 @@ const bookAppointmentValidation = [
     .optional()
     .custom((value) => {
       if (!value || value.trim() === '') return true;
+      // More flexible phone validation
       const phoneRegex = /^[\+]?[\d\s\-\(\)]{7,20}$/;
       if (phoneRegex.test(value)) {
         return true;
@@ -124,11 +118,10 @@ const bookAppointmentValidation = [
     .withMessage('Message cannot exceed 1000 characters')
 ];
 
-// Validation for updating appointments
 const updateAppointmentValidation = [
   body('status')
     .optional()
-    .isIn(['pending', 'confirmed', 'cancelled', 'completed', 'rejected'])
+    .isIn(['pending', 'confirmed', 'cancelled', 'completed'])
     .withMessage('Invalid status'),
     
   body('notes')
@@ -138,83 +131,13 @@ const updateAppointmentValidation = [
     .withMessage('Notes cannot exceed 500 characters')
 ];
 
-// Validation for messages
-const messageValidation = [
-  body('message')
-    .trim()
-    .isLength({ min: 1, max: 1000 })
-    .withMessage('Message must be between 1 and 1000 characters'),
-    
-  body('messageType')
-    .optional()
-    .isIn(['approval', 'rejection', 'inquiry', 'confirmation', 'modification', 'cancellation'])
-    .withMessage('Invalid message type')
-];
-
-// Validation for teacher actions
-const teacherActionValidation = [
-  body('teacherNotes')
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage('Teacher notes cannot exceed 500 characters'),
-    
-  body('reason')
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage('Reason cannot exceed 500 characters')
-];
-
-// =============================================================================
-// STUDENT ROUTES
-// =============================================================================
-
-// Student books appointment
-router.post('/student/book', bookAppointmentValidation, handleValidationErrors, bookAppointmentStudent);
-
-// Get appointments for a specific student
-router.get('/student/:email', getStudentAppointments);
-
-// Student adds message to appointment
-router.post('/student/:id/message', messageValidation, handleValidationErrors, addStudentMessage);
-
-// =============================================================================
-// TEACHER ROUTES
-// =============================================================================
-
-// Get all appointments for a teacher (with optional filtering)
-router.get('/teacher/:teacherId', getTeacherAppointments);
-
-// Get pending approvals for a teacher
-router.get('/teacher/:teacherId/pending', getPendingApprovals);
-
-// Teacher approves an appointment
-router.post('/teacher/:id/approve', teacherActionValidation, handleValidationErrors, approveAppointment);
-
-// Teacher rejects an appointment
-router.post('/teacher/:id/reject', teacherActionValidation, handleValidationErrors, rejectAppointment);
-
-// Teacher adds message to appointment
-router.post('/teacher/:id/message', messageValidation, handleValidationErrors, addTeacherMessage);
-
-// =============================================================================
-// COMMON ROUTES
-// =============================================================================
-
-// Get appointment statistics
+// Routes
 router.get('/stats', getAppointmentStats);
-
-// Get all appointments (admin view)
+router.get('/teacher/:teacherId', getTeacherAppointments);
 router.get('/', getAllAppointments);
-
-// Get specific appointment by ID
 router.get('/:id', getAppointmentById);
-
-// Update appointment (general)
+router.post('/', bookAppointmentValidation, handleValidationErrors, bookAppointment);
 router.put('/:id', updateAppointmentValidation, handleValidationErrors, updateAppointment);
-
-// Cancel appointment
 router.delete('/:id', cancelAppointment);
 
 module.exports = router;

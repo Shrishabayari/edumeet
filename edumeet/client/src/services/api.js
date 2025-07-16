@@ -114,7 +114,7 @@ export const endpoints = {
     profile: '/auth/profile',
     verifyToken: '/auth/verify-token',
     
-    // User approval routes under auth (these exist in your authRoutes.js)
+    // CORRECTED: Admin routes under auth
     admin: {
       pending: '/auth/admin/pending',
       users: '/auth/admin/users',
@@ -123,7 +123,7 @@ export const endpoints = {
     }
   },
 
-  // Teacher endpoints
+  // Teacher endpoints - CORRECTED ACCORDING TO BACKEND ROUTES
   teachers: {
     // Basic CRUD operations
     getAll: '/teachers',
@@ -156,7 +156,7 @@ export const endpoints = {
     getStats: '/appointments/stats',
   },
 
-  // Admin endpoints (separate from auth/admin)
+  // Admin endpoints
   admin: {
     // Admin Auth
     register: '/admin/register',
@@ -165,7 +165,7 @@ export const endpoints = {
     updateProfile: '/admin/profile',
     
     // Admin Dashboard
-    dashboardStats: '/admin/dashboard',
+    dashboardStats: '/admin/dashboard/stats',
     
     // User Management
     getUsers: '/admin/users',
@@ -215,7 +215,7 @@ export const apiMethods = {
   getTeacherAppointments: (teacherId, params = {}) => api.get(endpoints.appointments.getByTeacher(teacherId), { params }),
   getAppointmentStats: () => api.get(endpoints.appointments.getStats),
 
-  // Admin Operations (separate admin routes)
+  // Admin Operations
   adminRegister: (adminData) => api.post(endpoints.admin.register, adminData),
   adminLogin: (credentials) => api.post(endpoints.admin.login, credentials),
   getAdminProfile: () => api.get(endpoints.admin.profile),
@@ -226,44 +226,11 @@ export const apiMethods = {
   getAdminAppointments: (params = {}) => api.get(endpoints.admin.getAllAppointments, { params }),
   updateTeacherStatus: (teacherId, statusData) => api.patch(endpoints.admin.updateTeacherStatus(teacherId), statusData),
 
-  // User Approval Operations (using auth/admin routes with admin token)
-  getPendingRegistrations: () => {
-    // Use admin token for these auth/admin routes
-    const adminToken = localStorage.getItem('adminToken');
-    return api.get(endpoints.auth.admin.pending, {
-      headers: {
-        Authorization: `Bearer ${adminToken}`
-      }
-    });
-  },
-  
-  getAllUsersForAdmin: (params = {}) => {
-    const adminToken = localStorage.getItem('adminToken');
-    return api.get(endpoints.auth.admin.users, { 
-      params,
-      headers: {
-        Authorization: `Bearer ${adminToken}`
-      }
-    });
-  },
-  
-  approveUser: (id) => {
-    const adminToken = localStorage.getItem('adminToken');
-    return api.put(endpoints.auth.admin.approve(id), {}, {
-      headers: {
-        Authorization: `Bearer ${adminToken}`
-      }
-    });
-  },
-  
-  rejectUser: (id, reason) => {
-    const adminToken = localStorage.getItem('adminToken');
-    return api.put(endpoints.auth.admin.reject(id), { reason }, {
-      headers: {
-        Authorization: `Bearer ${adminToken}`
-      }
-    });
-  },
+  // CORRECTED: User Approval Operations (Admin) - using auth endpoints
+  getPendingRegistrations: () => api.get(endpoints.auth.admin.pending),
+  getAllUsersForAdmin: (params = {}) => api.get(endpoints.auth.admin.users, { params }),
+  approveUser: (id) => api.put(endpoints.auth.admin.approve(id)),
+  rejectUser: (id, reason) => api.put(endpoints.auth.admin.reject(id), { reason }),
 
   // Enhanced appointment booking with better error handling
   bookAppointmentWithRetry: async (appointmentData) => {

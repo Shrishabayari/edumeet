@@ -61,7 +61,7 @@ const UserDashboard = () => {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 sm:p-10 lg:p-12">
       <div className="flex justify-between items-center max-w-7xl mx-auto mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Teacher Dashboard</h1>
+          <h1 className="text-3xl font-bold text-gray-800">User Dashboard</h1>
           <p className="text-gray-500">Welcome to your dashboard</p>
         </div>
         <button
