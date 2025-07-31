@@ -75,7 +75,7 @@ api.interceptors.response.use(
           } else {
             localStorage.removeItem('userToken');
             localStorage.removeItem('user');
-            window.location.href = '/login';
+            window.location.href = '/user/login';
           }
           break;
         case 403: // Forbidden

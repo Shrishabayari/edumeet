@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Save, X, Search, Users, BookOpen, Building2, AlertCircle, Key, Mail, Shield, Eye, EyeOff } from 'lucide-react';
+import { Edit, Trash2, Save, X, Search, Users, BookOpen, Building2, AlertCircle, Key, Mail, Shield, Eye, EyeOff } from 'lucide-react';
 import api from '../../services/api';
 
 const ViewTeachers = () => {
@@ -394,13 +394,6 @@ const ViewTeachers = () => {
                 <p className="text-gray-600">Manage teacher accounts and profiles</p>
               </div>
             </div>
-            <button
-              onClick={() => openModal()}
-              className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center space-x-2"
-            >
-              <Plus className="h-5 w-5" />
-              <span>Add Teacher</span>
-            </button>
           </div>
         </div>
 
@@ -560,13 +553,6 @@ const ViewTeachers = () => {
                 ? "No teachers match your search criteria."
                 : "Get started by adding your first teacher."}
             </p>
-            <button
-              onClick={() => openModal()}
-              className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-medium transition-colors duration-200 flex items-center space-x-2 mx-auto"
-            >
-              <Plus className="h-5 w-5" />
-              <span>Add Teacher</span>
-            </button>
           </div>
         )}
       </div>

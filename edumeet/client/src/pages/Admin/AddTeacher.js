@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Eye, EyeOff, AlertCircle, Users, ArrowLeft } from 'lucide-react';
+import { Save, Eye, EyeOff, AlertCircle, Users } from 'lucide-react';
 import api from '../../services/api';
 
-const AddTeacher = ({ onBack, onTeacherAdded }) => {
+const AddTeacher = ({onTeacherAdded }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -243,12 +243,6 @@ const AddTeacher = ({ onBack, onTeacherAdded }) => {
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <button
-                onClick={onBack}
-                className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors duration-200"
-              >
-                <ArrowLeft className="h-5 w-5 text-gray-600" />
-              </button>
               <div className="bg-blue-500 p-2 rounded-lg">
                 <Users className="h-6 w-6 text-white" />
               </div>
@@ -488,9 +482,6 @@ const AddTeacher = ({ onBack, onTeacherAdded }) => {
                     onChange={handleInputChange}
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <span className="text-sm text-gray-700">
-                    Send account setup email to teacher
-                  </span>
                 </label>
               </div>
             </div>

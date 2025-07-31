@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from 'react-router-dom';
-import { PlusCircle, Users, Globe, Zap, LogOut, User, AlertCircle, BookOpen, UserCheck } from 'lucide-react';
+import { PlusCircle, LogOut, User, AlertCircle, BookOpen, UserCheck } from 'lucide-react';
 
 // Use the same API configuration as your existing api.js
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com' || 'http://localhost:5000';
@@ -161,6 +161,15 @@ const AdminDashboard = () => {
       path: "/admin/teacher-register",
     },
     {
+      title: "View Teachers",
+      description: "Manage all registered teachers and their profiles.",
+      icon: <BookOpen className="w-10 h-10 text-purple-600 group-hover:text-white transition-colors duration-300" />,
+      bgColor: "bg-purple-50",
+      hoverBg: "hover:bg-purple-600",
+      textColor: "text-purple-800",
+      path: "/admin/view-teachers",
+    },
+    {
       title: "Student Approval",
       description: "Review and approve pending student registrations.",
       icon: <UserCheck className="w-10 h-10 text-green-600 group-hover:text-white transition-colors duration-300" />,
@@ -168,42 +177,6 @@ const AdminDashboard = () => {
       hoverBg: "hover:bg-green-600",
       textColor: "text-green-800",
       path: "/admin/approval",
-    },
-    {
-      title: "View Teachers",
-      description: "Manage all registered teachers and their profiles.",
-      icon: <BookOpen className="w-10 h-10 text-purple-600 group-hover:text-white transition-colors duration-300" />,
-      bgColor: "bg-purple-50",
-      hoverBg: "hover:bg-purple-600",
-      textColor: "text-purple-800",
-      path: "/teacher/view-teachers",
-    },
-    {
-      title: "Manage Users",
-      description: "View and manage all registered user accounts.",
-      icon: <Users className="w-10 h-10 text-red-600 group-hover:text-white transition-colors duration-300" />,
-      bgColor: "bg-red-50",
-      hoverBg: "hover:bg-red-600",
-      textColor: "text-red-800",
-      path: "/admin/users",
-    },
-    {
-      title: "Appointments",
-      description: "View all appointments and meeting schedules.",
-      icon: <Globe className="w-10 h-10 text-yellow-600 group-hover:text-white transition-colors duration-300" />,
-      bgColor: "bg-yellow-50",
-      hoverBg: "hover:bg-yellow-600",
-      textColor: "text-yellow-800",
-      path: "/admin/appointments",
-    },
-    {
-      title: "My Profile",
-      description: "View and update your administrative profile.",
-      icon: <Zap className="w-10 h-10 text-indigo-600 group-hover:text-white transition-colors duration-300" />,
-      bgColor: "bg-indigo-50",
-      hoverBg: "hover:bg-indigo-600",
-      textColor: "text-indigo-800",
-      path: "/admin/profile",
     },
   ];
 
@@ -275,7 +248,7 @@ const AdminDashboard = () => {
             error.message.includes('401') || 
             error.message.includes('403')) {
           apiHelpers.logout();
-          navigate('/admin/login');
+          navigate('/admin');
         }
       } finally {
         setLoading(false);

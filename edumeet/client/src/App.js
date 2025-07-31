@@ -9,7 +9,6 @@ import AdminDashboard from './pages/Admin/AdminDashboard';
 import RegistrationForm from './pages/User/RegisterPage';
 import LoginPage from './pages/User/LoginPage';
 import StudentApproval from './pages/Admin/StudentApproval';
-import AdminTeacherManagement from './pages/Admin/AddTeacher';
 import TeacherLogin from './pages/Teacher/TeacherLogin';
 import TeacherDashboard from './pages/Teacher/TeacherDashboard';
 import TeacherSchedule from './pages/Teacher/SheduleAppointment';
@@ -18,6 +17,7 @@ import SheduleApppointment from './pages/User/SheduleAppointment';
 import AppointmentList from './pages/User/AppointmentList';
 import MessageBoard from './pages/Message';
 import ViewTeachers from './pages/Admin/ViewTeacher';
+import AddTeacher from './pages/Admin/AddTeacher';
 
 function App() {
   return (
@@ -34,8 +34,9 @@ function App() {
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/admin/register" element={<AdminRegister />} />
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
+              <Route path="/admin/teacher-register" element={<AddTeacher />} />
+              <Route path="/admin/view-teachers" element={<ViewTeachers />} />
               <Route path="/admin/approval" element={<StudentApproval />} />
-              <Route path="/admin/teacher-register" element={<AdminTeacherManagement />} />
               
               {/* User Routes */}
               <Route path="/user/register" element={<RegistrationForm />} />
@@ -49,7 +50,6 @@ function App() {
               <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
               <Route path="/teacher/schedule-appointment" element={<TeacherSchedule />} />
               <Route path="/teacher/appointment-list" element={<AppointmentList />} />
-              <Route path="/teacher/view-teachers" element={<ViewTeachers />} />
               
               {/* Message Board Route */}
               <Route path="/message" element={<MessageBoard />} />
