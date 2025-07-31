@@ -176,7 +176,7 @@ const AdminDashboard = () => {
       bgColor: "bg-purple-50",
       hoverBg: "hover:bg-purple-600",
       textColor: "text-purple-800",
-      path: "/admin/teachers",
+      path: "/teacher/view-teachers",
     },
     {
       title: "Manage Users",

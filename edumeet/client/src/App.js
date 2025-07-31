@@ -17,6 +17,7 @@ import UserDashboard from './pages/User/UserDashboard';
 import SheduleApppointment from './pages/User/SheduleAppointment';
 import AppointmentList from './pages/User/AppointmentList';
 import MessageBoard from './pages/Message';
+import ViewTeachers from './pages/Admin/ViewTeacher';
 
 function App() {
   return (
@@ -48,6 +49,7 @@ function App() {
               <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
               <Route path="/teacher/schedule-appointment" element={<TeacherSchedule />} />
               <Route path="/teacher/appointment-list" element={<AppointmentList />} />
+              <Route path="/teacher/view-teachers" element={<ViewTeachers />} />
               
               {/* Message Board Route */}
               <Route path="/message" element={<MessageBoard />} />
