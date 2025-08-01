@@ -1,147 +1,72 @@
-// routes/authRoutes.js - UPDATED with proper admin authentication
+// routes/authRoutes.js - FIXED VERSION
 const express = require('express');
 const { body } = require('express-validator');
-const {
-  register,
-  login,
-  logout,
-  getProfile,
-  updateProfile,
-  getPendingRegistrations,
-  approveUser,
-  rejectUser,
-  getAllUsers
-} = require('../controllers/authController');
-const { protect, restrictTo, authenticateAdmin } = require('../middleware/auth');
+const authController = require('../controllers/authController');
+const auth = require('../middleware/auth'); // Regular user auth middleware
+const adminAuth = require('../middleware/auth'); // Admin auth middleware (create this file)
 
 const router = express.Router();
 
-// Registration validation
-const registerValidation = [
+// Validation middleware
+const validateRegister = [
   body('name')
     .trim()
     .isLength({ min: 2, max: 50 })
-    .withMessage('Name must be between 2 and 50 characters')
-    .matches(/^[a-zA-Z\s]+$/)
-    .withMessage('Name can only contain letters and spaces'),
-  
+    .withMessage('Name must be between 2 and 50 characters'),
   body('email')
     .isEmail()
     .normalizeEmail()
     .withMessage('Please provide a valid email'),
-  
   body('password')
     .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters long')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
-  
+    .withMessage('Password must be at least 6 characters long'),
   body('role')
     .optional()
     .isIn(['student', 'teacher'])
-    .withMessage('Role must be student or teacher'),
-  
-  body('profile.phone')
-    .optional()
-    .matches(/^\d{10}$/)
-    .withMessage('Phone number must be exactly 10 digits'),
-  
-  body('profile.grade')
-    .if(body('role').equals('student'))
-    .notEmpty()
-    .withMessage('Grade is required for students')
-    .isIn(['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
-           'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'])
-    .withMessage('Please select a valid grade'),
-  
-  body('profile.subject')
-    .if(body('role').equals('teacher'))
-    .notEmpty()
-    .withMessage('Subject is required for teachers'),
-  
-  body('profile.department')
-    .if(body('role').equals('teacher'))
-    .notEmpty()
-    .withMessage('Department is required for teachers')
+    .withMessage('Role must be either student or teacher')
 ];
 
-// Login validation
-const loginValidation = [
+const validateLogin = [
   body('email')
     .isEmail()
     .normalizeEmail()
     .withMessage('Please provide a valid email'),
-  
   body('password')
     .notEmpty()
     .withMessage('Password is required')
 ];
 
-// Update profile validation
-const updateProfileValidation = [
+const validateProfileUpdate = [
   body('name')
     .optional()
     .trim()
     .isLength({ min: 2, max: 50 })
-    .withMessage('Name must be between 2 and 50 characters')
-    .matches(/^[a-zA-Z\s]+$/)
-    .withMessage('Name can only contain letters and spaces'),
-  
-  body('profile.phone')
+    .withMessage('Name must be between 2 and 50 characters'),
+  body('email')
     .optional()
-    .matches(/^\d{10}$/)
-    .withMessage('Phone number must be exactly 10 digits'),
-  
-  body('profile.grade')
-    .optional()
-    .isIn(['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
-           'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'])
-    .withMessage('Please select a valid grade'),
-  
-  body('profile.subject')
-    .optional()
-    .notEmpty()
-    .withMessage('Subject cannot be empty'),
-  
-  body('profile.department')
-    .optional()
-    .notEmpty()
-    .withMessage('Department cannot be empty')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Please provide a valid email')
 ];
 
-// Rejection validation
-const rejectValidation = [
+const validateRejection = [
   body('reason')
-    .optional()
     .trim()
-    .isLength({ min: 5, max: 500 })
-    .withMessage('Rejection reason must be between 5 and 500 characters')
+    .isLength({ min: 10, max: 500 })
+    .withMessage('Rejection reason must be between 10 and 500 characters')
 ];
 
-// Public routes
-router.post('/register', registerValidation, register);
-router.post('/login', loginValidation, login);
-router.post('/logout', logout);
+// Regular user routes
+router.post('/register', validateRegister, authController.register);
+router.post('/login', validateLogin, authController.login);
+router.post('/logout', authController.logout);
+router.get('/profile', auth, authController.getProfile);
+router.put('/profile', auth, validateProfileUpdate, authController.updateProfile);
 
-// Protected routes for regular users (require valid JWT token)
-router.get('/profile', protect, getProfile);
-router.put('/profile', protect, updateProfileValidation, updateProfile);
-
-// Token verification endpoint
-router.get('/verify-token', protect, (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Token is valid',
-    data: {
-      user: req.user
-    }
-  });
-});
-
-// ADMIN-ONLY ROUTES - Updated to use authenticateAdmin middleware
-router.get('/admin/pending', authenticateAdmin, getPendingRegistrations);
-router.get('/admin/users', authenticateAdmin, getAllUsers);
-router.put('/admin/approve/:id', authenticateAdmin, approveUser);
-router.put('/admin/reject/:id', authenticateAdmin, rejectValidation, rejectUser);
+// ADMIN ROUTES - Use adminAuth middleware
+router.get('/admin/pending', adminAuth, authController.getPendingRegistrations);
+router.get('/admin/users', adminAuth, authController.getAllUsers);
+router.put('/admin/approve/:id', adminAuth, authController.approveUser);
+router.put('/admin/reject/:id', adminAuth, validateRejection, authController.rejectUser);
 
 module.exports = router;
