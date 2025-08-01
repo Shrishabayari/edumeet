@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from 'react-router-dom';
 import { PlusCircle, LogOut, User, AlertCircle, BookOpen, UserCheck } from 'lucide-react';
+import AdminNavbar from "../../components/adminNavbar";
 
 // Use the same API configuration as your existing api.js
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com' || 'http://localhost:5000';
@@ -292,6 +293,7 @@ const AdminDashboard = () => {
 
   return (
     <div>
+      <AdminNavbar/>
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 sm:p-10 lg:p-12">
         <div className="max-w-7xl mx-auto bg-white rounded-2xl shadow-xl p-8 lg:p-10">
           {/* Header Section with Admin Info */}
