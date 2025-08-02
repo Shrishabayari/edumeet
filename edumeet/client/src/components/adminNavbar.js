@@ -47,12 +47,11 @@ const AdminNavbar = () => {
     }
   };
 
-  // FIXED: Check if current user is admin - Handle expired tokens
+  // FIXED: Check if current user is admin - Don't rely solely on AuthContext
   const isAdmin = () => {
     const role = tokenManager.getCurrentRole();
     const adminData = localStorage.getItem('admin');
     const adminToken = tokenManager.getAdminToken();
-    const isTokenExpired = tokenManager.isTokenExpired('admin');
     
     // Check if we have admin credentials regardless of AuthContext state
     const hasAdminCredentials = role === 'admin' && adminData && adminToken;
@@ -62,22 +61,14 @@ const AdminNavbar = () => {
         role,
         hasAdminData: !!adminData,
         hasAdminToken: !!adminToken,
-        isTokenExpired,
         isAuthenticated,
         hasAdminCredentials,
-        finalResult: hasAdminCredentials && !isTokenExpired
+        finalResult: hasAdminCredentials && !tokenManager.isTokenExpired('admin')
       });
     }
     
-    // If token is expired, clear admin data and return false
-    if (hasAdminCredentials && isTokenExpired) {
-      console.warn('Admin token expired, clearing admin data...');
-      tokenManager.removeAdminToken();
-      return false;
-    }
-    
     // Return true if we have admin credentials and token is not expired
-    return hasAdminCredentials && !isTokenExpired;
+    return hasAdminCredentials && !tokenManager.isTokenExpired('admin');
   };
 
   // FIXED: Get admin user data directly from localStorage if AuthContext user is not available
@@ -193,9 +184,6 @@ const AdminNavbar = () => {
           Token: {tokenManager.getAdminToken() ? 'Present' : 'Missing'} |
           Token Expired: {tokenManager.isTokenExpired('admin').toString()} |
           Admin User: {adminUser ? adminUser.name || adminUser.username || 'Present' : 'Missing'}
-          {tokenManager.isTokenExpired('admin') && (
-            <span className="ml-2 text-red-800 font-bold">⚠️ TOKEN EXPIRED - Please login again!</span>
-          )}
         </div>
       )}
     </nav>

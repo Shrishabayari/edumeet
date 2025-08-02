@@ -45,7 +45,7 @@ const registerAdmin = async (req, res) => {
     const token = jwt.sign(
       { adminId: admin._id, email: admin.email, role: 'admin' },
       process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '7d' }
+      { expiresIn: '365d' }
     );
 
     console.log('Admin registered successfully, token generated:', token);
@@ -110,7 +110,7 @@ const loginAdmin = async (req, res) => {
     const token = jwt.sign(
       { adminId: admin._id, email: admin.email, role: 'admin' },
       process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '7d' }
+      { expiresIn: '365d' }
     );
 
     console.log('Admin logged in successfully, token generated:', token);
