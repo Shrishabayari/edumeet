@@ -1,4 +1,4 @@
-// middleware/auth.js - FIXED version
+// middleware/auth.js - FIXED version to match frontend token structure
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
@@ -26,8 +26,9 @@ exports.protect = async (req, res, next) => {
 
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('🔍 Decoded token payload (protect):', decoded);
 
-    // Find user by ID
+    // Find user by ID (use 'id' field from token)
     const user = await User.findById(decoded.id);
     
     if (!user) {
@@ -81,8 +82,90 @@ exports.protect = async (req, res, next) => {
   }
 };
 
-// Admin-specific authentication middleware - FIXED
+// FIXED Admin-specific authentication middleware
 exports.authenticateAdmin = async (req, res, next) => {
+  try {
+    let token;
+    
+    // Check for token in header
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+    // Check for token in cookies
+    else if (req.cookies && req.cookies.jwt) {
+      token = req.cookies.jwt;
+    }
+    
+    if (!token) {
+      console.log('❌ No admin token provided');
+      return res.status(401).json({
+        success: false,
+        message: 'No token provided'
+      });
+    }
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('🔍 Decoded admin token payload:', decoded);
+    
+    // FIXED: Try multiple possible ID fields in the token
+    let adminId = decoded.adminId || decoded.id || decoded._id;
+    
+    if (!adminId) {
+      console.log('❌ No admin ID found in token payload');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token structure - no admin ID found'
+      });
+    }
+    
+    // Find admin using the ID from token
+    const admin = await Admin.findById(adminId);
+    
+    if (!admin) {
+      console.log('❌ Admin not found with ID:', adminId);
+      return res.status(401).json({
+        success: false,
+        message: 'Admin not found or token invalid.'
+      });
+    }
+
+    console.log('✅ Admin authenticated:', admin.email);
+
+    // Check if admin is active
+    if (!admin.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Admin account is deactivated.'
+      });
+    }
+
+    // Attach admin to request object
+    req.admin = admin;
+    // For consistency with 'protect' middleware, also set req.user
+    req.user = admin;
+    
+    next();
+    
+  } catch (error) {
+    console.error('Authentication error (authenticateAdmin middleware):', error);
+    
+    let message = 'Invalid token';
+    if (error.name === 'TokenExpiredError') {
+      message = 'Token expired';
+    } else if (error.name === 'JsonWebTokenError') {
+      message = 'Invalid token signature or malformed token';
+    }
+    
+    return res.status(401).json({
+      success: false,
+      message: message
+    });
+  }
+};
+
+// ADDED: Teacher-specific authentication middleware
+exports.authenticateTeacher = async (req, res, next) => {
   try {
     let token;
     
@@ -104,34 +187,44 @@ exports.authenticateAdmin = async (req, res, next) => {
 
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('🔍 Decoded teacher token payload:', decoded);
     
-    // Find admin using 'adminId' from the decoded token payload
-    const admin = await Admin.findById(decoded.adminId);
+    // Try multiple possible ID fields in the token
+    let teacherId = decoded.teacherId || decoded.id || decoded._id;
     
-    if (!admin) {
+    if (!teacherId) {
       return res.status(401).json({
         success: false,
-        message: 'Admin not found or token invalid.'
+        message: 'Invalid token structure - no teacher ID found'
+      });
+    }
+    
+    // Find teacher - assuming you have a Teacher model or teachers are stored in User model
+    const teacher = await User.findById(teacherId);
+    
+    if (!teacher || teacher.role !== 'teacher') {
+      return res.status(401).json({
+        success: false,
+        message: 'Teacher not found or token invalid.'
       });
     }
 
-    // Check if admin is active
-    if (!admin.isActive) {
+    // Check if teacher is active
+    if (!teacher.isActive) {
       return res.status(401).json({
         success: false,
-        message: 'Admin account is deactivated.'
+        message: 'Teacher account is deactivated.'
       });
     }
 
-    // Attach admin to request object
-    req.admin = admin;
-    // For consistency with 'protect' middleware, also set req.user
-    req.user = admin;
+    // Attach teacher to request object
+    req.teacher = teacher;
+    req.user = teacher;
     
     next();
     
   } catch (error) {
-    console.error('Authentication error (authenticateAdmin middleware):', error);
+    console.error('Authentication error (authenticateTeacher middleware):', error);
     
     let message = 'Invalid token';
     if (error.name === 'TokenExpiredError') {

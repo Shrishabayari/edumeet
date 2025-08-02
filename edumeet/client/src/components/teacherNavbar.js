@@ -1,61 +1,91 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext'; // Make sure this path is correct
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { tokenManager } from '../services/api'
 
 const TeacherNavbar = () => {
-  // Assuming useAuth provides isAuthenticated and logout for teachers too
-  // Your AuthContext might need to differentiate roles or have a single logout
-  const { isAuthenticated, logout } = useAuth(); 
+  const { isAuthenticated, logout, user } = useAuth();
+  const navigate = useNavigate();
+
+  // Teacher-specific logout handler
+  const handleTeacherLogout = async () => {
+    try {
+      // Call the teacher logout endpoint
+      await logout(); // This should handle teacher logout in your AuthContext
+      
+      // Clear teacher-specific tokens
+      tokenManager.removeTeacherToken();
+      
+      // Redirect to teacher login page
+      navigate('/teacher/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Force logout even if API call fails
+      tokenManager.removeTeacherToken();
+      navigate('/teacher/login');
+    }
+  };
 
   return (
     <nav className="bg-gray-800 text-white shadow-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16 items-center">
-          {/* Left Side: Teacher Title */}
-          <div className="flex items-center">
-            {isAuthenticated && ( // Only show if authenticated
-              <span className="text-xl font-semibold tracking-wide">Teacher Dashboard</span>
+          {/* Left Side: Teacher Title and Welcome */}
+          <div className="flex items-center space-x-4">
+            <Link to="/teacher/dashboard" className="text-xl font-semibold tracking-wide hover:text-gray-300">
+              Teacher Dashboard
+            </Link>
+            {isAuthenticated && user && (
+              <span className="text-sm text-gray-300">
+                Welcome, {user.name || 'Teacher'}
+              </span>
             )}
           </div>
 
-          {/* Right Side: Navigation Links (visible only if authenticated) */}
+          {/* Right Side: Navigation Links */}
           <div className="flex items-center space-x-6">
             {isAuthenticated ? (
               <>
                 <Link
-                  to="/teacher/schedule-appointment"
+                  to="/teacher/profile"
                   className="px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-700 transition-colors duration-200"
                 >
-                  Schedule Appointment
+                  Profile
                 </Link>
                 <Link
-                  to="/teacher/manage-appointments" // A more generic path for managing both approval/cancellation
+                  to="/teacher/appointments"
                   className="px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-700 transition-colors duration-200"
                 >
-                  Approve/Cancel Appointment
+                  My Appointments
+                </Link>
+                <Link
+                  to="/teacher/schedule"
+                  className="px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-700 transition-colors duration-200"
+                >
+                  Manage Schedule
                 </Link>
                 <Link
                   to="/teacher/messages"
                   className="px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-700 transition-colors duration-200"
                 >
-                  View Messages
-                </Link>
-                <Link
-                  to="/teacher/all-appointments"
-                  className="px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-700 transition-colors duration-200"
-                >
-                  View All Appointments
+                  Messages
                 </Link>
                 <button
-                  onClick={logout}
+                  onClick={handleTeacherLogout}
                   className="bg-red-600 px-4 py-2 rounded-md text-sm font-medium hover:bg-red-700 transition-colors duration-200"
                 >
                   Logout
                 </button>
               </>
             ) : (
-              // If not authenticated, you might redirect to teacher login or show nothing
-              null 
+              <div className="flex space-x-4">
+                <Link
+                  to="/teacher/login"
+                  className="bg-blue-600 px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors duration-200"
+                >
+                  Login
+                </Link>
+              </div>
             )}
           </div>
         </div>
