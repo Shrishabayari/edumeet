@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { CheckCircle, XCircle, AlertCircle, Loader2, UserPlus, UserCheck, UserX, Info, Mail, GraduationCap, BookOpen } from 'lucide-react';
 import AdminNavbar from '../../components/adminNavbar';
 
-// Temporary API methods to match your backend exactly
 const tempApiMethods = {
   getPendingRegistrations: async () => {
     const adminToken = localStorage.getItem('adminToken');
@@ -72,7 +71,6 @@ const UserApproval = () => {
   const [actionStatus, setActionStatus] = useState(null);
   const [processingUserId, setProcessingUserId] = useState(null);
 
-  // Function to fetch pending registrations
   const fetchPendingRegistrations = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -99,7 +97,6 @@ const UserApproval = () => {
       console.log('API Response received:', response);
       console.log('Response data:', response?.data);
       
-      // Handle different possible response formats
       let users = [];
       if (response.data) {
         if (response.data.users && Array.isArray(response.data.users)) {
@@ -126,7 +123,6 @@ const UserApproval = () => {
       setError(err.message || 'Failed to fetch pending registrations.');
       setPendingUsers([]);
       
-      // If 401 or 403, token might be expired or invalid
       if (err.message?.includes('401') || err.message?.includes('403')) {
         console.log('Authentication error detected, removing token and redirecting...');
         tempTokenManager.removeAdminToken();
@@ -139,12 +135,10 @@ const UserApproval = () => {
     }
   }, []);
 
-  // Effect to fetch data on component mount
   useEffect(() => {
     fetchPendingRegistrations();
   }, [fetchPendingRegistrations]);
 
-  // Handle user approval
   const handleApproveUser = async (userId) => {
     if (!userId) {
       setError('Invalid user ID');
@@ -169,7 +163,6 @@ const UserApproval = () => {
     }
   };
 
-  // Open rejection modal
   const openRejectionModal = (user) => {
     setSelectedUserForRejection(user);
     setRejectionReason('');
@@ -177,7 +170,6 @@ const UserApproval = () => {
     setError('');
   };
 
-  // Close rejection modal
   const closeRejectionModal = () => {
     setShowRejectionModal(false);
     setSelectedUserForRejection(null);

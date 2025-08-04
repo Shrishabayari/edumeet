@@ -13,7 +13,7 @@ import TeacherDashboard from './pages/Teacher/TeacherDashboard';
 import TeacherSchedule from './pages/Teacher/SheduleAppointment';
 import UserDashboard from './pages/User/UserDashboard';
 import SheduleApppointment from './pages/User/SheduleAppointment';
-import AppointmentList from './pages/User/AppointmentList';
+import AppointmentList from './pages/Teacher/AppointmentList';
 import MessageBoard from './pages/Message';
 import ViewTeachers from './pages/Admin/ViewTeacher';
 import AddTeacher from './pages/Admin/AddTeacher';

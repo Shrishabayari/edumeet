@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, User, Mail, Phone, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { apiMethods } from '../../services/api'; // Assuming this path is correct
+import { apiMethods } from '../../services/api'; 
 
-// Valid day names for validation
 const VALID_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// Helper function to get next date for a given day
 const getNextDateForDay = (dayName) => {
   if (!dayName || typeof dayName !== 'string') {
     console.error('Invalid day name (not a string):', dayName);
@@ -25,7 +23,6 @@ const getNextDateForDay = (dayName) => {
 
   let daysUntilTarget = targetDay - todayDay;
 
-  // If target day is today or has passed this week, get next week's date
   if (daysUntilTarget <= 0) {
     daysUntilTarget += 7;
   }
@@ -33,10 +30,9 @@ const getNextDateForDay = (dayName) => {
   const targetDate = new Date(today);
   targetDate.setDate(today.getDate() + daysUntilTarget);
 
-  return targetDate.toISOString().split('T')[0]; // Returns YYYY-MM-DD format
+  return targetDate.toISOString().split('T')[0]; 
 };
 
-// Default availability to use if teacher's availability is not provided or invalid
 const getDefaultAvailability = () => {
   return [
     {
@@ -124,7 +120,6 @@ const SheduleApppointment = ({ onAppointmentBooked }) => {
     }
   };
 
-  // Availability fetching with comprehensive slot handling
   const fetchTeacherAvailability = async (teacherId) => {
     try {
       const teacher = teachers.find(t => (t.id || t._id) === teacherId);
@@ -239,7 +234,6 @@ const SheduleApppointment = ({ onAppointmentBooked }) => {
       setShowBookingModal(false);
       setShowConfirmation(true);
 
-      // Notify parent component of successful booking
       if (onAppointmentBooked) {
         onAppointmentBooked(response.data);
       }
@@ -276,7 +270,6 @@ const SheduleApppointment = ({ onAppointmentBooked }) => {
     setShowBookingModal(true);
     setError('');
 
-    // Show loading state for availability inside the modal
     setSelectedTeacher({ ...teacher, availability: null, loading: true });
 
     try {
@@ -332,7 +325,7 @@ const SheduleApppointment = ({ onAppointmentBooked }) => {
         </div>
       )}
 
-      {loading && !showBookingModal && ( // Only show global loader if modal isn't open
+      {loading && !showBookingModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-8 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
