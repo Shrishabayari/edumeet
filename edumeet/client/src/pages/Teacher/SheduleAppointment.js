@@ -17,7 +17,7 @@ const TeacherSchedule = () => {
   });
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
-  const [activeTab, setActiveTab] = useState('create');
+  const [activeTab, setActiveTab] = useState('appointments');
   const [loading, setLoading] = useState(false); // Global loading state for API calls
   const [error, setError] = useState('');
 
@@ -510,17 +510,6 @@ const TeacherSchedule = () => {
         <div className="bg-white rounded-2xl shadow-xl mb-6 overflow-hidden">
           <div className="flex border-b border-gray-200">
             <button
-              onClick={() => setActiveTab('create')}
-              className={`flex-1 py-4 px-6 text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
-                activeTab === 'create' 
-                  ? 'bg-blue-600 text-white rounded-tr-2xl' 
-                  : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <Plus className="w-5 h-5" />
-              Create Appointment
-            </button>
-            <button
               onClick={() => setActiveTab('appointments')}
               className={`flex-1 py-4 px-6 text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
                 activeTab === 'appointments' 
@@ -531,43 +520,20 @@ const TeacherSchedule = () => {
               <BookOpen className="w-5 h-5" />
               My Appointments ({safeAppointments.length})
             </button>
-            
+            <button
+              onClick={() => setActiveTab('create')}
+              className={`flex-1 py-4 px-6 text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
+                activeTab === 'create' 
+                  ? 'bg-blue-600 text-white rounded-tr-2xl' 
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <Plus className="w-5 h-5" />
+              Create Appointment
+            </button>
           </div>
         </div>
-{activeTab === 'create' && (
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-4 sm:mb-0">Create New Appointment</h2>
-              <button
-                onClick={openBookingModal}
-                className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-3 rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-semibold shadow-md flex items-center justify-center"
-              >
-                <Plus className="w-5 h-5 inline mr-2" />
-                Schedule New Appointment
-              </button>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
-                <Calendar className="w-12 h-12 text-blue-600 mb-4" />
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">Quick Schedule</h3>
-                <p className="text-gray-600 text-sm">Create appointments for students quickly and efficiently.</p>
-              </div>
-              
-              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
-                <Clock className="w-12 h-12 text-green-600 mb-4" />
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">Flexible Timing</h3>
-                <p className="text-gray-600 text-sm">Choose from your available time slots to fit student needs.</p>
-              </div>
-              
-              <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-6 border border-purple-200">
-                <User className="w-12 h-12 text-purple-600 mb-4" />
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">Student Details</h3>
-                <p className="text-gray-600 text-sm">Collect necessary student information for personalized sessions.</p>
-              </div>
-            </div>
-          </div>
-        )}
         {/* My Appointments Tab Content */}
         {activeTab === 'appointments' && (
           <div className="space-y-4">
@@ -637,6 +603,42 @@ const TeacherSchedule = () => {
                 </div>
               ))
             )}
+          </div>
+        )}
+
+        {/* Create Appointment Tab Content */}
+        {activeTab === 'create' && (
+          <div className="bg-white rounded-2xl shadow-xl p-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4 sm:mb-0">Create New Appointment</h2>
+              <button
+                onClick={openBookingModal}
+                className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-3 rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-semibold shadow-md flex items-center justify-center"
+              >
+                <Plus className="w-5 h-5 inline mr-2" />
+                Schedule New Appointment
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
+                <Calendar className="w-12 h-12 text-blue-600 mb-4" />
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">Quick Schedule</h3>
+                <p className="text-gray-600 text-sm">Create appointments for students quickly and efficiently.</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
+                <Clock className="w-12 h-12 text-green-600 mb-4" />
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">Flexible Timing</h3>
+                <p className="text-gray-600 text-sm">Choose from your available time slots to fit student needs.</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-6 border border-purple-200">
+                <User className="w-12 h-12 text-purple-600 mb-4" />
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">Student Details</h3>
+                <p className="text-gray-600 text-sm">Collect necessary student information for personalized sessions.</p>
+              </div>
+            </div>
           </div>
         )}
 

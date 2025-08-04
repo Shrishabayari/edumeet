@@ -1,64 +1,46 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import React, { useState } from "react";
+import { Link } from "react-router-dom";
+import { Menu, X } from "lucide-react";
 
 const Navbar = () => {
-  const { isAuthenticated, user, logout } = useAuth();
+  const [isOpen, setIsOpen] = useState(false);
 
-  return (
-    <nav className="bg-blue-600 shadow-lg">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center">
+    const toggleMenu = () => {
+      setIsOpen(!isOpen);
+    };
+  
+    return (
+      <nav className="bg-blue-600 text-white shadow-md sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="text-xl font-bold">
             <Link to="/" className="text-white text-xl font-bold">
               EduMet
             </Link>
           </div>
           
-          <div className="flex items-center space-x-4">
-            {isAuthenticated ? (
-              <>
-                <span className="text-white">Welcome, {user?.name}</span>
-                <Link
-                  to="/dashboard"
-                  className="text-white hover:text-blue-200"
-                >
-                  Dashboard
-                </Link>
-                <button
-                  onClick={logout}
-                  className="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800"
-                >
-                  Logout
-                </button>
-              </>
-            ) : (
-              <>
-                <Link
-                  to="/admin/login"
-                  className="text-white hover:text-blue-200"
-                >
-                  Admin Login
-                </Link>
-                <Link
-                  to="/teacher/login"
-                  className="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800"
-                >
-                  Teacher login
-                </Link>
-                <Link
-                  to="/user/register"
-                  className="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800"
-                >
-                  User Register
-                </Link>
-              </>
-            )}
+          <div className="md:hidden">
+            <button onClick={toggleMenu}>
+              {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+          </div>
+          
+          <div className="hidden md:flex space-x-6">
+            <Link to="/admin/login" className="hover:underline">Admin Login</Link>
+            <Link to="/teacher/login" className="hover:underline">Teacher login</Link>
+            <Link to="/user/register" className="hover:underline">User Register</Link>
           </div>
         </div>
-      </div>
-    </nav>
-  );
-};
+  
+        {/* Mobile Menu */}
+        {isOpen && (
+          <div className="md:hidden px-4 pb-4 space-y-2 bg-blue-600 text-white flex flex-col">
+            <Link to="/admin/login" onClick={toggleMenu} className="block hover:underline">Admin Login</Link>
+            <Link to="/teacher/login" onClick={toggleMenu} className="block hover:underline">Teacher login</Link>
+            <Link to="/user/register" onClick={toggleMenu} className="block hover:underline">User Register</Link>
+          </div>
+        )}
+      </nav>
+    );
+  };
 
 export default Navbar;

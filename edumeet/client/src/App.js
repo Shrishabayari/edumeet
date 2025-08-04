@@ -46,7 +46,7 @@ function App() {
               {/* Teacher Routes */}
               <Route path="/teacher/login" element={<TeacherLogin />} />
               <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
-              <Route path="/teacher/schedule-appointment" element={<TeacherSchedule />} />
+              <Route path="/teacher/shedule-appointment" element={<TeacherSchedule />} />
               <Route path="/teacher/appointment-list" element={<AppointmentList />} />
               
               {/* Message Board Route */}
