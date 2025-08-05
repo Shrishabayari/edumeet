@@ -43,7 +43,6 @@ const appointmentSchema = new mongoose.Schema({
   time: {
     type: String,
     required: true,
-    // Remove enum validation to allow flexible time formats
     validate: {
       validator: function(v) {
         // Allow formats like "2:00 PM", "14:00", "2:00 PM - 3:00 PM"
@@ -60,10 +59,49 @@ const appointmentSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  // Updated status field to handle different workflows
   status: {
     type: String,
-    enum: ['pending', 'confirmed', 'cancelled', 'completed'],
+    enum: [
+      'pending',        // User requested, waiting for teacher response
+      'confirmed',      // Teacher accepted/confirmed the appointment
+      'rejected',       // Teacher rejected the request
+      'cancelled',      // Cancelled by either party
+      'completed',      // Appointment completed
+      'booked'          // Direct booking by teacher (no approval needed)
+    ],
     default: 'pending'
+  },
+  // New field to track who created the appointment
+  createdBy: {
+    type: String,
+    enum: ['student', 'teacher'],
+    required: true,
+    default: 'student'
+  },
+  // Fields for teacher responses
+  teacherResponse: {
+    respondedAt: {
+      type: Date
+    },
+    responseMessage: {
+      type: String,
+      trim: true
+    }
+  },
+  // Fields for cancellation tracking
+  cancellation: {
+    cancelledBy: {
+      type: String,
+      enum: ['student', 'teacher', 'admin']
+    },
+    cancelledAt: {
+      type: Date
+    },
+    cancellationReason: {
+      type: String,
+      trim: true
+    }
   },
   notes: {
     type: String,
@@ -79,8 +117,69 @@ const appointmentSchema = new mongoose.Schema({
   }
 });
 
-// Add index for efficient querying
+// Add indexes for efficient querying
 appointmentSchema.index({ teacherId: 1, date: 1, time: 1 });
+appointmentSchema.index({ status: 1 });
+appointmentSchema.index({ createdBy: 1 });
+
+// Pre-save middleware to update timestamps
+appointmentSchema.pre('save', function(next) {
+  this.updatedAt = new Date();
+  next();
+});
+
+// Instance methods
+appointmentSchema.methods.acceptRequest = function(responseMessage = '') {
+  this.status = 'confirmed';
+  this.teacherResponse.respondedAt = new Date();
+  this.teacherResponse.responseMessage = responseMessage;
+  return this.save();
+};
+
+appointmentSchema.methods.rejectRequest = function(responseMessage = '') {
+  this.status = 'rejected';
+  this.teacherResponse.respondedAt = new Date();
+  this.teacherResponse.responseMessage = responseMessage;
+  return this.save();
+};
+
+appointmentSchema.methods.cancelAppointment = function(cancelledBy, reason = '') {
+  this.status = 'cancelled';
+  this.cancellation.cancelledBy = cancelledBy;
+  this.cancellation.cancelledAt = new Date();
+  this.cancellation.cancellationReason = reason;
+  return this.save();
+};
+
+appointmentSchema.methods.completeAppointment = function() {
+  this.status = 'completed';
+  return this.save();
+};
+
+// Static methods
+appointmentSchema.statics.findPendingForTeacher = function(teacherId) {
+  return this.find({
+    teacherId,
+    status: 'pending',
+    createdBy: 'student'
+  }).sort({ createdAt: -1 });
+};
+
+appointmentSchema.statics.findTeacherBookings = function(teacherId) {
+  return this.find({
+    teacherId,
+    createdBy: 'teacher'
+  }).sort({ date: 1 });
+};
+
+appointmentSchema.statics.checkTimeSlotAvailability = function(teacherId, date, time) {
+  return this.findOne({
+    teacherId,
+    date: new Date(date),
+    time,
+    status: { $in: ['confirmed', 'booked', 'pending'] }
+  });
+};
 
 const Appointment = mongoose.models.Appointment || mongoose.model('Appointment', appointmentSchema);
 

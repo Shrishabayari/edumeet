@@ -1,4 +1,4 @@
-// client/src/api.js (EduMeet API Configuration)
+// client/src/api.js (Updated EduMeet API Configuration)
 import axios from 'axios';
 
 // Prioritize environment variable, then remote server, then local development server
@@ -6,7 +6,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000, // Increased timeout for potentially slower network conditions
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -19,18 +19,17 @@ api.interceptors.request.use(
 
     // Determine which token to use based on the URL
     if (config.url.startsWith('/admin')) {
-      token = localStorage.getItem('adminToken'); // Use 'adminToken' for admin routes
+      token = localStorage.getItem('adminToken');
     } else if (config.url.startsWith('/teachers')) {
-      token = localStorage.getItem('teacherToken'); // Use 'teacherToken' for teacher routes
+      token = localStorage.getItem('teacherToken');
     } else {
-      token = localStorage.getItem('userToken'); // Use 'userToken' for regular user routes
+      token = localStorage.getItem('userToken');
     }
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    // Log requests only in development environment
     if (process.env.NODE_ENV === 'development') {
       console.log(`🔄 API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
       if (token) {
@@ -64,7 +63,7 @@ api.interceptors.response.use(
       console.error(`HTTP Error ${status}:`, data);
 
       switch (status) {
-        case 401: // Unauthorized
+        case 401:
           console.warn('Unauthorized: Token expired or invalid. Attempting redirection.');
           if (config.url.startsWith('/admin')) {
             localStorage.removeItem('adminToken');
@@ -78,13 +77,13 @@ api.interceptors.response.use(
             window.location.href = '/login';
           }
           break;
-        case 403: // Forbidden
+        case 403:
           console.error('Access forbidden: You do not have permission to perform this action.');
           break;
-        case 404: // Not Found
+        case 404:
           console.error('API endpoint not found:', error.config.url);
           break;
-        case 500: // Internal Server Error
+        case 500:
           console.error('Internal server error. Please try again later.');
           break;
         default:
@@ -104,7 +103,7 @@ api.interceptors.response.use(
   }
 );
 
-// API endpoints object for better organization
+// Updated API endpoints object
 export const endpoints = {
   // Auth endpoints (for regular users)
   auth: {
@@ -115,17 +114,14 @@ export const endpoints = {
     verifyToken: '/auth/verify-token',
   },
 
-  // Teacher endpoints - CORRECTED ACCORDING TO BACKEND ROUTES
+  // Teacher endpoints
   teachers: {
-    // Basic CRUD operations
     getAll: '/teachers',
     getById: (id) => `/teachers/${id}`,
-    create: '/teachers', // Fixed: was pointing to wrong route
+    create: '/teachers',
     update: (id) => `/teachers/${id}`,
     delete: (id) => `/teachers/${id}`,
     permanentDelete: (id) => `/teachers/${id}/permanent`,
-    
-    // Special routes (must come before parameterized routes)
     getStats: '/teachers/stats',
     getByDepartment: (department) => `/teachers/department/${department}`,
     
@@ -137,39 +133,44 @@ export const endpoints = {
     logout: '/teachers/logout',
   },
 
-  // Appointment endpoints
+  // Updated appointment endpoints with new workflow
   appointments: {
+    // General appointment routes
     getAll: '/appointments',
     getById: (id) => `/appointments/${id}`,
-    book: '/appointments',
-    update: (id) => `/appointments/${id}`,
-    cancel: (id) => `/appointments/${id}`,
-    getByTeacher: (teacherId) => `/appointments/teacher/${teacherId}`,
     getStats: '/appointments/stats',
+    
+    // Student workflow - request appointment (needs teacher approval)
+    request: '/appointments/request',
+    
+    // Teacher workflow - direct booking (no approval needed)
+    book: '/appointments/book',
+    
+    // Teacher response routes
+    accept: (id) => `/appointments/${id}/accept`,
+    reject: (id) => `/appointments/${id}/reject`,
+    complete: (id) => `/appointments/${id}/complete`,
+    
+    // Common routes
+    update: (id) => `/appointments/${id}`,
+    cancel: (id) => `/appointments/${id}/cancel`,
+    
+    // Teacher-specific routes
+    getByTeacher: (teacherId) => `/appointments/teacher/${teacherId}`,
+    getTeacherPending: (teacherId) => `/appointments/teacher/${teacherId}/pending`,
   },
 
   // Admin endpoints
   admin: {
-    // Admin Auth
     register: '/admin/register',
     login: '/admin/login',
     profile: '/admin/profile',
     updateProfile: '/admin/profile',
-    
-    // Admin Dashboard
     dashboardStats: '/admin/dashboard/stats',
-    
-    // User Management
     getUsers: '/admin/users',
     deleteUser: (userId) => `/admin/users/${userId}`,
-    
-    // Appointment Management
     getAllAppointments: '/admin/appointments',
-    
-    // Teacher Management
     updateTeacherStatus: (teacherId) => `/admin/teachers/${teacherId}/status`,
-    
-    // User approval (from auth routes)
     getPendingRegistrations: '/auth/admin/pending',
     getAllUsers: '/auth/admin/users',
     approveUser: (id) => `/auth/admin/approve/${id}`,
@@ -177,7 +178,7 @@ export const endpoints = {
   }
 };
 
-// Convenience methods for common API operations
+// Updated convenience methods for appointment operations
 export const apiMethods = {
   // Auth Operations
   register: (userData) => api.post(endpoints.auth.register, userData),
@@ -187,7 +188,7 @@ export const apiMethods = {
   updateProfile: (data) => api.put(endpoints.auth.profile, data),
   verifyToken: () => api.get(endpoints.auth.verifyToken),
 
-  // Teacher Operations - CORRECTED AND REORGANIZED
+  // Teacher Operations
   getAllTeachers: (params = {}) => api.get(endpoints.teachers.getAll, { params }),
   getTeacherById: (id) => api.get(endpoints.teachers.getById(id)),
   createTeacher: (teacherData) => api.post(endpoints.teachers.create, teacherData),
@@ -197,21 +198,78 @@ export const apiMethods = {
   getTeachersByDepartment: (department) => api.get(endpoints.teachers.getByDepartment(department)),
   getTeacherStats: () => api.get(endpoints.teachers.getStats),
 
-  // Teacher Auth Operations - CORRECTED
+  // Teacher Auth Operations
   teacherLogin: (credentials) => api.post(endpoints.teachers.login, credentials),
   sendTeacherSetupLink: (data) => api.post(endpoints.teachers.sendSetupLink, data),
   setupTeacherAccount: (token, data) => api.post(endpoints.teachers.setupAccount(token), data),
   getTeacherProfile: () => api.get(endpoints.teachers.profile),
   teacherLogout: () => api.post(endpoints.teachers.logout),
 
-  // Appointment Operations
+  // Updated Appointment Operations
+
+  // Student workflow - Request appointment (needs teacher approval)
+  requestAppointment: (appointmentData) => {
+    console.log('🔄 Student requesting appointment:', appointmentData);
+    return api.post(endpoints.appointments.request, appointmentData);
+  },
+
+  // Teacher workflow - Direct booking (no approval needed)
+  teacherBookAppointment: (appointmentData) => {
+    console.log('🔄 Teacher booking appointment directly:', appointmentData);
+    return api.post(endpoints.appointments.book, appointmentData);
+  },
+
+  // Teacher response to student requests
+  acceptAppointmentRequest: (id, responseMessage = '') => {
+    console.log(`🔄 Teacher accepting appointment request: ${id}`);
+    return api.put(endpoints.appointments.accept(id), { responseMessage });
+  },
+
+  rejectAppointmentRequest: (id, responseMessage = '') => {
+    console.log(`🔄 Teacher rejecting appointment request: ${id}`);
+    return api.put(endpoints.appointments.reject(id), { responseMessage });
+  },
+
+  // Complete appointment
+  completeAppointment: (id) => {
+    console.log(`🔄 Completing appointment: ${id}`);
+    return api.put(endpoints.appointments.complete(id));
+  },
+
+  // General appointment operations
   getAllAppointments: (params = {}) => api.get(endpoints.appointments.getAll, { params }),
   getAppointmentById: (id) => api.get(endpoints.appointments.getById(id)),
-  bookAppointment: (appointmentData) => api.post(endpoints.appointments.book, appointmentData),
   updateAppointment: (id, data) => api.put(endpoints.appointments.update(id), data),
-  cancelAppointment: (id) => api.delete(endpoints.appointments.cancel(id)),
-  getTeacherAppointments: (teacherId, params = {}) => api.get(endpoints.appointments.getByTeacher(teacherId), { params }),
+  cancelAppointment: (id, reason = '') => api.put(endpoints.appointments.cancel(id), { reason }),
   getAppointmentStats: () => api.get(endpoints.appointments.getStats),
+
+  // Teacher-specific appointment queries
+  getTeacherAppointments: (teacherId, params = {}) => {
+    return api.get(endpoints.appointments.getByTeacher(teacherId), { params });
+  },
+
+  getTeacherPendingRequests: (teacherId) => {
+    return api.get(endpoints.appointments.getTeacherPending(teacherId));
+  },
+
+  // Filtered queries for different appointment types
+  getConfirmedAppointments: (params = {}) => {
+    return api.get(endpoints.appointments.getAll, { 
+      params: { ...params, status: 'confirmed' } 
+    });
+  },
+
+  getDirectBookings: (params = {}) => {
+    return api.get(endpoints.appointments.getAll, { 
+      params: { ...params, status: 'booked', createdBy: 'teacher' } 
+    });
+  },
+
+  getPendingRequests: (params = {}) => {
+    return api.get(endpoints.appointments.getAll, { 
+      params: { ...params, status: 'pending', createdBy: 'student' } 
+    });
+  },
 
   // Admin Operations
   adminRegister: (adminData) => api.post(endpoints.admin.register, adminData),
@@ -230,20 +288,20 @@ export const apiMethods = {
   approveUser: (id) => api.put(endpoints.admin.approveUser(id)),
   rejectUser: (id, reason) => api.put(endpoints.admin.rejectUser(id), { reason }),
 
-  // Enhanced appointment booking with better error handling
-  bookAppointmentWithRetry: async (appointmentData) => {
+  // Enhanced appointment booking with better error handling and retry logic
+  requestAppointmentWithRetry: async (appointmentData) => {
     const maxRetries = 3;
     let lastError = null;
 
     for (let i = 0; i < maxRetries; i++) {
       try {
-        console.log(`🔄 Booking appointment attempt ${i + 1}/${maxRetries}`);
-        const response = await api.post(endpoints.appointments.book, appointmentData);
-        console.log(`✅ Appointment booked successfully on attempt ${i + 1}`);
+        console.log(`🔄 Requesting appointment attempt ${i + 1}/${maxRetries}`);
+        const response = await api.post(endpoints.appointments.request, appointmentData);
+        console.log(`✅ Appointment requested successfully on attempt ${i + 1}`);
         return response;
       } catch (error) {
         lastError = error;
-        console.log(`❌ Booking attempt ${i + 1} failed:`, error.message);
+        console.log(`❌ Request attempt ${i + 1} failed:`, error.message);
         
         // If it's a validation error (400) or conflict (409), don't retry
         if (error.response?.status === 400 || error.response?.status === 409) {
@@ -257,119 +315,67 @@ export const apiMethods = {
       }
     }
 
-    throw lastError || new Error('All appointment booking attempts failed');
+    throw lastError || new Error('All appointment request attempts failed');
   },
 
-  // Enhanced teacher update with proper endpoint
-  updateTeacherWithValidation: async (id, teacherData) => {
-    try {
-      console.log(`🔄 Updating teacher: PUT /teachers/${id}`);
-      const response = await api.put(endpoints.teachers.update(id), teacherData);
-      console.log(`✅ Teacher updated successfully`);
-      return response;
-    } catch (error) {
-      console.error(`❌ Teacher update failed:`, error.response?.data || error.message);
-      throw error;
+  // Bulk operations for appointments
+  bulkUpdateAppointments: async (updates) => {
+    const results = [];
+    for (const update of updates) {
+      try {
+        const result = await apiMethods.updateAppointment(update.id, update.data);
+        results.push({ success: true, id: update.id, data: result.data });
+      } catch (error) {
+        results.push({ success: false, id: update.id, error: error.message });
+      }
     }
-  },
-
-  // Helper method to handle file uploads (if needed for teacher profiles)
-  uploadFile: async (file, type = 'profile') => {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('type', type);
-
-    return api.post('/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    return results;
   },
 
   // Search functionality
-  searchTeachers: (query, filters = {}) => {
-    const params = { search: query, ...filters };
-    return api.get(endpoints.teachers.getAll, { params });
-  },
-
   searchAppointments: (query, filters = {}) => {
     const params = { search: query, ...filters };
     return api.get(endpoints.appointments.getAll, { params });
   },
 
-  // Department validation helper
-  validateDepartment: (department) => {
-    const validDepartments = [
-      'Computer Science',
-      'Mathematics',
-      'Physics',
-      'Chemistry',
-      'Biology',
-      'English',
-      'History',
-      'Economics',
-      'Business Administration',
-      'Psychology'
-    ];
-    return validDepartments.includes(department);
+  searchTeachers: (query, filters = {}) => {
+    const params = { search: query, ...filters };
+    return api.get(endpoints.teachers.getAll, { params });
   },
 
-  // Availability validation helper
-  validateAvailability: (timeSlot) => {
-    const validSlots = [
-      '9:00 AM - 10:00 AM',
-      '10:00 AM - 11:00 AM',
-      '11:00 AM - 12:00 PM',
-      '12:00 PM - 1:00 PM',
-      '2:00 PM - 3:00 PM',
-      '3:00 PM - 4:00 PM',
-      '4:00 PM - 5:00 PM',
-      '5:00 PM - 6:00 PM'
-    ];
-    return validSlots.includes(timeSlot);
-  },
-
-  // Teacher data validation before API call
-  validateTeacherData: (teacherData) => {
+  // Validation helpers
+  validateAppointmentData: (appointmentData, isTeacherBooking = false) => {
     const errors = [];
     
-    // Required fields validation
-    if (!teacherData.name || teacherData.name.trim().length < 2) {
-      errors.push('Name must be at least 2 characters long');
+    // Common validations
+    if (!appointmentData.day) {
+      errors.push('Day is required');
     }
     
-    if (!teacherData.email || !/\S+@\S+\.\S+/.test(teacherData.email)) {
-      errors.push('Valid email is required');
-    }
-    // eslint-disable-next-line
-    if (!teacherData.phone || !/^[]?[1-9][\d]{0,15}$/.test(teacherData.phone)) {
-      errors.push('Valid phone number is required');
+    if (!appointmentData.time) {
+      errors.push('Time is required');
     }
     
-    if (!teacherData.department || !apiMethods.validateDepartment(teacherData.department)) {
-      errors.push('Valid department is required');
-    }
-    
-    if (!teacherData.subject || teacherData.subject.trim().length < 2) {
-      errors.push('Subject must be at least 2 characters long');
-    }
-    
-    if (!teacherData.experience || teacherData.experience.trim().length < 1) {
-      errors.push('Experience is required');
-    }
-    
-    if (!teacherData.qualification || teacherData.qualification.trim().length < 5) {
-      errors.push('Qualification must be at least 5 characters long');
-    }
-    
-    // Availability validation
-    if (teacherData.availability && Array.isArray(teacherData.availability)) {
-      const invalidSlots = teacherData.availability.filter(slot => 
-        !apiMethods.validateAvailability(slot)
-      );
-      if (invalidSlots.length > 0) {
-        errors.push(`Invalid availability slots: ${invalidSlots.join(', ')}`);
+    if (!appointmentData.date) {
+      errors.push('Date is required');
+    } else {
+      const appointmentDate = new Date(appointmentData.date);
+      if (appointmentDate < new Date()) {
+        errors.push('Appointment date must be in the future');
       }
+    }
+    
+    if (!appointmentData.student?.name) {
+      errors.push('Student name is required');
+    }
+    
+    if (!appointmentData.student?.email) {
+      errors.push('Student email is required');
+    }
+    
+    // For student requests, teacherId is required
+    if (!isTeacherBooking && !appointmentData.teacherId) {
+      errors.push('Teacher ID is required');
     }
     
     return {
@@ -379,7 +385,7 @@ export const apiMethods = {
   }
 };
 
-// Export token management utilities
+// Export token management utilities (unchanged)
 export const tokenManager = {
   setUserToken: (token) => localStorage.setItem('userToken', token),
   getUserToken: () => localStorage.getItem('userToken'),
@@ -401,7 +407,7 @@ export const tokenManager = {
   }
 };
 
-// Export constants for validation
+// Updated constants with new appointment statuses
 export const constants = {
   DEPARTMENTS: [
     'Computer Science',
@@ -428,11 +434,18 @@ export const constants = {
   ],
   
   APPOINTMENT_STATUSES: [
-    'pending',
-    'confirmed',
-    'cancelled',
-    'completed'
-  ]
+    'pending',    // Student requested, waiting for teacher response
+    'confirmed',  // Teacher accepted the request
+    'rejected',   // Teacher rejected the request
+    'cancelled',  // Cancelled by either party
+    'completed',  // Appointment completed
+    'booked'      // Direct booking by teacher (no approval needed)
+  ],
+
+  APPOINTMENT_TYPES: {
+    STUDENT_REQUEST: 'student_request',  // Student requests, teacher approves
+    TEACHER_BOOKING: 'teacher_booking'   // Teacher books directly
+  }
 };
 
 export default api;
