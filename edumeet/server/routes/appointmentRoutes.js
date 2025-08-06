@@ -193,7 +193,7 @@ const cancellationValidation = [
     .withMessage('Cancellation reason cannot exceed 500 characters')
 ];
 
-// Routes
+// Routes - FIXED ORDER
 
 // Statistics and aggregate routes (must come first to avoid param conflicts)
 router.get('/stats', getAppointmentStats);
@@ -202,11 +202,6 @@ router.get('/stats', getAppointmentStats);
 router.get('/teacher/:teacherId/pending', getTeacherPendingRequests);
 router.get('/teacher/:teacherId', getTeacherAppointments);
 
-// Teacher response routes
-router.put('/:id/accept', responseValidation, handleValidationErrors, acceptAppointmentRequest);
-router.put('/:id/reject', responseValidation, handleValidationErrors, rejectAppointmentRequest);
-router.put('/:id/complete', completeAppointment);
-
 // Main appointment routes
 router.get('/', getAllAppointments);
 router.get('/:id', getAppointmentById);
@@ -214,8 +209,13 @@ router.get('/:id', getAppointmentById);
 // Student requests appointment (needs teacher approval)
 router.post('/request', requestAppointmentValidation, handleValidationErrors, requestAppointment);
 
-// Teacher books appointment directly (no approval needed)
+// *** FIXED: Teacher books appointment directly (no approval needed) ***
 router.post('/book', teacherBookingValidation, handleValidationErrors, teacherBookAppointment);
+
+// Teacher response routes
+router.put('/:id/accept', responseValidation, handleValidationErrors, acceptAppointmentRequest);
+router.put('/:id/reject', responseValidation, handleValidationErrors, rejectAppointmentRequest);
+router.put('/:id/complete', completeAppointment);
 
 // Update and cancel routes
 router.put('/:id', updateAppointmentValidation, handleValidationErrors, updateAppointment);

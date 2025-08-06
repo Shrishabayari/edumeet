@@ -276,14 +276,23 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Catch-all for undefined routes
+// Catch-all for undefined routes (Updated section of your server.js)
 app.all('*', (req, res) => {
   console.log(`Route not found: ${req.method} ${req.path}`);
   res.status(404).json({
     success: false,
     message: `Route ${req.path} not found`,
     availableRoutes: [
+      // Health check
       'GET /api/health',
+      
+      // Auth routes
+      'POST /api/auth/register',
+      'POST /api/auth/login',
+      'GET /api/auth/profile',
+      'POST /api/auth/logout',
+      
+      // Teacher routes
       'GET /api/teachers',
       'POST /api/teachers',
       'GET /api/teachers/:id',
@@ -291,8 +300,41 @@ app.all('*', (req, res) => {
       'DELETE /api/teachers/:id',
       'GET /api/teachers/stats',
       'GET /api/teachers/department/:department',
+      'POST /api/teachers/login',
+      'POST /api/teachers/send-setup-link',
+      'POST /api/teachers/setup-account/:token',
+      'GET /api/teachers/profile',
+      'POST /api/teachers/logout',
+      
+      // Appointment routes - COMPLETE LIST
+      'GET /api/appointments',
+      'POST /api/appointments',
+      'GET /api/appointments/:id',
+      'PUT /api/appointments/:id',
+      'DELETE /api/appointments/:id',
+      'GET /api/appointments/stats',
+      'POST /api/appointments/request',
+      'POST /api/appointments/book',  // <-- This was missing!
+      'PUT /api/appointments/:id/accept',
+      'PUT /api/appointments/:id/reject',
+      'PUT /api/appointments/:id/complete',
+      'PUT /api/appointments/:id/cancel',
+      'GET /api/appointments/teacher/:teacherId',
+      'GET /api/appointments/teacher/:teacherId/pending',
+      
+      // Message routes
       'GET /api/messages/room/:roomId',
-      'DELETE /api/messages/:messageId'
+      'DELETE /api/messages/:messageId',
+      
+      // Admin routes
+      'POST /api/admin/register',
+      'POST /api/admin/login',
+      'GET /api/admin/profile',
+      'PUT /api/admin/profile',
+      'GET /api/admin/dashboard/stats',
+      'GET /api/admin/users',
+      'DELETE /api/admin/users/:userId',
+      'GET /api/admin/appointments'
     ]
   });
 });
