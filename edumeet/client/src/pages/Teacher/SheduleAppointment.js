@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Calendar, Clock, User, Mail, Phone, BookOpen, CheckCircle, XCircle, AlertCircle, Plus } from 'lucide-react';
-import { apiMethods } from '../../services/api'; // Assuming this path is correct for your project structure
+import { apiMethods } from '../../services/api';
 import TeacherNavbar from "../../components/teacherNavbar";
 
 const TeacherSchedule = () => {
-  // currentTeacher now also holds dynamic availability and a loading state for the modal
   const [currentTeacher, setCurrentTeacher] = useState(null); 
   const [appointments, setAppointments] = useState([]);
   const [selectedDay, setSelectedDay] = useState('');
@@ -19,36 +18,32 @@ const TeacherSchedule = () => {
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [activeTab, setActiveTab] = useState('create');
-  const [loading, setLoading] = useState(false); // Global loading state for API calls
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [teacherAvailability, setTeacherAvailability] = useState(null);
 
-// eslint-disable-next-line
   const VALID_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-  // Helper function to get next date for a given day
-  // This function is memoized with useCallback for performance.
+  // Get next date for a given day
   const getNextDateForDay = useCallback((dayName) => {
     if (!dayName || typeof dayName !== 'string') {
-      console.error('Invalid day name (not a string):', dayName);
-      // Return today's date if invalid day name
+      console.error('Invalid day name:', dayName);
       return new Date().toISOString().split('T')[0]; 
     }
 
     const normalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1).toLowerCase();
     
     if (!VALID_DAYS.includes(normalizedDay)) {
-      console.error('Invalid day name:', dayName, 'normalized:', normalizedDay);
-      // Return today's date if invalid day name
+      console.error('Invalid day name:', normalizedDay);
       return new Date().toISOString().split('T')[0];
     }
     
     const today = new Date();
     const targetDay = VALID_DAYS.indexOf(normalizedDay);
-    const todayDay = today.getDay(); // 0 for Sunday, 1 for Monday, etc.
+    const todayDay = today.getDay();
     
     let daysUntilTarget = targetDay - todayDay;
     
-    // If target day is today or has passed this week, get next week's date
     if (daysUntilTarget <= 0) {
       daysUntilTarget += 7;
     }
@@ -56,13 +51,13 @@ const TeacherSchedule = () => {
     const targetDate = new Date(today);
     targetDate.setDate(today.getDate() + daysUntilTarget);
     
-    return targetDate.toISOString().split('T')[0]; // eslint-disable-next-line
-  }, []); // Empty dependency array as it doesn't depend on any state/props
+    return targetDate.toISOString().split('T')[0];
+  }, []);
 
   const formatDateForDisplay = useCallback((dateString) => {
     try {
       const date = new Date(dateString);
-      if (isNaN(date.getTime())) { // Check for invalid date
+      if (isNaN(date.getTime())) {
         return dateString;
       }
       return date.toLocaleDateString('en-US', {
@@ -76,185 +71,139 @@ const TeacherSchedule = () => {
     }
   }, []);
 
+  // Default availability structure
   const getDefaultAvailability = useCallback(() => {
     return [
       { 
         day: 'Monday', 
         slots: [
-          '9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 PM',
-          '1:00 PM - 2:00 PM', '2:00 PM - 3:00 PM', '3:00 PM - 4:00 PM', '4:00 PM - 5:00 PM'
-        ] 
+          '9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 PM'        ] 
       },
       { 
         day: 'Tuesday', 
         slots: [
-          '9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 PM',
-          '1:00 PM - 2:00 PM', '2:00 PM - 3:00 PM', '3:00 PM - 4:00 PM', '4:00 PM - 5:00 PM'
-        ] 
+          '9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 PM'        ] 
       },
       { 
         day: 'Wednesday', 
         slots: [
-          '9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 PM',
-          '1:00 PM - 2:00 PM', '2:00 PM - 3:00 PM', '3:00 PM - 4:00 PM', '4:00 PM - 5:00 PM'
-        ] 
+          '9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 PM'        ] 
       },
       { 
         day: 'Thursday', 
         slots: [
-          '9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 PM',
-          '1:00 PM - 2:00 PM', '2:00 PM - 3:00 PM', '3:00 PM - 4:00 PM', '4:00 PM - 5:00 PM'
-        ] 
+          '9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 PM'        ] 
       },
       { 
         day: 'Friday', 
         slots: [
-          '9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 PM',
-          '1:00 PM - 2:00 PM', '2:00 PM - 3:00 PM', '3:00 PM - 4:00 PM', '4:00 PM - 5:00 PM'
-        ] 
+          '9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 PM'        ] 
       }
     ];
   }, []);
 
-  
-  const processCurrentTeacherAvailability = useCallback((teacherData) => {
-    if (!teacherData || !teacherData.availability) {
-      console.log('Teacher data or availability is missing, using default.');
+  // Process teacher availability - simplified version
+  const processTeacherAvailability = useCallback((teacherData) => {
+    console.log('Processing teacher availability:', teacherData?.availability);
+    
+    if (!teacherData?.availability) {
+      console.log('No availability found, using default');
       return getDefaultAvailability();
     }
 
-    try {
-      if (Array.isArray(teacherData.availability)) {
-        const validAvailability = teacherData.availability.filter(daySlot => {
-          if (!daySlot || typeof daySlot !== 'object') return false;
-          if (!daySlot.day || typeof daySlot.day !== 'string') return false;
-          if (daySlot.day.includes(':') || daySlot.day.includes('AM') || daySlot.day.includes('PM')) return false;
-          
-          const normalizedDay = daySlot.day.charAt(0).toUpperCase() + daySlot.day.slice(1).toLowerCase();
-          if (!VALID_DAYS.includes(normalizedDay)) return false;
-          
-          if (!Array.isArray(daySlot.slots)) daySlot.slots = [];
-          
-          daySlot.day = normalizedDay;
-          return true;
-        });
-        
-        if (validAvailability.length > 0) {
-          console.log('Valid object-format availability found for current teacher:', validAvailability);
-          return validAvailability;
-        }
-        
-        const timeSlots = teacherData.availability.filter(item => 
-          typeof item === 'string' && (item.includes(':') || item.includes('AM') || item.includes('PM'))
-        );
-        
-        if (timeSlots.length > 0) {
-          console.log('Found time slots for current teacher, converting to weekly format:', timeSlots);
-          
-          const cleanTimeSlots = timeSlots.map(slot => {
-            const parts = slot.split(' - ');
-            if (parts.length === 2) {
-              return `${parts[0].trim()} - ${parts[1].trim()}`;
-            }
-            return slot.trim();
-          }).filter(time => time); 
-          
-          const sortedSlots = cleanTimeSlots.sort((a, b) => {
-            const timeA = new Date(`2000/01/01 ${a}`);
-            const timeB = new Date(`2000/01/01 ${b}`);
-            return timeA - timeB;
-          });
-          
-          // Create availability for all weekdays with the same sorted slots
-          const weeklyAvailability = [];
-          const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']; // Assuming standard weekdays
-          
-          weekdays.forEach(day => {
-            weeklyAvailability.push({
-              day: day,
-              slots: [...sortedSlots] // Use a copy of sorted slots
-            });
-          });
-          
-          console.log('Converted current teacher availability to weekly format:', weeklyAvailability);
-          return weeklyAvailability;
-        }
-      }
+    // If it's already in the correct format
+    if (Array.isArray(teacherData.availability) && 
+        teacherData.availability.length > 0 && 
+        teacherData.availability[0].day && 
+        Array.isArray(teacherData.availability[0].slots)) {
+      console.log('Availability already in correct format');
+      return teacherData.availability;
+    }
+
+    // If it's an array of time slots, convert to weekly format
+    if (Array.isArray(teacherData.availability)) {
+      const timeSlots = teacherData.availability.filter(item => 
+        typeof item === 'string' && (item.includes(':') || item.includes('AM') || item.includes('PM'))
+      );
       
-      console.log('No valid custom availability found for current teacher, using default.');
-      return getDefaultAvailability();
-    } catch (error) {
-      console.error('Error processing current teacher availability:', error);
-      return getDefaultAvailability();
+      if (timeSlots.length > 0) {
+        console.log('Converting time slots to weekly format');
+        const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        return weekdays.map(day => ({
+          day,
+          slots: [...timeSlots]
+        }));
+      }
     }
-  }, [getDefaultAvailability, VALID_DAYS]); // Dependencies: getDefaultAvailability, VALID_DAYS
 
+    console.log('Using default availability');
+    return getDefaultAvailability();
+  }, [getDefaultAvailability]);
+
+  // Fetch teacher appointments
   const fetchTeacherAppointments = useCallback(async () => {
-    if (!currentTeacher || (!currentTeacher.id && !currentTeacher._id)) {
-      console.warn("No current teacher ID available to fetch appointments.");
+    if (!currentTeacher?.id && !currentTeacher?._id) {
+      console.warn("No teacher ID available");
       setAppointments([]);
       return;
     }
     
     try {
       setLoading(true);
-      setError('');
+      const teacherId = currentTeacher.id || currentTeacher._id;
+      console.log('Fetching appointments for teacher:', teacherId);
       
-      const teacherIdentifier = currentTeacher.id || currentTeacher._id;
-      const response = await apiMethods.getTeacherAppointments(teacherIdentifier);
-      const data = response.data;
+      const response = await apiMethods.getTeacherAppointments(teacherId);
+      console.log('Appointments response:', response);
       
-      let appointmentsArray = [];
-      if (Array.isArray(data)) {
-        appointmentsArray = data;
-      } else if (data && Array.isArray(data.appointments)) {
-        appointmentsArray = data.appointments;
-      } else if (data && Array.isArray(data.data)) {
-        appointmentsArray = data.data;
-      } else if (data && data.success && Array.isArray(data.data)) {
-        appointmentsArray = data.data;
-      } else {
-        console.warn('Appointments API returned unexpected data format:', data);
-        appointmentsArray = [];
+      let appointmentsData = [];
+      if (response?.data?.success && Array.isArray(response.data.data)) {
+        appointmentsData = response.data.data;
+      } else if (Array.isArray(response?.data)) {
+        appointmentsData = response.data;
       }
       
-      setAppointments(appointmentsArray);
+      console.log('Setting appointments:', appointmentsData);
+      setAppointments(appointmentsData);
+      
     } catch (error) {
-      console.error('Error fetching teacher appointments:', error);
-      setError('Failed to load appointments. Please try again.');
+      console.error('Error fetching appointments:', error);
+      setError('Failed to load appointments');
       setAppointments([]);
     } finally {
       setLoading(false);
     }
-  }, [currentTeacher]); // Depends on currentTeacher
+  }, [currentTeacher]);
 
-  // Effect hook to load teacher information from local storage on component mount.
+  // Load teacher from localStorage
   useEffect(() => {
     const teacherData = localStorage.getItem('teacher');
     if (teacherData) {
       try {
         const teacher = JSON.parse(teacherData);
+        console.log('Loaded teacher from localStorage:', teacher);
         setCurrentTeacher(teacher);
+        
+        // Process availability immediately
+        const availability = processTeacherAvailability(teacher);
+        setTeacherAvailability(availability);
+        
       } catch (error) {
-        console.error('Error parsing teacher data from localStorage:', error);
-        setError('Unable to load teacher information. Please log in again.');
-        setCurrentTeacher(null); // Clear teacher data if parsing fails
+        console.error('Error parsing teacher data:', error);
+        setError('Unable to load teacher information');
       }
     } else {
       setError('Please log in to access your schedule');
-      setCurrentTeacher(null);
     }
-  }, []);
+  }, [processTeacherAvailability]);
 
-  // Effect hook to fetch appointments once the currentTeacher state is set.
+  // Fetch appointments when teacher is loaded
   useEffect(() => {
     if (currentTeacher) {
       fetchTeacherAppointments();
     }
-  }, [currentTeacher, fetchTeacherAppointments]); // Add fetchTeacherAppointments to dependencies
+  }, [currentTeacher, fetchTeacherAppointments]);
 
-  // Resets the booking form fields.
-  // This function is memoized with useCallback for performance.
   const resetForm = useCallback(() => {
     setSelectedDay('');
     setSelectedTime('');
@@ -266,52 +215,31 @@ const TeacherSchedule = () => {
       message: ''
     });
     setError('');
-  }, []); // Empty dependency array as it doesn't depend on any state/props
+  }, []);
 
-  // Opens the booking modal and clears any previous errors.
-  // Now also fetches/processes teacher availability dynamically.
-  const openBookingModal = useCallback(async () => {
+  const openBookingModal = useCallback(() => {
     if (!currentTeacher) {
-      setError('Teacher data is not loaded. Cannot open booking modal.');
+      setError('Teacher data not loaded');
       return;
     }
     setShowBookingModal(true);
     setError('');
-    
-    // Temporarily update currentTeacher with a loading state for availability
-    setCurrentTeacher(prev => ({ ...prev, availability: null, loadingAvailability: true }));
-    
-    try {
-      const processedAvailability = await processCurrentTeacherAvailability(currentTeacher);
-      setCurrentTeacher(prev => ({ ...prev, availability: processedAvailability, loadingAvailability: false }));
-      
-      if (!processedAvailability || processedAvailability.length === 0) {
-        setError('No availability found for your schedule. Please set your availability.');
-      }
-    } catch (err) {
-      console.error('Error processing teacher availability for modal:', err);
-      setError('Failed to load your availability. Please try again.');
-      setCurrentTeacher(prev => ({ ...prev, availability: getDefaultAvailability(), loadingAvailability: false }));
-    }
-  }, [currentTeacher, processCurrentTeacherAvailability, getDefaultAvailability]);
+  }, [currentTeacher]);
 
-  // Closes the booking modal and resets the form.
-  // This function is memoized with useCallback for performance.
   const closeBookingModal = useCallback(() => {
     setShowBookingModal(false);
     resetForm();
-    // Reset currentTeacher's dynamic availability and loading state after modal closes
-    setCurrentTeacher(prev => prev ? { ...prev, availability: undefined, loadingAvailability: false } : null);
   }, [resetForm]);
 
-  // Handles the creation of a new appointment by the teacher on behalf of a student.
+  // Create appointment - FIXED
   const handleCreateAppointment = async () => {
     if (!currentTeacher) {
-      setError('Teacher information not loaded. Please log in.');
+      setError('Teacher information not loaded');
       return;
     }
+    
     if (!selectedDay || !selectedTime || !studentInfo.name || !studentInfo.email) {
-      setError('Please select a day, time, and fill in student name and email.');
+      setError('Please select day, time, and fill in required student information');
       return;
     }
 
@@ -319,39 +247,35 @@ const TeacherSchedule = () => {
       setLoading(true);
       setError('');
 
-      const nextDate = getNextDateForDay(selectedDay);
-
+      const appointmentDate = getNextDateForDay(selectedDay);
+      
+      // Correct appointment data structure for teacher booking
       const appointmentData = {
-        teacherId: currentTeacher.id || currentTeacher._id, // Use consistent ID access
+        teacherId: currentTeacher.id || currentTeacher._id,
         day: selectedDay,
         time: selectedTime,
-        date: nextDate,
+        date: appointmentDate,
         student: {
           name: studentInfo.name.trim(),
           email: studentInfo.email.trim(),
-          phone: studentInfo.phone.trim(), 
-          subject: studentInfo.subject.trim(), 
-          message: studentInfo.message.trim() 
-        }
+          phone: studentInfo.phone.trim() || null,
+          subject: studentInfo.subject.trim() || null,
+          message: studentInfo.message.trim() || null
+        },
+        status: 'booked', // Direct booking by teacher
+        createdBy: 'teacher'
       };
 
-      console.log('Creating appointment data:', appointmentData);
+      console.log('Creating appointment with data:', appointmentData);
 
-      const response = await apiMethods.bookAppointment(appointmentData);
+      const response = await apiMethods.teacherBookAppointment(appointmentData);
+      console.log('Appointment creation response:', response);
 
-      // Assuming response.data contains the newly created appointment object
-      if (response.data) {
-        setAppointments(prevAppointments => 
-          Array.isArray(prevAppointments) ? [...prevAppointments, response.data] : [response.data]
-        );
-      }
-      
-      // A full refresh might be better to ensure all data is consistent with the backend
-      await fetchTeacherAppointments(); 
+      // Refresh appointments list
+      await fetchTeacherAppointments();
       
       setShowBookingModal(false);
       setShowConfirmation(true);
-      
       resetForm();
 
       setTimeout(() => setShowConfirmation(false), 3000);
@@ -359,50 +283,42 @@ const TeacherSchedule = () => {
     } catch (error) {
       console.error('Error creating appointment:', error);
       
-      let errorMessage = 'Failed to create appointment. Please try again.';
-      if (error.response && error.response.data) {
-        if (error.response.data.errors) {
-          // Join validation errors from the backend
-          errorMessage = `Validation failed: ${error.response.data.errors.map(err => err.msg).join(', ')}`;
-        } else {
-          // Use a generic message from the backend if available
-          errorMessage = error.response.data.message || errorMessage;
-        }
+      let errorMessage = 'Failed to create appointment';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.errors) {
+        errorMessage = error.response.data.errors.map(e => e.msg || e.message).join(', ');
       } else if (error.message) {
-        // Use general JavaScript error message
         errorMessage = error.message;
       }
+      
       setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  // Handles the cancellation of an appointment.
+  // Cancel appointment - FIXED
   const cancelAppointment = async (appointmentId) => {
     if (!appointmentId) {
-      setError('No appointment ID provided for cancellation.');
+      setError('Invalid appointment ID');
       return;
     }
+    
     try {
       setLoading(true);
       setError('');
 
-      await apiMethods.cancelAppointment(appointmentId);
-
-      setAppointments(prevAppointments => 
-        Array.isArray(prevAppointments) 
-          ? prevAppointments.filter(apt => (apt.id || apt._id) !== appointmentId)
-          : []
+      await apiMethods.cancelAppointment(appointmentId, 'Cancelled by teacher');
+      
+      // Remove from local state
+      setAppointments(prev => 
+        prev.filter(apt => (apt.id || apt._id) !== appointmentId)
       );
 
     } catch (error) {
       console.error('Error canceling appointment:', error);
-      let errorMessage = 'Failed to cancel appointment. Please try again.';
-      if (error.response && error.response.data && error.response.data.message) {
-        errorMessage = error.response.data.message;
-      }
-      setError(errorMessage);
+      setError('Failed to cancel appointment');
     } finally {
       setLoading(false);
     }
@@ -412,13 +328,6 @@ const TeacherSchedule = () => {
     const { name, value } = e.target;
     setStudentInfo(prev => ({ ...prev, [name]: value }));
   }, []);
-
-  const safeAppointments = Array.isArray(appointments) ? appointments : [];
-// eslint-disable-next-line
-  const initialTeacherAvailability = currentTeacher?.availability && Array.isArray(currentTeacher.availability) && currentTeacher.availability.length > 0
-    ? currentTeacher.availability
-    : getDefaultAvailability();
-
 
   if (!currentTeacher) {
     return (
@@ -438,12 +347,15 @@ const TeacherSchedule = () => {
     );
   }
 
+  const safeAppointments = Array.isArray(appointments) ? appointments : [];
+  const availabilityToShow = teacherAvailability || getDefaultAvailability();
+
   return (
     <>
       <TeacherNavbar/>
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 font-inter"> {/* Added font-inter */}
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
         <div className="max-w-7xl mx-auto">
-          {/* Header Section */}
+          {/* Header */}
           <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
@@ -459,16 +371,17 @@ const TeacherSchedule = () => {
             </div>
           </div>
 
-          {/* Global Error Alert */}
+          {/* Error Alert */}
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6 animate-fade-in">
-              <div className="flex items-center">
-                <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
-                <span className="text-red-700 font-medium text-sm">{error}</span>
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
+                  <span className="text-red-700 font-medium text-sm">{error}</span>
+                </div>
                 <button
                   onClick={() => setError('')}
-                  className="ml-auto text-red-500 hover:text-red-700 p-1 rounded-full focus:outline-none focus:ring-2 focus:ring-red-500"
-                  aria-label="Close error alert"
+                  className="text-red-500 hover:text-red-700"
                 >
                   <XCircle className="w-5 h-5" />
                 </button>
@@ -476,24 +389,24 @@ const TeacherSchedule = () => {
             </div>
           )}
 
-          {/* Loading Indicator Overlay */}
+          {/* Loading Overlay */}
           {loading && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-2xl p-8 text-center flex flex-col items-center shadow-2xl">
+              <div className="bg-white rounded-2xl p-8 text-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-                <p className="text-gray-600 font-medium">Loading data...</p>
+                <p className="text-gray-600">Loading...</p>
               </div>
             </div>
           )}
 
-          {/* Navigation Tabs */}
+          {/* Tabs */}
           <div className="bg-white rounded-2xl shadow-xl mb-6 overflow-hidden">
             <div className="flex border-b border-gray-200">
               <button
                 onClick={() => setActiveTab('create')}
                 className={`flex-1 py-4 px-6 text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
                   activeTab === 'create' 
-                    ? 'bg-blue-600 text-white rounded-tr-2xl' 
+                    ? 'bg-blue-600 text-white' 
                     : 'bg-white text-gray-600 hover:bg-gray-50'
                 }`}
               >
@@ -504,17 +417,18 @@ const TeacherSchedule = () => {
                 onClick={() => setActiveTab('appointments')}
                 className={`flex-1 py-4 px-6 text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
                   activeTab === 'appointments' 
-                    ? 'bg-blue-600 text-white rounded-tl-2xl' 
+                    ? 'bg-blue-600 text-white' 
                     : 'bg-white text-gray-600 hover:bg-gray-50'
                 }`}
               >
                 <BookOpen className="w-5 h-5" />
                 My Appointments ({safeAppointments.length})
               </button>
-              
             </div>
           </div>
-  {activeTab === 'create' && (
+
+          {/* Create Tab */}
+          {activeTab === 'create' && (
             <div className="bg-white rounded-2xl shadow-xl p-6">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-gray-800 mb-4 sm:mb-0">Create New Appointment</h2>
@@ -527,7 +441,7 @@ const TeacherSchedule = () => {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
                   <Calendar className="w-12 h-12 text-blue-600 mb-4" />
                   <h3 className="text-lg font-semibold text-gray-800 mb-2">Quick Schedule</h3>
@@ -548,88 +462,105 @@ const TeacherSchedule = () => {
               </div>
             </div>
           )}
-          {/* My Appointments Tab Content */}
+
+          {/* Appointments Tab */}
           {activeTab === 'appointments' && (
             <div className="space-y-4">
               {safeAppointments.length === 0 ? (
                 <div className="bg-white rounded-2xl shadow-xl p-12 text-center">
                   <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                   <h3 className="text-xl font-semibold text-gray-600 mb-2">No appointments yet!</h3>
-                  <p className="text-gray-500">It looks like you don't have any scheduled appointments.</p>
+                  <p className="text-gray-500">Create your first appointment to get started.</p>
                   <button
                     onClick={() => setActiveTab('create')}
-                    className="mt-6 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center mx-auto"
+                    className="mt-6 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
                   >
-                    <Plus className="w-5 h-5 inline mr-2" /> Schedule Your First Appointment
+                    <Plus className="w-5 h-5 inline mr-2" />
+                    Schedule Your First Appointment
                   </button>
                 </div>
               ) : (
                 safeAppointments
-                  .sort((a, b) => new Date(a.date || a.appointmentDate) - new Date(b.date || b.appointmentDate)) // Sort by date
+                  .sort((a, b) => new Date(a.date || a.appointmentDate) - new Date(b.date || b.appointmentDate))
                   .map(appointment => (
-                  <div key={appointment.id || appointment._id} className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 hover:shadow-2xl transition-shadow duration-200">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
-                      <div className="flex items-center space-x-4 mb-4 sm:mb-0">
-                        <div className="bg-gradient-to-r from-green-400 to-blue-500 p-3 rounded-full flex-shrink-0">
-                          <User className="w-6 h-6 text-white" />
+                    <div key={appointment.id || appointment._id} className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
+                        <div className="flex items-center space-x-4 mb-4 sm:mb-0">
+                          <div className="bg-gradient-to-r from-green-400 to-blue-500 p-3 rounded-full">
+                            <User className="w-6 h-6 text-white" />
+                          </div>
+                          <div>
+                            <h3 className="text-xl font-semibold text-gray-800">{appointment.student?.name || 'Unknown Student'}</h3>
+                            <p className="text-gray-600 flex items-center text-sm mt-1">
+                              <Mail className="w-4 h-4 mr-1 text-gray-500"/>
+                              {appointment.student?.email || 'N/A'}
+                            </p>
+                            {appointment.student?.phone && (
+                              <p className="text-gray-600 flex items-center text-sm">
+                                <Phone className="w-4 h-4 mr-1 text-gray-500"/>
+                                {appointment.student.phone}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="text-xl font-semibold text-gray-800">{appointment.student?.name || 'Unknown Student'}</h3>
-                          <p className="text-gray-600 flex items-center text-sm mt-1"><Mail className="w-4 h-4 mr-1 text-gray-500"/> {appointment.student?.email || 'N/A'}</p>
-                          <p className="text-gray-600 flex items-center text-sm"><Phone className="w-4 h-4 mr-1 text-gray-500"/> {appointment.student?.phone || 'N/A'}</p>
+                        <div className="flex flex-col items-start sm:items-end space-y-2">
+                          <p className="text-gray-700 flex items-center font-medium">
+                            <Calendar className="w-4 h-4 mr-1 text-blue-500" />
+                            {formatDateForDisplay(appointment.date || appointment.appointmentDate)}
+                          </p>
+                          <p className="text-gray-700 flex items-center font-medium">
+                            <Clock className="w-4 h-4 mr-1 text-indigo-500" />
+                            {appointment.day} at {appointment.time}
+                          </p>
+                          <div className={`flex items-center px-3 py-1 rounded-full text-xs font-medium border ${
+                            appointment.status === 'booked' || appointment.status === 'confirmed' 
+                              ? 'text-green-600 bg-green-50 border-green-200'
+                              : appointment.status === 'pending'
+                              ? 'text-yellow-600 bg-yellow-50 border-yellow-200'
+                              : appointment.status === 'cancelled'
+                              ? 'text-red-600 bg-red-50 border-red-200'
+                              : 'text-gray-600 bg-gray-50 border-gray-200'
+                          }`}>
+                            <CheckCircle className="w-4 h-4 mr-1" />
+                            <span className="capitalize">{appointment.status || 'Scheduled'}</span>
+                          </div>
+                          <button
+                            onClick={() => cancelAppointment(appointment.id || appointment._id)}
+                            className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors text-sm shadow-md"
+                          >
+                            Cancel Appointment
+                          </button>
                         </div>
                       </div>
-                      <div className="flex flex-col items-start sm:items-end space-y-2">
-                        <p className="text-gray-700 flex items-center font-medium">
-                          <Calendar className="w-4 h-4 mr-1 text-blue-500" />
-                          {formatDateForDisplay(appointment.date || appointment.appointmentDate)}
-                        </p>
-                        <p className="text-gray-700 flex items-center font-medium">
-                          <Clock className="w-4 h-4 mr-1 text-indigo-500" />
-                          {appointment.day} at {appointment.time}
-                        </p>
-                        <div className="flex items-center text-green-600 bg-green-50 px-3 py-1 rounded-full text-xs font-medium border border-green-200">
-                          <CheckCircle className="w-4 h-4 mr-1" />
-                          <span className="capitalize">{appointment.status || 'Scheduled'}</span>
+                      {(appointment.student?.subject || appointment.student?.message) && (
+                        <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          {appointment.student?.subject && (
+                            <p className="text-sm text-gray-700 mb-1">
+                              <strong>Subject:</strong> {appointment.student.subject}
+                            </p>
+                          )}
+                          {appointment.student?.message && (
+                            <p className="text-sm text-gray-700">
+                              <strong>Message:</strong> {appointment.student.message}
+                            </p>
+                          )}
                         </div>
-                        <button
-                          onClick={() => cancelAppointment(appointment.id || appointment._id)}
-                          className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors duration-200 text-sm mt-3 sm:mt-0 shadow-md"
-                        >
-                          Cancel Appointment
-                        </button>
-                      </div>
+                      )}
                     </div>
-                    {(appointment.student?.subject || appointment.student?.message) && (
-                      <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                        {appointment.student?.subject && (
-                          <p className="text-sm text-gray-700 mb-1">
-                            <strong>Subject:</strong> {appointment.student.subject}
-                          </p>
-                        )}
-                        {appointment.student?.message && (
-                          <p className="text-sm text-gray-700">
-                            <strong>Message:</strong> {appointment.student.message}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))
+                  ))
               )}
             </div>
           )}
 
           {/* Booking Modal */}
-          {showBookingModal && currentTeacher && (
-            <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50 animate-fade-in">
-              <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl transform transition-all duration-300 scale-100 opacity-100">
+          {showBookingModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
                 <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-6 rounded-t-2xl flex items-center justify-between">
                   <h2 className="text-2xl font-bold text-white">Create New Appointment</h2>
                   <button
                     onClick={closeBookingModal}
-                    className="text-white hover:text-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-white rounded-full p-1"
-                    aria-label="Close booking modal"
+                    className="text-white hover:text-gray-200 transition-colors"
                   >
                     <XCircle className="w-7 h-7" />
                   </button>
@@ -637,7 +568,7 @@ const TeacherSchedule = () => {
                 
                 <div className="p-6 space-y-6">
                   {error && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                       <div className="flex items-center">
                         <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
                         <span className="text-red-700 text-sm font-medium">{error}</span>
@@ -647,95 +578,71 @@ const TeacherSchedule = () => {
                   
                   {/* Day Selection */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-3">Select Day <span className="text-red-500">*</span></label>
+                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                      Select Day <span className="text-red-500">*</span>
+                    </label>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                      {currentTeacher.loadingAvailability ? (
-                        <div className="col-span-full text-center py-8">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                          <p className="text-gray-500">Loading availability...</p>
-                        </div>
-                      ) : Array.isArray(currentTeacher.availability) && currentTeacher.availability.length > 0 ? (
-                        currentTeacher.availability.map(daySlot => (
-                          <button
-                            key={daySlot.day}
-                            onClick={() => {
-                              setSelectedDay(daySlot.day);
-                              setSelectedTime(''); // Reset time when day changes
-                            }}
-                            className={`p-3 rounded-lg border-2 flex flex-col items-center justify-center transition-all duration-200 
-                              ${selectedDay === daySlot.day
-                                ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md'
-                                : 'border-gray-200 hover:border-gray-300 bg-white text-gray-800'
-                              }`}
-                          >
-                            <div className="font-medium text-base">{daySlot.day}</div>
-                            <div className="text-sm text-gray-500">{formatDateForDisplay(getNextDateForDay(daySlot.day))}</div>
-                            <div className="text-xs text-gray-400 mt-1">{(daySlot.slots || []).length} slots</div>
-                          </button>
-                        ))
-                      ) : (
-                        <div className="col-span-full text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
-                          <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                          <p className="text-gray-500">No availability found for your schedule.</p>
-                          <button
-                            onClick={openBookingModal} // Retry loading availability
-                            className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
-                          >
-                            Retry loading availability
-                          </button>
-                        </div>
-                      )}
+                      {availabilityToShow.map(daySlot => (
+                        <button
+                          key={daySlot.day}
+                          onClick={() => {
+                            setSelectedDay(daySlot.day);
+                            setSelectedTime('');
+                          }}
+                          className={`p-3 rounded-lg border-2 flex flex-col items-center justify-center transition-all duration-200 
+                            ${selectedDay === daySlot.day
+                              ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md'
+                              : 'border-gray-200 hover:border-gray-300 bg-white text-gray-800'
+                            }`}
+                        >
+                          <div className="font-medium text-base">{daySlot.day}</div>
+                          <div className="text-sm text-gray-500">{formatDateForDisplay(getNextDateForDay(daySlot.day))}</div>
+                          <div className="text-xs text-gray-400 mt-1">{daySlot.slots?.length || 0} slots</div>
+                        </button>
+                      ))}
                     </div>
                   </div>
 
                   {/* Time Selection */}
                   {selectedDay && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-3">Select Time <span className="text-red-500">*</span></label>
-                      {/* Changed grid-cols-3 to grid-cols-6 */}
+                      <label className="block text-sm font-medium text-gray-700 mb-3">
+                        Select Time <span className="text-red-500">*</span>
+                      </label>
                       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
-                        {currentTeacher.loadingAvailability ? (
-                          <div className="col-span-full text-center py-4">
-                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                            <p className="text-gray-500 text-sm">Loading times...</p>
-                          </div>
-                        ) : (() => {
-                            const selectedDayData = Array.isArray(currentTeacher.availability) 
-                              ? currentTeacher.availability.find(day => day.day === selectedDay)
-                              : null;
-                            
-                            const availableSlots = selectedDayData?.slots || [];
-                            
-                            return availableSlots.length > 0 ? (
-                              availableSlots.map((time, index) => (
-                                <button
-                                  key={`${time}-${index}`}
-                                  onClick={() => setSelectedTime(time)}
-                                  className={`p-3 rounded-lg border-2 flex flex-col items-center transition-all duration-200 
-                                    ${selectedTime === time
-                                      ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md'
-                                      : 'border-gray-200 hover:border-gray-300 bg-white text-gray-800'
-                                    }`}
-                                >
-                                  <Clock className="w-5 h-5 mx-auto mb-1 text-gray-500" />
-                                  <div className="text-sm font-medium">{time}</div>
-                                </button>
-                              ))
-                            ) : (
-                              <div className="col-span-full text-center py-4 bg-gray-50 rounded-lg border border-gray-200">
-                                <Clock className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                                <p className="text-gray-500 text-sm">No available slots for {selectedDay}. Please choose another day.</p>
-                              </div>
-                            );
-                          })()
-                        }
+                        {(() => {
+                          const selectedDayData = availabilityToShow.find(day => day.day === selectedDay);
+                          const availableSlots = selectedDayData?.slots || [];
+                          
+                          return availableSlots.length > 0 ? (
+                            availableSlots.map((time, index) => (
+                              <button
+                                key={`${time}-${index}`}
+                                onClick={() => setSelectedTime(time)}
+                                className={`p-3 rounded-lg border-2 flex flex-col items-center transition-all duration-200 
+                                  ${selectedTime === time
+                                    ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md'
+                                    : 'border-gray-200 hover:border-gray-300 bg-white text-gray-800'
+                                  }`}
+                              >
+                                <Clock className="w-5 h-5 mx-auto mb-1 text-gray-500" />
+                                <div className="text-sm font-medium text-center">{time}</div>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="col-span-full text-center py-4 bg-gray-50 rounded-lg">
+                              <Clock className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                              <p className="text-gray-500 text-sm">No available slots for {selectedDay}</p>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   )}
 
                   {/* Student Information Form */}
                   <div className="space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">Student Information</h3>
+                    <h3 className="text-lg font-semibold text-gray-800 border-b pb-2">Student Information</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="relative">
                         <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18}/>
@@ -747,7 +654,6 @@ const TeacherSchedule = () => {
                           onChange={handleInputChange}
                           className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                           required
-                          aria-label="Student Name"
                         />
                       </div>
                       <div className="relative">
@@ -760,7 +666,6 @@ const TeacherSchedule = () => {
                           onChange={handleInputChange}
                           className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                           required
-                          aria-label="Student Email"
                         />
                       </div>
                       <div className="relative">
@@ -772,7 +677,6 @@ const TeacherSchedule = () => {
                           value={studentInfo.phone}
                           onChange={handleInputChange}
                           className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                          aria-label="Student Phone"
                         />
                       </div>
                       <div className="relative">
@@ -784,7 +688,6 @@ const TeacherSchedule = () => {
                           value={studentInfo.subject}
                           onChange={handleInputChange}
                           className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                          aria-label="Subject or Topic"
                         />
                       </div>
                     </div>
@@ -795,21 +698,20 @@ const TeacherSchedule = () => {
                       onChange={handleInputChange}
                       rows={3}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors resize-y"
-                      aria-label="Additional notes or agenda"
                     ></textarea>
                   </div>
 
-                  {/* Action Buttons for Modal */}
+                  {/* Action Buttons */}
                   <div className="flex flex-col sm:flex-row gap-3 mt-6">
                     <button
                       onClick={closeBookingModal}
-                      className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors duration-200 font-medium shadow-sm"
+                      className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handleCreateAppointment}
-                      disabled={loading || !selectedDay || !selectedTime || !studentInfo.name || !studentInfo.email || currentTeacher.loadingAvailability}
+                      disabled={loading || !selectedDay || !selectedTime || !studentInfo.name || !studentInfo.email}
                       className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-semibold shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                     >
                       {loading ? (
@@ -819,7 +721,8 @@ const TeacherSchedule = () => {
                         </>
                       ) : (
                         <>
-                          <Plus className="w-5 h-5 inline mr-2" /> Create Appointment
+                          <Plus className="w-5 h-5 inline mr-2" />
+                          Create Appointment
                         </>
                       )}
                     </button>
@@ -831,8 +734,8 @@ const TeacherSchedule = () => {
 
           {/* Confirmation Modal */}
           {showConfirmation && (
-            <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50 animate-fade-in">
-              <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-2xl transform scale-105">
+            <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
                 <div className="bg-green-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-6 border-4 border-green-200">
                   <CheckCircle className="w-10 h-10 text-green-600" />
                 </div>
@@ -842,7 +745,7 @@ const TeacherSchedule = () => {
                 </p>
                 <button
                   onClick={() => setShowConfirmation(false)}
-                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold shadow-md"
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                 >
                   Got It!
                 </button>
