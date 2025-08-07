@@ -1,90 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, User, Mail, Phone, MessageSquare, Plus, Eye, X, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 
-// Import your actual API - replace this with your real API import
-// import { apiMethods } from '../api';
-
-// Mock API functions - replace these with your actual API calls
-const mockApi = {
-  getAllTeachers: async () => {
-    return {
-      data: {
-        success: true,
-        data: [
-          { _id: '1', name: 'Dr. John Smith', department: 'Computer Science', subject: 'Data Structures', email: 'john.smith@edu.com' },
-          { _id: '2', name: 'Prof. Sarah Johnson', department: 'Mathematics', subject: 'Calculus', email: 'sarah.johnson@edu.com' },
-          { _id: '3', name: 'Dr. Michael Brown', department: 'Physics', subject: 'Quantum Mechanics', email: 'michael.brown@edu.com' },
-          { _id: '4', name: 'Prof. Emily Davis', department: 'Chemistry', subject: 'Organic Chemistry', email: 'emily.davis@edu.com' }
-        ]
-      }
-    };
-  },
-  
-  requestAppointment: async (appointmentData) => {
-    console.log('Requesting appointment:', appointmentData);
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({
-          data: {
-            success: true,
-            data: {
-              _id: Math.random().toString(36).substr(2, 9),
-              ...appointmentData,
-              status: 'pending',
-              createdAt: new Date().toISOString()
-            },
-            message: 'Appointment request sent to teacher successfully'
-          }
-        });
-      }, 1000);
-    });
-  },
-  
-  getAllAppointments: async () => {
-    return {
-      data: {
-        success: true,
-        data: [
-          {
-            _id: '1',
-            teacherName: 'Dr. John Smith',
-            student: { name: 'Current User', email: 'user@example.com' },
-            day: 'Monday',
-            time: '10:00 AM - 11:00 AM',
-            date: '2025-08-15',
-            status: 'confirmed',
-            createdBy: 'student',
-            createdAt: '2025-08-07T10:00:00Z',
-            teacherResponse: { responseMessage: 'Looking forward to our meeting!' }
-          },
-          {
-            _id: '2',
-            teacherName: 'Prof. Sarah Johnson',
-            student: { name: 'Current User', email: 'user@example.com' },
-            day: 'Wednesday',
-            time: '2:00 PM - 3:00 PM',
-            date: '2025-08-20',
-            status: 'pending',
-            createdBy: 'student',
-            createdAt: '2025-08-07T14:00:00Z'
-          },
-          {
-            _id: '3',
-            teacherName: 'Dr. Michael Brown',
-            student: { name: 'Current User', email: 'user@example.com' },
-            day: 'Friday',
-            time: '11:00 AM - 12:00 PM',
-            date: '2025-08-22',
-            status: 'rejected',
-            createdBy: 'student',
-            createdAt: '2025-08-06T11:00:00Z',
-            teacherResponse: { responseMessage: 'Sorry, that time slot is not available. Please choose another time.' }
-          }
-        ]
-      }
-    };
-  }
-};
+// Import your actual API
+import { apiMethods } from '../../services/api';
 
 const AVAILABILITY_SLOTS = [
   '9:00 AM - 10:00 AM',
@@ -135,12 +53,11 @@ const StudentScheduleAppointment = () => {
   const loadTeachers = async () => {
     try {
       setLoading(true);
-      const response = await mockApi.getAllTeachers();
-      // For real API: const response = await apiMethods.getAllTeachers();
+      const response = await apiMethods.getAllTeachers();
       setTeachers(response.data.data || []);
     } catch (error) {
       console.error('Error loading teachers:', error);
-      setSubmitStatus({ type: 'error', message: 'Failed to load teachers' });
+      setSubmitStatus({ type: 'error', message: error.message || 'Failed to load teachers' });
     } finally {
       setLoading(false);
     }
@@ -148,11 +65,11 @@ const StudentScheduleAppointment = () => {
 
   const loadAppointments = async () => {
     try {
-      const response = await mockApi.getAllAppointments();
-      // For real API: const response = await apiMethods.getAllAppointments();
+      const response = await apiMethods.getAllAppointments();
       setAppointments(response.data.data || []);
     } catch (error) {
       console.error('Error loading appointments:', error);
+      setSubmitStatus({ type: 'error', message: error.message || 'Failed to load appointments' });
     }
   };
 
@@ -231,11 +148,19 @@ const StudentScheduleAppointment = () => {
     setSubmitStatus({ type: '', message: '' });
 
     try {
-      const response = await mockApi.requestAppointment(formData);
-      // For real API: const response = await apiMethods.requestAppointment(formData);
+      // Use the API validation helper first
+      const validation = apiMethods.validateAppointmentData(formData, false);
+      if (!validation.isValid) {
+        setSubmitStatus({ type: 'error', message: validation.errors.join(', ') });
+        setLoading(false);
+        return;
+      }
+
+      // Use the requestAppointment method from your API
+      const response = await apiMethods.requestAppointment(formData);
       
       if (response.data.success) {
-        setSubmitStatus({ type: 'success', message: response.data.message });
+        setSubmitStatus({ type: 'success', message: response.data.message || 'Appointment request sent successfully!' });
         setFormData({
           teacherId: '',
           teacherName: '',
@@ -245,7 +170,7 @@ const StudentScheduleAppointment = () => {
           student: { name: '', email: '', phone: '', subject: '', message: '' }
         });
         setErrors({});
-        loadAppointments();
+        await loadAppointments();
         
         // Auto switch to appointments tab after successful submission
         setTimeout(() => {
@@ -254,7 +179,8 @@ const StudentScheduleAppointment = () => {
         }, 2000);
       }
     } catch (error) {
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to request appointment';
+      console.error('Error submitting appointment:', error);
+      const errorMessage = error.message || 'Failed to request appointment';
       setSubmitStatus({ type: 'error', message: errorMessage });
     } finally {
       setLoading(false);
@@ -264,13 +190,13 @@ const StudentScheduleAppointment = () => {
   const getStatusIcon = (status) => {
     switch (status) {
       case 'confirmed':
+      case 'booked':
         return <CheckCircle className="h-5 w-5 text-green-500" />;
       case 'pending':
         return <Clock className="h-5 w-5 text-yellow-500" />;
       case 'rejected':
-        return <XCircle className="h-5 w-5 text-red-500" />;
       case 'cancelled':
-        return <XCircle className="h-5 w-5 text-gray-500" />;
+        return <XCircle className="h-5 w-5 text-red-500" />;
       case 'completed':
         return <CheckCircle className="h-5 w-5 text-blue-500" />;
       default:
@@ -782,7 +708,7 @@ const StudentScheduleAppointment = () => {
                 >
                   Close
                 </button>
-                {selectedAppointment.status === 'confirmed' && (
+                {(selectedAppointment.status === 'confirmed' || selectedAppointment.status === 'booked') && (
                   <button
                     onClick={closeModal}
                     className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
