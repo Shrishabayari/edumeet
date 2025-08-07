@@ -175,7 +175,12 @@ export const endpoints = {
     getAllUsers: '/auth/admin/users',
     approveUser: (id) => `/auth/admin/approve/${id}`,
     rejectUser: (id) => `/auth/admin/reject/${id}`,
-  }
+  },
+  messages: {
+  getByRoom: (roomId) => `/messages/room/${roomId}`,
+  delete: (id) => `/messages/${id}`,
+  getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
+}
 };
 
 // Updated convenience methods for appointment operations
