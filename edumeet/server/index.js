@@ -107,8 +107,10 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Socket.io middleware for authentication
-io.use((socket, next) => {
+// Fixed Socket.io middleware and message handling in index.js
+
+// Socket.io middleware for authentication (UPDATED)
+io.use(async (socket, next) => {
   const token = socket.handshake.auth.token;
   
   if (!token) {
@@ -119,7 +121,31 @@ io.use((socket, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.userId = decoded.id;
     socket.userRole = decoded.role; // 'student' or 'teacher'
-    socket.userName = decoded.name;
+    
+    // FIXED: Ensure we have the user name from the token or fetch it
+    if (decoded.name) {
+      socket.userName = decoded.name;
+    } else {
+      // If name is not in token, we need to fetch it from database
+      // You'll need to import your User and Teacher models
+      const User = require('./models/User'); // Adjust path as needed
+      const Teacher = require('./models/Teacher'); // Adjust path as needed
+      
+      let user;
+      if (decoded.role === 'teacher') {
+        user = await Teacher.findById(decoded.id).select('name');
+      } else {
+        user = await User.findById(decoded.id).select('name');
+      }
+      
+      if (!user) {
+        return next(new Error('User not found'));
+      }
+      
+      socket.userName = user.name;
+    }
+    
+    console.log(`Socket authenticated: ${socket.userName} (${socket.userRole}) - ID: ${socket.userId}`);
     next();
   } catch (err) {
     console.error('Socket authentication error:', err);
@@ -127,9 +153,9 @@ io.use((socket, next) => {
   }
 });
 
-// Socket.io connection handling
+// Socket.io connection handling (UPDATED)
 io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.userName} (${socket.userRole})`);
+  console.log(`User connected: ${socket.userName} (${socket.userRole}) - ID: ${socket.userId}`);
   
   // Join a room (could be based on class, subject, etc.)
   socket.on('join-room', (roomId) => {
@@ -144,12 +170,31 @@ io.on('connection', (socket) => {
     });
   });
   
-  // Handle new messages
+  // Handle new messages (FIXED)
   socket.on('send-message', async (data) => {
     try {
+      // VALIDATION: Ensure all required data is present
+      if (!data.text || !data.text.trim()) {
+        return socket.emit('error', { message: 'Message text is required' });
+      }
+      
+      if (!data.roomId) {
+        return socket.emit('error', { message: 'Room ID is required' });
+      }
+      
+      if (!socket.userName) {
+        return socket.emit('error', { message: 'User name not found in session' });
+      }
+      
+      if (!socket.userId) {
+        return socket.emit('error', { message: 'User ID not found in session' });
+      }
+      
+      console.log('Processing message from:', socket.userName, 'Role:', socket.userRole);
+      
       const messageData = {
-        text: data.text,
-        sender: socket.userName,
+        text: data.text.trim(),
+        sender: socket.userName, // This should now be defined
         senderId: socket.userId,
         senderModel: socket.userRole === 'teacher' ? 'Teacher' : 'User',
         role: socket.userRole,
@@ -161,8 +206,11 @@ io.on('connection', (socket) => {
         }
       };
       
+      console.log('Message data to save:', messageData);
+      
       // Save to database
       const savedMessage = await Message.create(messageData);
+      console.log('Message saved successfully:', savedMessage._id);
       
       // Convert to plain object and add id for frontend compatibility
       const messageForClient = {
@@ -176,16 +224,21 @@ io.on('connection', (socket) => {
         reactions: savedMessage.reactions
       };
       
-      // Broadcast to all users in the room
+      // Broadcast to all users in the room (including sender)
       io.to(data.roomId).emit('new-message', messageForClient);
+      
+      console.log('Message broadcasted to room:', data.roomId);
       
     } catch (error) {
       console.error('Error sending message:', error);
-      socket.emit('error', { message: 'Failed to send message' });
+      socket.emit('error', { 
+        message: 'Failed to send message',
+        details: error.message 
+      });
     }
   });
   
-  // Handle reactions (only teachers can react)
+  // Handle reactions (only teachers can react) - UNCHANGED
   socket.on('add-reaction', async (data) => {
     if (socket.userRole !== 'teacher') {
       return socket.emit('error', { message: 'Only teachers can react' });
@@ -226,7 +279,7 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Handle typing indicators
+  // Handle typing indicators - UNCHANGED
   socket.on('typing-start', (data) => {
     socket.to(data.roomId).emit('user-typing', {
       userName: socket.userName,
@@ -241,7 +294,7 @@ io.on('connection', (socket) => {
     });
   });
   
-  // Handle leaving room
+  // Handle leaving room - UNCHANGED
   socket.on('leave-room', (roomId) => {
     socket.leave(roomId);
     socket.to(roomId).emit('user-left', {
@@ -250,11 +303,12 @@ io.on('connection', (socket) => {
     });
   });
   
-  // Handle disconnection
+  // Handle disconnection - UNCHANGED
   socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.userName}`);
+    console.log(`User disconnected: ${socket.userName} (${socket.userRole})`);
   });
 });
+  
 
 // Make io available to routes
 app.set('io', io);
