@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Heart, ThumbsUp, Star, MessageCircle, User, GraduationCap, Clock, AlertCircle } from 'lucide-react';
+import { Send, Heart, ThumbsUp, Star, MessageCircle, User, GraduationCap, Clock, AlertCircle, Key } from 'lucide-react';
 import io from 'socket.io-client';
 
 const MessageBoard = () => {
@@ -12,6 +12,8 @@ const MessageBoard = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [connectionAttempts, setConnectionAttempts] = useState(0);
+  const [tokenDebugInfo, setTokenDebugInfo] = useState('');
+  const [showTokenDebug, setShowTokenDebug] = useState(false);
   
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -23,6 +25,95 @@ const MessageBoard = () => {
     { id: 'star', icon: Star, label: 'Star', color: 'text-yellow-500' },
   ];
 
+  // Debug function to check tokens
+  const debugTokens = () => {
+    const userToken = localStorage.getItem('userToken');
+    const teacherToken = localStorage.getItem('teacherToken');
+    const adminToken = localStorage.getItem('adminToken');
+    
+    let debugInfo = 'Token Debug Info:\n';
+    debugInfo += `User Token: ${userToken ? `${userToken.substring(0, 20)}... (Length: ${userToken.length})` : 'Not found'}\n`;
+    debugInfo += `Teacher Token: ${teacherToken ? `${teacherToken.substring(0, 20)}... (Length: ${teacherToken.length})` : 'Not found'}\n`;
+    debugInfo += `Admin Token: ${adminToken ? `${adminToken.substring(0, 20)}... (Length: ${adminToken.length})` : 'Not found'}\n`;
+    
+    // Try to parse the tokens
+    [userToken, teacherToken, adminToken].forEach((token, index) => {
+      const tokenNames = ['User', 'Teacher', 'Admin'];
+      if (token) {
+        try {
+          // Check if token has proper JWT structure (3 parts separated by dots)
+          const parts = token.split('.');
+          debugInfo += `${tokenNames[index]} Token Parts: ${parts.length}\n`;
+          
+          if (parts.length === 3) {
+            // Try to decode the payload (second part)
+            const payload = JSON.parse(atob(parts[1]));
+            debugInfo += `${tokenNames[index]} Payload: ${JSON.stringify(payload, null, 2)}\n`;
+          } else {
+            debugInfo += `${tokenNames[index]} Token: Invalid JWT structure\n`;
+          }
+        } catch (e) {
+          debugInfo += `${tokenNames[index]} Token: Error parsing - ${e.message}\n`;
+        }
+      }
+    });
+    
+    setTokenDebugInfo(debugInfo);
+    console.log(debugInfo);
+    return debugInfo;
+  };
+
+  // Get the appropriate token based on user role
+  const getToken = () => {
+    let token = null;
+    
+    if (userRole === 'teacher') {
+      token = localStorage.getItem('teacherToken');
+      if (!token) {
+        token = localStorage.getItem('userToken'); // Fallback
+      }
+    } else {
+      token = localStorage.getItem('userToken');
+      if (!token) {
+        token = localStorage.getItem('teacherToken'); // Fallback
+      }
+    }
+    
+    // Also check admin token as fallback
+    if (!token) {
+      token = localStorage.getItem('adminToken');
+    }
+    
+    console.log(`Getting token for role: ${userRole}, Found: ${token ? 'Yes' : 'No'}`);
+    
+    return token;
+  };
+
+  // Function to create a demo token for testing (remove this in production)
+  const createDemoToken = () => {
+    // Create a demo JWT token for testing
+    const header = btoa(JSON.stringify({ "alg": "HS256", "typ": "JWT" }));
+    const payload = btoa(JSON.stringify({
+      id: "demo123",
+      name: userName || "Demo User",
+      role: userRole,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + (60 * 60) // 1 hour
+    }));
+    const signature = btoa("demo_signature_for_testing");
+    
+    const demoToken = `${header}.${payload}.${signature}`;
+    
+    if (userRole === 'teacher') {
+      localStorage.setItem('teacherToken', demoToken);
+    } else {
+      localStorage.setItem('userToken', demoToken);
+    }
+    
+    console.log('Created demo token:', demoToken);
+    return demoToken;
+  };
+
   // Initialize socket connection
   useEffect(() => {
     if (!userName.trim()) {
@@ -30,11 +121,22 @@ const MessageBoard = () => {
       return;
     }
 
-    // Get token from localStorage (adjust based on your auth system)
-    const token = localStorage.getItem('userToken') || localStorage.getItem('teacherToken');
+    // Debug tokens first
+    debugTokens();
+
+    // Get token
+    let token = getToken();
     
     if (!token) {
-      setError('Please login to use the message board');
+      setError('No authentication token found. Creating demo token for testing...');
+      token = createDemoToken();
+      setError('Demo token created. This is for testing only - implement proper authentication in production.');
+    }
+
+    // Validate token format
+    if (!token.includes('.') || token.split('.').length !== 3) {
+      setError('Token appears to be malformed. Please login again.');
+      localStorage.clear(); // Clear all tokens
       return;
     }
 
@@ -43,13 +145,13 @@ const MessageBoard = () => {
       socketRef.current.disconnect();
     }
 
-    console.log('Attempting to connect with token:', token.substring(0, 20) + '...');
+    console.log('Attempting to connect with token:', token.substring(0, 30) + '...');
     console.log('User role:', userRole, 'User name:', userName);
 
     // Connect to socket with better error handling
     socketRef.current = io('http://localhost:5000', {
       auth: { token },
-      transports: ['websocket', 'polling'], // Fallback to polling if websocket fails
+      transports: ['websocket', 'polling'],
       timeout: 10000,
       forceNew: true
     });
@@ -70,7 +172,6 @@ const MessageBoard = () => {
       console.log('Socket disconnected:', reason);
       setIsConnected(false);
       if (reason === 'io server disconnect') {
-        // Server disconnected, try to reconnect
         setError('Server disconnected. Attempting to reconnect...');
       }
     });
@@ -81,9 +182,8 @@ const MessageBoard = () => {
       setIsConnected(false);
       setConnectionAttempts(prev => prev + 1);
       
-      // Show specific error messages based on the error
       if (err.message.includes('Authentication error')) {
-        setError('Authentication failed. Please login again.');
+        setError('Authentication failed. Token may be invalid. Please check token debug info.');
       } else if (err.message.includes('No token provided')) {
         setError('No authentication token found. Please login.');
       }
@@ -108,22 +208,13 @@ const MessageBoard = () => {
       setError(error.message || 'An error occurred');
     });
 
-    // Room events
-    socketRef.current.on('user-joined', (data) => {
-      console.log('User joined:', data);
-    });
-
-    socketRef.current.on('user-left', (data) => {
-      console.log('User left:', data);
-    });
-
     return () => {
       if (socketRef.current) {
         console.log('Cleaning up socket connection');
         socketRef.current.disconnect();
       }
     };
-  }, [roomId, userName]); // Re-run when roomId or userName changes
+  }, [roomId, userName, userRole]);
 
   // Auto-scroll to bottom
   const scrollToBottom = () => {
@@ -134,40 +225,62 @@ const MessageBoard = () => {
     scrollToBottom();
   }, [messages]);
 
-  // Load initial messages
-  useEffect(() => {
-    if (userName.trim()) {
-      loadMessages();
-    }
-  }, [roomId, userName]);
-
+  // Load initial messages with better error handling
   const loadMessages = async () => {
     if (!userName.trim()) return;
     
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('userToken') || localStorage.getItem('teacherToken');
+      const token = getToken();
+      
+      if (!token) {
+        setError('No token available for loading messages');
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('Loading messages with token:', token.substring(0, 20) + '...');
+      
       const response = await fetch(`http://localhost:5000/api/messages/room/${roomId}`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
       });
+      
+      console.log('Messages API response status:', response.status);
       
       if (response.ok) {
         const data = await response.json();
         console.log('Loaded messages:', data.data);
         setMessages(data.data.messages || []);
+        setError(''); // Clear any previous errors
       } else {
-        console.error('Failed to load messages:', response.status);
-        setError('Failed to load previous messages');
+        const errorData = await response.text();
+        console.error('Failed to load messages:', response.status, errorData);
+        
+        if (response.status === 401) {
+          setError('Authentication failed. Token may be invalid or expired.');
+          // Clear tokens and suggest re-login
+          localStorage.clear();
+        } else {
+          setError(`Failed to load messages: ${response.status} ${errorData}`);
+        }
       }
     } catch (error) {
       console.error('Error loading messages:', error);
-      setError('Error loading messages: ' + error.message);
+      setError('Network error loading messages: ' + error.message);
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Load messages when room or user changes
+  useEffect(() => {
+    if (userName.trim()) {
+      loadMessages();
+    }
+  }, [roomId, userName, userRole]);
 
   const handleSendMessage = () => {
     if (!newMessage.trim()) {
@@ -198,7 +311,7 @@ const MessageBoard = () => {
     });
 
     setNewMessage('');
-    setError(''); // Clear any previous errors
+    setError('');
   };
 
   const handleReaction = (messageId, reactionType) => {
@@ -217,14 +330,17 @@ const MessageBoard = () => {
 
   const handleRoomChange = (newRoomId) => {
     if (socketRef.current && isConnected) {
-      // Leave current room
       socketRef.current.emit('leave-room', roomId);
-      // Set new room (useEffect will handle joining)
       setRoomId(newRoomId);
-      setMessages([]); // Clear messages when changing rooms
+      setMessages([]);
     } else {
       setRoomId(newRoomId);
     }
+  };
+
+  const clearTokensAndReload = () => {
+    localStorage.clear();
+    window.location.reload();
   };
 
   return (
@@ -243,18 +359,53 @@ const MessageBoard = () => {
             </span>
           </h1>
           <p className="text-blue-100 mt-2">Connect, communicate, and collaborate in real-time</p>
+          
+          {/* Debug Controls */}
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={() => setShowTokenDebug(!showTokenDebug)}
+              className="px-3 py-1 bg-blue-700 hover:bg-blue-800 rounded text-sm flex items-center gap-1"
+            >
+              <Key className="h-4 w-4" />
+              Debug Tokens
+            </button>
+            <button
+              onClick={clearTokensAndReload}
+              className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm"
+            >
+              Clear Tokens & Reload
+            </button>
+            <button
+              onClick={createDemoToken}
+              className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm"
+            >
+              Create Demo Token
+            </button>
+          </div>
         </div>
+
+        {/* Token Debug Info */}
+        {showTokenDebug && (
+          <div className="bg-gray-100 border-b p-4">
+            <h3 className="font-semibold mb-2">Token Debug Information:</h3>
+            <pre className="text-xs bg-white p-2 rounded border overflow-auto max-h-40">
+              {tokenDebugInfo || 'Click "Debug Tokens" to see token information'}
+            </pre>
+          </div>
+        )}
 
         {/* Error Display */}
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 m-4 rounded flex items-center gap-2">
-            <AlertCircle className="h-5 w-5" />
-            {error}
-            {connectionAttempts > 0 && (
-              <span className="ml-auto text-sm">
-                (Attempt {connectionAttempts})
-              </span>
-            )}
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 m-4 rounded flex items-start gap-2">
+            <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <div>{error}</div>
+              {connectionAttempts > 0 && (
+                <div className="text-sm mt-1 text-red-600">
+                  Connection attempts: {connectionAttempts}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -269,7 +420,7 @@ const MessageBoard = () => {
                 onChange={(e) => setUserName(e.target.value)}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Enter your name"
-                disabled={isConnected} // Disable when connected to prevent confusion
+                disabled={isConnected}
               />
             </div>
             
@@ -279,7 +430,7 @@ const MessageBoard = () => {
                 value={userRole}
                 onChange={(e) => setUserRole(e.target.value)}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={isConnected} // Disable when connected
+                disabled={isConnected}
               >
                 <option value="student">Student</option>
                 <option value="teacher">Teacher</option>
@@ -376,7 +527,6 @@ const MessageBoard = () => {
                       </div>
                     )}
                     
-                    {/* Display reactions for all users */}
                     {message.role === 'student' && message.reactions && Object.keys(message.reactions).length > 0 && (
                       <div className="flex gap-1 ml-auto">
                         {Object.entries(message.reactions).map(([reactionId, count]) => {
@@ -431,34 +581,32 @@ const MessageBoard = () => {
           )}
           
           {userRole === 'teacher' && isConnected && (
-            <p className="text-sm text-green-600 mt-2">As a teacher, you can react to student messages with hearts, thumbs up, or stars</p>
+            <p className="text-sm text-green-600 mt-2">As a teacher, you can react to student messages</p>
           )}
         </div>
       </div>
 
       {/* Instructions */}
       <div className="mt-6 bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-lg font-semibold mb-4 text-gray-800">How it works:</h2>
+        <h2 className="text-lg font-semibold mb-4 text-gray-800">Troubleshooting:</h2>
         <div className="grid md:grid-cols-2 gap-4">
-          <div className="bg-blue-50 p-4 rounded-lg">
-            <h3 className="font-semibold text-blue-800 mb-2">For Students:</h3>
-            <ul className="text-sm text-blue-700 space-y-1">
-              <li>• Enter your name and select "Student" role</li>
-              <li>• Send messages to ask questions in real-time</li>
-              <li>• Share thoughts and ideas instantly</li>
-              <li>• View teacher reactions on your messages</li>
-              <li>• Switch between different class rooms</li>
+          <div className="bg-yellow-50 p-4 rounded-lg">
+            <h3 className="font-semibold text-yellow-800 mb-2">Token Issues:</h3>
+            <ul className="text-sm text-yellow-700 space-y-1">
+              <li>• Click "Debug Tokens" to inspect your tokens</li>
+              <li>• "Clear Tokens & Reload" to reset everything</li>
+              <li>• "Create Demo Token" for testing (not for production)</li>
+              <li>• Ensure you're properly logged in with a valid JWT token</li>
             </ul>
           </div>
           
-          <div className="bg-green-50 p-4 rounded-lg">
-            <h3 className="font-semibold text-green-800 mb-2">For Teachers:</h3>
-            <ul className="text-sm text-green-700 space-y-1">
-              <li>• Enter your name and select "Teacher" role</li>
-              <li>• React to student messages with emojis</li>
-              <li>• Send messages to the class instantly</li>
-              <li>• Provide real-time feedback and encouragement</li>
-              <li>• Monitor multiple class rooms</li>
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <h3 className="font-semibold text-blue-800 mb-2">Connection Steps:</h3>
+            <ul className="text-sm text-blue-700 space-y-1">
+              <li>• Enter your name and select your role</li>
+              <li>• Wait for "Connected" status in header</li>
+              <li>• Check browser console for detailed logs</li>
+              <li>• Try refreshing if connection fails</li>
             </ul>
           </div>
         </div>
