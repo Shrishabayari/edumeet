@@ -40,18 +40,18 @@ const messageSchema = new mongoose.Schema({
     index: true
   },
   reactions: {
-    heart: { 
-      type: Number, 
+    heart: {
+      type: Number,
       default: 0,
       min: [0, 'Reaction count cannot be negative']
     },
-    thumbs: { 
-      type: Number, 
+    thumbs: {
+      type: Number,
       default: 0,
       min: [0, 'Reaction count cannot be negative']
     },
-    star: { 
-      type: Number, 
+    star: {
+      type: Number,
       default: 0,
       min: [0, 'Reaction count cannot be negative']
     }
@@ -110,25 +110,101 @@ messageSchema.statics.getRoomStats = function(roomId) {
 };
 
 // Static method to get messages for a room with pagination
-messageSchema.statics.getMessagesForRoom = function(roomId, page = 1, limit = 50) {
-  const skip = (page - 1) * limit;
-  
-  return Promise.all([
-    this.find({ roomId, isDeleted: false })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('senderId', 'name email'),
-    this.countDocuments({ roomId, isDeleted: false })
-  ]).then(([messages, total]) => ({
-    messages: messages.reverse(), // Reverse to show oldest first
-    pagination: {
-      page,
-      limit,
-      total,
-      pages: Math.ceil(total / limit)
+messageSchema.statics.getMessagesForRoom = async function(roomId, page = 1, limit = 50) {
+  try {
+    const skip = (page - 1) * limit;
+    
+    // Execute both queries in parallel
+    const [messages, total] = await Promise.all([
+      this.find({ roomId, isDeleted: false })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('senderId', 'name email')
+        .lean(), // Use lean() for better performance
+      this.countDocuments({ roomId, isDeleted: false })
+    ]);
+    
+    return {
+      messages: messages.reverse(), // Reverse to show oldest first
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPrevPage: page > 1
+      }
+    };
+  } catch (error) {
+    console.error('Error in getMessagesForRoom:', error);
+    throw error;
+  }
+};
+
+// Static method to create a new message with validation
+messageSchema.statics.createMessage = async function(messageData) {
+  try {
+    // Validate required fields
+    const { text, sender, senderId, role, roomId } = messageData;
+    
+    if (!text || !sender || !senderId || !role || !roomId) {
+      throw new Error('Missing required message fields');
     }
-  }));
+    
+    // Determine sender model based on role
+    const senderModel = role === 'teacher' ? 'Teacher' : 'User';
+    
+    const message = new this({
+      text,
+      sender,
+      senderId,
+      senderModel,
+      role,
+      roomId,
+      reactions: {
+        heart: 0,
+        thumbs: 0,
+        star: 0
+      }
+    });
+    
+    await message.save();
+    return message;
+  } catch (error) {
+    console.error('Error creating message:', error);
+    throw error;
+  }
+};
+
+// Static method to add reaction to a message
+messageSchema.statics.addReactionToMessage = async function(messageId, reactionType, userId) {
+  try {
+    const message = await this.findById(messageId);
+    
+    if (!message) {
+      throw new Error('Message not found');
+    }
+    
+    if (message.isDeleted) {
+      throw new Error('Cannot react to deleted message');
+    }
+    
+    // Validate reaction type
+    const validReactions = ['heart', 'thumbs', 'star'];
+    if (!validReactions.includes(reactionType)) {
+      throw new Error('Invalid reaction type');
+    }
+    
+    // Increment reaction count
+    message.reactions[reactionType]++;
+    await message.save();
+    
+    return message;
+  } catch (error) {
+    console.error('Error adding reaction:', error);
+    throw error;
+  }
 };
 
 // Pre-save middleware to set editedAt when message is modified
@@ -139,8 +215,28 @@ messageSchema.pre('save', function(next) {
   next();
 });
 
+// Pre-save middleware to validate sender model consistency
+messageSchema.pre('save', function(next) {
+  // Ensure senderModel matches role
+  if (this.role === 'teacher' && this.senderModel !== 'Teacher') {
+    this.senderModel = 'Teacher';
+  } else if (this.role === 'student' && this.senderModel !== 'User') {
+    this.senderModel = 'User';
+  }
+  next();
+});
+
 // Ensure virtuals are included in JSON output
-messageSchema.set('toJSON', { virtuals: true });
+messageSchema.set('toJSON', { 
+  virtuals: true,
+  transform: function(doc, ret) {
+    // Remove mongoose internal fields
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  }
+});
+
 messageSchema.set('toObject', { virtuals: true });
 
 module.exports = mongoose.model('Message', messageSchema);
