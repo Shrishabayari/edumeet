@@ -29,13 +29,13 @@ const UserDashboard = () => {
       path: "/user/appointments",
     },
     {
-      title: "Manage Approvals",
+      title: "Message",
       description: "Approve or reject student appointment requests.",
       icon: <MapPin className="w-10 h-10 text-green-600 group-hover:text-white transition-colors duration-300" />,
       bgColor: "bg-green-50",
       hoverBg: "hover:bg-green-600",
       textColor: "text-green-800",
-      path: "/message",
+      path: "/student/message",
     },
     {
       title: "All Appointments",

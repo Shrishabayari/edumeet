@@ -47,13 +47,13 @@ const TeacherDashboard = () => {
       path: "/teacher/Appointment-list",
     },
     {
-      title: "My Profile",
+      title: "Message",
       description: "Update your profile and contact information.",
       icon: <Zap className="w-10 h-10 text-indigo-600 group-hover:text-white transition-colors duration-300" />,
       bgColor: "bg-indigo-50",
       hoverBg: "hover:bg-indigo-400",
       textColor: "text-indigo-800",
-      path: "/message",
+      path: "/teacher/message",
     },
   ];
 

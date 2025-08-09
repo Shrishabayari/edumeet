@@ -50,7 +50,8 @@ function App() {
               <Route path="/teacher/appointment-list" element={<AppointmentList />} />
               
               {/* Message Board Route */}
-              <Route path="/message" element={<MessageBoard />} />
+              <Route path="/teacher/message" element={<MessageBoard />} />
+              <Route path="/student/message" element={<MessageBoard />} />
             </Routes>
           </main>
         </div>
