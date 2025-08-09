@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Mail, Lock, Eye, EyeOff, GraduationCap, AlertCircle, CheckCircle, ArrowRight, Sparkles } from 'lucide-react';
 
 const LoginPage = () => {
@@ -11,12 +11,287 @@ const LoginPage = () => {
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [loginStatus, setLoginStatus] = useState(null); // 'success', 'error', or null
+  const [loginStatus, setLoginStatus] = useState(null);
+  const [debugInfo, setDebugInfo] = useState('');
+
+  // Fixed tokenManager - moved inline to avoid import issues
+  // UPDATED tokenManager - Always uses localStorage by default
+ const tokenManager = {
+  // User token methods - ALWAYS store in localStorage
+  setUserToken: (token, persistent = true) => { // Changed default to true
+    console.log('🔧 setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
+    
+    // Always store in localStorage by default, only use sessionStorage if explicitly requested
+    if (persistent !== false) { // Only use sessionStorage if explicitly set to false
+      localStorage.setItem('userToken', token);
+      sessionStorage.removeItem('userToken'); // Clear from session
+      console.log('✅ Token stored in localStorage (persistent)');
+    } else {
+      sessionStorage.setItem('userToken', token);
+      localStorage.removeItem('userToken'); // Clear from localStorage  
+      console.log('✅ Token stored in sessionStorage (session-only)');
+    }
+  },
+  
+  getUserToken: () => {
+    // First check localStorage (preferred), then sessionStorage
+    let token = localStorage.getItem('userToken');
+    if (!token) {
+      token = sessionStorage.getItem('userToken');
+    }
+    return token;
+  },
+  
+  removeUserToken: () => {
+    localStorage.removeItem('userToken');
+    sessionStorage.removeItem('userToken');
+    localStorage.removeItem('user');
+    sessionStorage.removeItem('user');
+    localStorage.removeItem('userRole');
+    sessionStorage.removeItem('userRole');
+    console.log('🧹 User tokens and data cleared from both storages');
+  },
+  
+  // Admin token methods - ALWAYS store in localStorage by default
+  setAdminToken: (token, persistent = true) => { // Changed default to true
+    console.log('🔧 setAdminToken called with:', { token: token?.substring(0, 20) + '...', persistent });
+    
+    if (persistent !== false) {
+      localStorage.setItem('adminToken', token);
+      sessionStorage.removeItem('adminToken');
+      console.log('✅ Admin token stored in localStorage (persistent)');
+    } else {
+      sessionStorage.setItem('adminToken', token);
+      localStorage.removeItem('adminToken');
+      console.log('✅ Admin token stored in sessionStorage (session-only)');
+    }
+  },
+  
+  getAdminToken: () => {
+    // First check localStorage, then sessionStorage
+    let token = localStorage.getItem('adminToken');
+    if (!token) {
+      token = sessionStorage.getItem('adminToken');
+    }
+    return token;
+  },
+  
+  removeAdminToken: () => {
+    localStorage.removeItem('adminToken');
+    sessionStorage.removeItem('adminToken');
+    localStorage.removeItem('admin');
+    sessionStorage.removeItem('admin');
+    console.log('🧹 Admin tokens and data cleared from both storages');
+  },
+  
+  // Teacher token methods - ALWAYS store in localStorage by default
+  setTeacherToken: (token, persistent = true) => { // Changed default to true
+    console.log('🔧 setTeacherToken called with:', { token: token?.substring(0, 20) + '...', persistent });
+    
+    if (persistent !== false) {
+      localStorage.setItem('teacherToken', token);
+      sessionStorage.removeItem('teacherToken');
+      console.log('✅ Teacher token stored in localStorage (persistent)');
+    } else {
+      sessionStorage.setItem('teacherToken', token);
+      localStorage.removeItem('teacherToken');
+      console.log('✅ Teacher token stored in sessionStorage (session-only)');
+    }
+  },
+  
+  getTeacherToken: () => {
+    // First check localStorage, then sessionStorage
+    let token = localStorage.getItem('teacherToken');
+    if (!token) {
+      token = sessionStorage.getItem('teacherToken');
+    }
+    return token;
+  },
+  
+  removeTeacherToken: () => {
+    localStorage.removeItem('teacherToken');
+    sessionStorage.removeItem('teacherToken');
+    localStorage.removeItem('teacher');
+    sessionStorage.removeItem('teacher');
+    console.log('🧹 Teacher tokens and data cleared from both storages');
+  },
+  
+  clearAllTokens: () => {
+    // Clear all possible tokens and user data
+    const itemsToClear = [
+      'userToken', 'adminToken', 'teacherToken',
+      'user', 'admin', 'teacher', 'userRole'
+    ];
+    
+    itemsToClear.forEach(item => {
+      localStorage.removeItem(item);
+      sessionStorage.removeItem(item);
+    });
+    
+    console.log('🧹 All tokens and user data cleared from both storages');
+  },
+
+  // Helper method to check if user is logged in
+  isUserLoggedIn: () => {
+    return !!(tokenManager.getUserToken() || tokenManager.getTeacherToken() || tokenManager.getAdminToken());
+  },
+
+  // Helper method to get current user info (prioritize localStorage)
+  getCurrentUser: () => {
+    let user = localStorage.getItem('user');
+    if (!user) {
+      user = sessionStorage.getItem('user');
+    }
+    return user ? JSON.parse(user) : null;
+  },
+
+  // Helper method to get current user role (prioritize localStorage)
+  getCurrentUserRole: () => {
+    let role = localStorage.getItem('userRole');
+    if (!role) {
+      role = sessionStorage.getItem('userRole');
+    }
+    return role;
+  },
+
+  // NEW: Method to force move all data to localStorage
+  forceLocalStorage: () => {
+    console.log('🔄 Moving all data to localStorage...');
+    
+    // Move tokens
+    const sessionUserToken = sessionStorage.getItem('userToken');
+    const sessionAdminToken = sessionStorage.getItem('adminToken');
+    const sessionTeacherToken = sessionStorage.getItem('teacherToken');
+    
+    if (sessionUserToken) {
+      localStorage.setItem('userToken', sessionUserToken);
+      sessionStorage.removeItem('userToken');
+      console.log('✅ Moved userToken to localStorage');
+    }
+    
+    if (sessionAdminToken) {
+      localStorage.setItem('adminToken', sessionAdminToken);
+      sessionStorage.removeItem('adminToken');
+      console.log('✅ Moved adminToken to localStorage');
+    }
+    
+    if (sessionTeacherToken) {
+      localStorage.setItem('teacherToken', sessionTeacherToken);
+      sessionStorage.removeItem('teacherToken');
+      console.log('✅ Moved teacherToken to localStorage');
+    }
+    
+    // Move user data
+    const sessionUser = sessionStorage.getItem('user');
+    const sessionUserRole = sessionStorage.getItem('userRole');
+    
+    if (sessionUser) {
+      localStorage.setItem('user', sessionUser);
+      sessionStorage.removeItem('user');
+      console.log('✅ Moved user data to localStorage');
+    }
+    
+    if (sessionUserRole) {
+      localStorage.setItem('userRole', sessionUserRole);
+      sessionStorage.removeItem('userRole');
+      console.log('✅ Moved userRole to localStorage');
+    }
+  },
+
+  // NEW: Debug method to show current storage state
+  debugStorage: () => {
+    console.log('🔍 CURRENT STORAGE STATE:');
+    console.log('localStorage:', {
+      userToken: !!localStorage.getItem('userToken'),
+      adminToken: !!localStorage.getItem('adminToken'),
+      teacherToken: !!localStorage.getItem('teacherToken'),
+      user: !!localStorage.getItem('user'),
+      userRole: localStorage.getItem('userRole')
+    });
+    console.log('sessionStorage:', {
+      userToken: !!sessionStorage.getItem('userToken'),
+      adminToken: !!sessionStorage.getItem('adminToken'),
+      teacherToken: !!sessionStorage.getItem('teacherToken'),
+      user: !!sessionStorage.getItem('user'),
+      userRole: sessionStorage.getItem('userRole')
+    });
+  }
+};
 
   // API configuration
   const API_URL = process.env.NODE_ENV === 'production'
     ? process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com/api'
     : process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
+  // Debug storage capabilities on component mount
+  useEffect(() => {
+    const testStorage = () => {
+      let debugMessage = '🔍 STORAGE DEBUG INFO:\n';
+      
+      try {
+        if (typeof(Storage) !== "undefined") {
+          debugMessage += '✅ Storage API is supported\n';
+          
+          // Test localStorage
+          try {
+            localStorage.setItem('test', 'test');
+            const testValue = localStorage.getItem('test');
+            if (testValue === 'test') {
+              debugMessage += '✅ localStorage is working\n';
+              localStorage.removeItem('test');
+            } else {
+              debugMessage += '❌ localStorage test failed\n';
+            }
+          } catch (e) {
+            debugMessage += `❌ localStorage error: ${e.message}\n`;
+          }
+          
+          // Test sessionStorage
+          try {
+            sessionStorage.setItem('test', 'test');
+            const testValue = sessionStorage.getItem('test');
+            if (testValue === 'test') {
+              debugMessage += '✅ sessionStorage is working\n';
+              sessionStorage.removeItem('test');
+            } else {
+              debugMessage += '❌ sessionStorage test failed\n';
+            }
+          } catch (e) {
+            debugMessage += `❌ sessionStorage error: ${e.message}\n`;
+          }
+          
+        } else {
+          debugMessage += '❌ Storage API not supported\n';
+        }
+        
+        // Check current storage contents
+        debugMessage += '\n📦 CURRENT STORAGE CONTENTS:\n';
+        debugMessage += `Current userToken: ${tokenManager.getUserToken() ? 'Found' : 'null'}\n`;
+        debugMessage += `Current user: ${tokenManager.getCurrentUser() ? 'Found' : 'null'}\n`;
+        debugMessage += `Is user logged in: ${tokenManager.isUserLoggedIn() ? 'Yes' : 'No'}\n`;
+        
+        debugMessage += '\n📦 RAW STORAGE CONTENTS:\n';
+        debugMessage += `localStorage userToken: ${localStorage.getItem('userToken') || 'null'}\n`;
+        debugMessage += `localStorage user: ${localStorage.getItem('user') || 'null'}\n`;
+        debugMessage += `sessionStorage userToken: ${sessionStorage.getItem('userToken') ? 'Found' : 'null'}\n`;
+        debugMessage += `sessionStorage user: ${sessionStorage.getItem('user') ? 'Found' : 'null'}\n`;
+        
+        // Check if we're in a secure context
+        debugMessage += `\n🔒 SECURITY CONTEXT:\n`;
+        debugMessage += `Secure context: ${window.isSecureContext ? 'Yes' : 'No'}\n`;
+        debugMessage += `Protocol: ${window.location.protocol}\n`;
+        debugMessage += `Domain: ${window.location.hostname}\n`;
+        
+      } catch (error) {
+        debugMessage += `❌ Storage test failed: ${error.message}\n`;
+      }
+      
+      setDebugInfo(debugMessage);
+      console.log(debugMessage);
+    };
+    
+    testStorage();
+  }, []);
 
   const validateForm = () => {
     const newErrors = {};
@@ -61,26 +336,79 @@ const LoginPage = () => {
     }
   };
 
+  // FIXED: Proper token storage with correct persistent flag handling
+  const storeAuthData = (token, userInfo, rememberMe) => {
+    console.log('\n🔧 === STORING AUTH DATA (FIXED VERSION) ===');
+    console.log('Token:', token ? `${token.substring(0, 20)}...` : 'null');
+    console.log('User Info:', userInfo);
+    console.log('Remember Me (persistent):', rememberMe);
+
+    try {
+      // FIXED: Pass rememberMe as the persistent parameter
+      tokenManager.setUserToken(token, rememberMe);
+      
+      // Store user info in the same location as token
+      const userInfoString = JSON.stringify(userInfo);
+      if (rememberMe) {
+        // Store in localStorage for persistent login
+        localStorage.setItem('user', userInfoString);
+        localStorage.setItem('userRole', userInfo.role);
+        // Remove from sessionStorage to avoid conflicts
+        sessionStorage.removeItem('user');
+        sessionStorage.removeItem('userRole');
+        console.log('✅ User data stored in localStorage (persistent)');
+      } else {
+        // Store in sessionStorage for session-only login
+        sessionStorage.setItem('user', userInfoString);
+        sessionStorage.setItem('userRole', userInfo.role);
+        // Remove from localStorage to avoid conflicts
+        localStorage.removeItem('user');
+        localStorage.removeItem('userRole');
+        console.log('✅ User data stored in sessionStorage (session-only)');
+      }
+
+      // Verify storage
+      const storedToken = tokenManager.getUserToken();
+      const storedUser = tokenManager.getCurrentUser();
+      const storedRole = tokenManager.getCurrentUserRole();
+      const isLoggedIn = tokenManager.isUserLoggedIn();
+
+      console.log('✅ Storage verification:');
+      console.log('- Token stored:', !!storedToken);
+      console.log('- User stored:', !!storedUser);
+      console.log('- Role stored:', !!storedRole);
+      console.log('- Is logged in:', isLoggedIn);
+      console.log('- Storage location:', rememberMe ? 'localStorage' : 'sessionStorage');
+      
+      if (!storedToken || !storedUser || !isLoggedIn) {
+        throw new Error('Storage verification failed');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('❌ Auth data storage failed:', error);
+      throw error;
+    }
+  };
+
   const handleSubmit = async () => {
     if (!validateForm()) {
       return;
     }
 
     setIsLoading(true);
-    setLoginStatus(null); // Clear previous status
+    setLoginStatus(null);
 
     try {
-      // Prepare the data for API submission
       const loginData = {
         email: formData.email.toLowerCase().trim(),
         password: formData.password
       };
 
-      // Debug: Log the data being sent
-      console.log('Sending login data:', { email: loginData.email });
+      console.log('🔄 Making API call...');
       console.log('API URL:', `${API_URL}/auth/login`);
+      console.log('Remember Me:', formData.rememberMe);
 
-      // Make API call to login endpoint
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: {
@@ -89,81 +417,100 @@ const LoginPage = () => {
         body: JSON.stringify(loginData),
       });
 
-      // Debug: Log response details
-      console.log('Response status:', response.status);
+      console.log('📡 Response status:', response.status);
 
       let result;
       try {
         result = await response.json();
-        console.log('Response data:', result);
+        console.log('📡 Response data:', result);
       } catch (jsonError) {
-        console.error('Failed to parse JSON response:', jsonError);
+        console.error('❌ Failed to parse JSON response:', jsonError);
         throw new Error('Invalid response format from server');
       }
 
-      if (response.ok) {
-        // Login successful
+      if (response.ok && result.success) {
+        console.log('\n✅ === LOGIN SUCCESSFUL ===');
         setLoginStatus('success');
         
-        // Store authentication data
-        if (result.token) {
-          // In a real application, you would store the token here:
-          if (formData.rememberMe) {
-            localStorage.setItem('userToken', result.token); // Store in localStorage for persistence
-            console.log('Stored token in localStorage');
-          } else {
-            sessionStorage.setItem('userToken', result.token); // Store in sessionStorage for session-only
-            console.log('Stored token in sessionStorage');
-          }
+        if (!result.token) {
+          throw new Error('No token received from server');
         }
 
-        // Store user info if returned
-        if (result.data && result.data.user) { // Access user info via result.data.user
-          const userInfo = {
-            id: result.data.user._id || result.data.user.id, // Use _id or id
-            name: result.data.user.name,
-            email: result.data.user.email,
-            role: result.data.user.role,
-            profile: result.data.user.profile
-          };
-          // Store user info in localStorage/sessionStorage as well
-          if (formData.rememberMe) {
-            localStorage.setItem('user', JSON.stringify(userInfo));
-          } else {
-            sessionStorage.setItem('user', JSON.stringify(userInfo));
-          }
-          console.log('Stored user info:', userInfo);
-        }
+        // Prepare user info
+        const userInfo = {
+          id: result.data?.user?._id || result.data?.user?.id,
+          name: result.data?.user?.name,
+          email: result.data?.user?.email,
+          role: result.data?.user?.role,
+          profile: result.data?.user?.profile,
+          approvalStatus: result.data?.user?.approvalStatus
+        };
 
-        // Redirect to dashboard after successful login
-        setTimeout(() => {
-          console.log('Redirecting to dashboard...');
-          // Ensure this path is correct for your application's routing
-          window.location.href = '/user/dashboard'; 
-        }, 2000);
+        console.log('Prepared user info:', userInfo);
+
+        // FIXED: Store auth data with proper rememberMe flag
+        try {
+          const storageSuccess = storeAuthData(result.token, userInfo, formData.rememberMe);
+          
+          if (storageSuccess) {
+            console.log('🎉 AUTHENTICATION AND STORAGE COMPLETELY SUCCESSFUL!');
+            
+            // Update debug info for user
+            setDebugInfo(prev => prev + '\n\n✅ LOGIN AND STORAGE SUCCESSFUL!\n' + 
+              `Token: ${result.token.substring(0, 30)}...\n` +
+              `Storage: ${formData.rememberMe ? 'localStorage (persistent)' : 'sessionStorage (session-only)'}\n` +
+              `User: ${userInfo.name} (${userInfo.role})\n` +
+              `Is Logged In: ${tokenManager.isUserLoggedIn()}\n` +
+              `Remember Me: ${formData.rememberMe ? 'YES' : 'NO'}`);
+            
+            // Role-based redirection
+            const userRole = userInfo.role;
+            let redirectUrl = '/user/dashboard';
+
+            switch (userRole) {
+              case 'student':
+                redirectUrl = '/user/dashboard';
+                break;
+              case 'teacher':
+                redirectUrl = '/teacher/dashboard';
+                break;
+              case 'admin':
+                redirectUrl = '/admin/dashboard';
+                break;
+              default:
+                redirectUrl = '/user/dashboard';
+            }
+
+            console.log(`🔄 Redirecting ${userRole} to: ${redirectUrl} in 3 seconds...`);
+
+            setTimeout(() => {
+              window.location.href = redirectUrl;
+            }, 3000);
+            
+          } else {
+            throw new Error('Storage verification failed');
+          }
+          
+        } catch (storageError) {
+          console.error('❌ STORAGE FAILED:', storageError);
+          setLoginStatus('error');
+          setErrors({ general: `Storage failed: ${storageError.message}. Please try again or contact support.` });
+          
+          setDebugInfo(prev => prev + '\n\n❌ TOKEN STORAGE FAILED!\n' + 
+            `Error: ${storageError.message}\n` +
+            'Please check console for details.');
+        }
 
       } else {
-        // Handle login errors
         setLoginStatus('error');
-        
-        // Debug: Log the error details
-        console.error('API Error Response:', {
-          status: response.status,
-          statusText: response.statusText,
-          data: result
-        });
-        
-        // Use the specific message from the backend if available, otherwise a generic one
-        // FIX: Use result.message directly from backend response
-        const backendMessage = result && result.message ? result.message : `Login failed (${response.status}): ${response.statusText}`;
+        const backendMessage = result?.message || `Login failed (${response.status})`;
         setErrors({ general: backendMessage });
       }
 
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('❌ Login error:', error);
       setLoginStatus('error');
       
-      // Handle network errors
       if (error.name === 'TypeError' && error.message.includes('fetch')) {
         setErrors({ general: 'Network error. Please check your connection and try again.' });
       } else {
@@ -174,31 +521,80 @@ const LoginPage = () => {
     }
   };
 
+  const clearAllStorage = () => {
+    try {
+      tokenManager.clearAllTokens();
+      console.log('🧹 All storage cleared');
+      setDebugInfo(prev => prev + '\n\n🧹 All storage cleared');
+      
+      // Refresh debug info
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    } catch (error) {
+      console.error('❌ Error clearing storage:', error);
+    }
+  };
+
+  const testTokenRetrieval = () => {
+    const token = tokenManager.getUserToken();
+    const user = tokenManager.getCurrentUser();
+    const role = tokenManager.getCurrentUserRole();
+    const isLoggedIn = tokenManager.isUserLoggedIn();
+    
+    console.log('🧪 TOKEN RETRIEVAL TEST:');
+    console.log('Token:', token ? `${token.substring(0, 20)}...` : 'null');
+    console.log('User:', user);
+    console.log('Role:', role);
+    console.log('Is Logged In:', isLoggedIn);
+    
+    setDebugInfo(prev => prev + '\n\n🧪 TOKEN RETRIEVAL TEST:\n' +
+      `Token: ${token ? 'Found' : 'null'}\n` +
+      `User: ${user ? user.name : 'null'}\n` +
+      `Role: ${role || 'null'}\n` +
+      `Is Logged In: ${isLoggedIn}\n` +
+      `Token Location: ${localStorage.getItem('userToken') ? 'localStorage' : sessionStorage.getItem('userToken') ? 'sessionStorage' : 'nowhere'}`);
+  };
+
   const handleForgotPassword = () => {
-    console.log('Forgot password clicked');
-    // In a real app, navigate to a forgot password page
-    // window.location.href = '/forgot-password';
+    console.log('🔄 Forgot password clicked');
   };
 
   const handleSignUpRedirect = () => {
-    console.log('Redirecting to registration page...');
-    window.location.href = '/user/register'; // Ensure this path is correct
+    console.log('🔄 Redirecting to registration page...');
+    window.location.href = '/user/register';
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative overflow-hidden font-inter"> {/* Added font-inter */}
-      {/* Animated Background Elements */}
-      <div className="absolute inset-0">
-        <div className="absolute top-0 left-0 w-72 h-72 bg-gradient-to-br from-blue-400/20 to-indigo-600/20 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-br from-purple-400/20 to-pink-600/20 rounded-full blur-3xl animate-pulse delay-1000"></div>
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-gradient-to-br from-cyan-400/20 to-blue-600/20 rounded-full blur-3xl animate-pulse delay-500"></div>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative overflow-hidden">
+      
+      {/* Debug Info Panel - Only show in development */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="fixed top-4 right-4 w-80 max-h-96 bg-black text-green-400 p-4 rounded-lg text-xs overflow-y-auto z-50 font-mono">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-white font-bold">Debug Info</h3>
+            <div className="flex gap-2">
+              <button 
+                onClick={testTokenRetrieval}
+                className="text-blue-400 hover:text-blue-300 text-xs"
+              >
+                Test
+              </button>
+              <button 
+                onClick={clearAllStorage}
+                className="text-red-400 hover:text-red-300 text-xs"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <pre className="whitespace-pre-wrap">{debugInfo}</pre>
+        </div>
+      )}
 
       <div className="relative z-10 min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-md w-full space-y-8">
-          {/* Main Login Card */}
           <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 p-8 relative overflow-hidden">
-            {/* Subtle gradient overlay */}
             <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent pointer-events-none"></div>
             
             <div className="relative z-10">
@@ -222,7 +618,9 @@ const LoginPage = () => {
                     </div>
                     <div className="ml-3">
                       <p className="text-sm font-semibold text-green-800">Login Successful!</p>
-                      <p className="text-sm text-green-700">Redirecting you to your dashboard...</p>
+                      <p className="text-sm text-green-700">
+                        Token stored {formData.rememberMe ? 'persistently in localStorage' : 'temporarily in sessionStorage'}. Redirecting...
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -236,8 +634,7 @@ const LoginPage = () => {
                     </div>
                     <div className="ml-3">
                       <p className="text-sm font-semibold text-red-800">Login Failed</p>
-                      {/* FIX: Display specific error message from backend */}
-                      <p className="text-sm text-red-700">{errors.general}</p> 
+                      <p className="text-sm text-red-700">{errors.general}</p>
                     </div>
                   </div>
                 </div>
@@ -314,6 +711,11 @@ const LoginPage = () => {
                     />
                     <label htmlFor="rememberMe" className="ml-3 block text-sm font-medium text-gray-700">
                       Remember me
+                      {formData.rememberMe && (
+                        <span className="text-xs text-blue-600 block">
+                          (Token will be stored in localStorage)
+                        </span>
+                      )}
                     </label>
                   </div>
 
@@ -368,28 +770,6 @@ const LoginPage = () => {
                 >
                   Create New Account
                 </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Feature Cards */}
-          <div className="grid grid-cols-2 gap-4 mt-8">
-            <div className="bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/20 hover:bg-white/80 transition-all duration-300 transform hover:-translate-y-1">
-              <div className="text-center">
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mx-auto mb-3">
-                  <GraduationCap className="h-5 w-5 text-white" />
-                </div>
-                <h3 className="font-bold text-gray-900 text-sm">Students</h3>
-                <p className="text-xs text-gray-600 mt-1">Access courses & assignments</p>
-              </div>
-            </div>
-            <div className="bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/20 hover:bg-white/80 transition-all duration-300 transform hover:-translate-y-1">
-              <div className="text-center">
-                <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl flex items-center justify-center mx-auto mb-3">
-                  <Sparkles className="h-5 w-5 text-white" />
-                </div>
-                <h3 className="font-bold text-gray-900 text-sm">Teachers</h3>
-                <p className="text-xs text-gray-600 mt-1">Manage classes & grades</p>
               </div>
             </div>
           </div>

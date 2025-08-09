@@ -1,4 +1,4 @@
-// client/src/api.js (Updated EduMeet API Configuration)
+// client/src/api.js (FIXED - Now checks both localStorage and sessionStorage)
 import axios from 'axios';
 
 // Prioritize environment variable, then remote server, then local development server
@@ -12,18 +12,33 @@ const api = axios.create({
   },
 });
 
-// Request interceptor - Add auth token if available
+// FIXED: Helper function to get token from either storage location
+const getTokenFromStorage = (tokenType = 'userToken') => {
+  // First check localStorage, then sessionStorage
+  let token = localStorage.getItem(tokenType);
+  if (!token) {
+    token = sessionStorage.getItem(tokenType);
+  }
+  
+  if (process.env.NODE_ENV === 'development' && token) {
+    console.log(`🔍 Found ${tokenType} in ${localStorage.getItem(tokenType) ? 'localStorage' : 'sessionStorage'}`);
+  }
+  
+  return token;
+};
+
+// Request interceptor - FIXED to check both storage locations
 api.interceptors.request.use(
   (config) => {
     let token = null;
 
     // Determine which token to use based on the URL
     if (config.url.startsWith('/admin')) {
-      token = localStorage.getItem('adminToken');
+      token = getTokenFromStorage('adminToken');
     } else if (config.url.startsWith('/teachers')) {
-      token = localStorage.getItem('teacherToken');
+      token = getTokenFromStorage('teacherToken');
     } else {
-      token = localStorage.getItem('userToken');
+      token = getTokenFromStorage('userToken');
     }
 
     if (token) {
@@ -46,7 +61,7 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor - Handle responses and errors globally
+// Response interceptor - FIXED to clear tokens from both storage locations
 api.interceptors.response.use(
   (response) => {
     if (process.env.NODE_ENV === 'development') {
@@ -66,14 +81,13 @@ api.interceptors.response.use(
         case 401:
           console.warn('Unauthorized: Token expired or invalid. Attempting redirection.');
           if (config.url.startsWith('/admin')) {
-            localStorage.removeItem('adminToken');
+            tokenManager.removeAdminToken();
             window.location.href = '/admin/login';
           } else if (config.url.startsWith('/teachers')) {
-            localStorage.removeItem('teacherToken');
+            tokenManager.removeTeacherToken();
             window.location.href = '/teacher/login';
           } else {
-            localStorage.removeItem('userToken');
-            localStorage.removeItem('user');
+            tokenManager.removeUserToken();
             window.location.href = '/login';
           }
           break;
@@ -103,7 +117,7 @@ api.interceptors.response.use(
   }
 );
 
-// Updated API endpoints object
+// API endpoints object (unchanged)
 export const endpoints = {
   // Auth endpoints (for regular users)
   auth: {
@@ -183,7 +197,7 @@ export const endpoints = {
 }
 };
 
-// Updated convenience methods for appointment operations
+// API methods (unchanged - they'll now use the fixed token retrieval)
 export const apiMethods = {
   // Auth Operations
   register: (userData) => api.post(endpoints.auth.register, userData),
@@ -210,21 +224,17 @@ export const apiMethods = {
   getTeacherProfile: () => api.get(endpoints.teachers.profile),
   teacherLogout: () => api.post(endpoints.teachers.logout),
 
-  // Updated Appointment Operations
-
-  // Student workflow - Request appointment (needs teacher approval)
+  // Appointment Operations
   requestAppointment: (appointmentData) => {
     console.log('🔄 Student requesting appointment:', appointmentData);
     return api.post(endpoints.appointments.request, appointmentData);
   },
 
-  // Teacher workflow - Direct booking (no approval needed)
   teacherBookAppointment: (appointmentData) => {
     console.log('🔄 Teacher booking appointment directly:', appointmentData);
     return api.post(endpoints.appointments.book, appointmentData);
   },
 
-  // Teacher response to student requests
   acceptAppointmentRequest: (id, responseMessage = '') => {
     console.log(`🔄 Teacher accepting appointment request: ${id}`);
     return api.put(endpoints.appointments.accept(id), { responseMessage });
@@ -235,20 +245,17 @@ export const apiMethods = {
     return api.put(endpoints.appointments.reject(id), { responseMessage });
   },
 
-  // Complete appointment
   completeAppointment: (id) => {
     console.log(`🔄 Completing appointment: ${id}`);
     return api.put(endpoints.appointments.complete(id));
   },
 
-  // General appointment operations
   getAllAppointments: (params = {}) => api.get(endpoints.appointments.getAll, { params }),
   getAppointmentById: (id) => api.get(endpoints.appointments.getById(id)),
   updateAppointment: (id, data) => api.put(endpoints.appointments.update(id), data),
   cancelAppointment: (id, reason = '') => api.put(endpoints.appointments.cancel(id), { reason }),
   getAppointmentStats: () => api.get(endpoints.appointments.getStats),
 
-  // Teacher-specific appointment queries
   getTeacherAppointments: (teacherId, params = {}) => {
     return api.get(endpoints.appointments.getByTeacher(teacherId), { params });
   },
@@ -257,7 +264,6 @@ export const apiMethods = {
     return api.get(endpoints.appointments.getTeacherPending(teacherId));
   },
 
-  // Filtered queries for different appointment types
   getConfirmedAppointments: (params = {}) => {
     return api.get(endpoints.appointments.getAll, { 
       params: { ...params, status: 'confirmed' } 
@@ -287,7 +293,6 @@ export const apiMethods = {
   getAdminAppointments: (params = {}) => api.get(endpoints.admin.getAllAppointments, { params }),
   updateTeacherStatus: (teacherId, statusData) => api.patch(endpoints.admin.updateTeacherStatus(teacherId), statusData),
 
-  // User Approval Operations (Admin)
   getPendingRegistrations: () => api.get(endpoints.admin.getPendingRegistrations),
   getAllUsersForAdmin: (params = {}) => api.get(endpoints.admin.getAllUsers, { params }),
   approveUser: (id) => api.put(endpoints.admin.approveUser(id)),
@@ -308,12 +313,10 @@ export const apiMethods = {
         lastError = error;
         console.log(`❌ Request attempt ${i + 1} failed:`, error.message);
         
-        // If it's a validation error (400) or conflict (409), don't retry
         if (error.response?.status === 400 || error.response?.status === 409) {
           break;
         }
         
-        // Wait before retrying (exponential backoff)
         if (i < maxRetries - 1) {
           await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
         }
@@ -323,7 +326,6 @@ export const apiMethods = {
     throw lastError || new Error('All appointment request attempts failed');
   },
 
-  // Bulk operations for appointments
   bulkUpdateAppointments: async (updates) => {
     const results = [];
     for (const update of updates) {
@@ -337,7 +339,6 @@ export const apiMethods = {
     return results;
   },
 
-  // Search functionality
   searchAppointments: (query, filters = {}) => {
     const params = { search: query, ...filters };
     return api.get(endpoints.appointments.getAll, { params });
@@ -348,11 +349,9 @@ export const apiMethods = {
     return api.get(endpoints.teachers.getAll, { params });
   },
 
-  // Validation helpers
   validateAppointmentData: (appointmentData, isTeacherBooking = false) => {
     const errors = [];
     
-    // Common validations
     if (!appointmentData.day) {
       errors.push('Day is required');
     }
@@ -378,7 +377,6 @@ export const apiMethods = {
       errors.push('Student email is required');
     }
     
-    // For student requests, teacherId is required
     if (!isTeacherBooking && !appointmentData.teacherId) {
       errors.push('Teacher ID is required');
     }
@@ -390,29 +388,100 @@ export const apiMethods = {
   }
 };
 
-// Export token management utilities (unchanged)
+// FIXED: Token management utilities - now handle both storage locations
 export const tokenManager = {
-  setUserToken: (token) => localStorage.setItem('userToken', token),
-  getUserToken: () => localStorage.getItem('userToken'),
-  removeUserToken: () => localStorage.removeItem('userToken'),
+  // User token methods - FIXED to handle both storage types
+  setUserToken: (token, persistent = false) => {
+  console.log('🔧 setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
   
-  setAdminToken: (token) => localStorage.setItem('adminToken', token),
-  getAdminToken: () => localStorage.getItem('adminToken'),
-  removeAdminToken: () => localStorage.removeItem('adminToken'),
+  if (persistent) {
+    localStorage.setItem('userToken', token);
+    sessionStorage.removeItem('userToken'); // Clear from session
+    console.log('✅ Token stored in localStorage');
+  } else {
+    sessionStorage.setItem('userToken', token);
+    localStorage.removeItem('userToken'); // Clear from localStorage  
+    console.log('✅ Token stored in sessionStorage');
+  }
+},
   
-  setTeacherToken: (token) => localStorage.setItem('teacherToken', token),
-  getTeacherToken: () => localStorage.getItem('teacherToken'),
-  removeTeacherToken: () => localStorage.removeItem('teacherToken'),
+  getUserToken: () => getTokenFromStorage('userToken'),
+  
+  removeUserToken: () => {
+    localStorage.removeItem('userToken');
+    sessionStorage.removeItem('userToken');
+    localStorage.removeItem('user');
+    sessionStorage.removeItem('user');
+    localStorage.removeItem('userRole');
+    sessionStorage.removeItem('userRole');
+  },
+  
+  // Admin token methods - FIXED to handle both storage types
+  setAdminToken: (token, persistent = false) => {
+    if (persistent) {
+      localStorage.setItem('adminToken', token);
+      sessionStorage.removeItem('adminToken');
+    } else {
+      sessionStorage.setItem('adminToken', token);
+      localStorage.removeItem('adminToken');
+    }
+  },
+  
+  getAdminToken: () => getTokenFromStorage('adminToken'),
+  
+  removeAdminToken: () => {
+    localStorage.removeItem('adminToken');
+    sessionStorage.removeItem('adminToken');
+  },
+  
+  // Teacher token methods - FIXED to handle both storage types
+  setTeacherToken: (token, persistent = false) => {
+    if (persistent) {
+      localStorage.setItem('teacherToken', token);
+      sessionStorage.removeItem('teacherToken');
+    } else {
+      sessionStorage.setItem('teacherToken', token);
+      localStorage.removeItem('teacherToken');
+    }
+  },
+  
+  getTeacherToken: () => getTokenFromStorage('teacherToken'),
+  
+  removeTeacherToken: () => {
+    localStorage.removeItem('teacherToken');
+    sessionStorage.removeItem('teacherToken');
+  },
   
   clearAllTokens: () => {
-    localStorage.removeItem('userToken');
-    localStorage.removeItem('adminToken');
-    localStorage.removeItem('teacherToken');
-    localStorage.removeItem('user');
+    localStorage.clear();
+    sessionStorage.clear();
+  },
+
+  // ADDED: Helper method to check if user is logged in
+  isUserLoggedIn: () => {
+    return !!getTokenFromStorage('userToken');
+  },
+
+  // ADDED: Helper method to get current user info from either storage
+  getCurrentUser: () => {
+    let user = localStorage.getItem('user');
+    if (!user) {
+      user = sessionStorage.getItem('user');
+    }
+    return user ? JSON.parse(user) : null;
+  },
+
+  // ADDED: Helper method to get current user role
+  getCurrentUserRole: () => {
+    let role = localStorage.getItem('userRole');
+    if (!role) {
+      role = sessionStorage.getItem('userRole');
+    }
+    return role;
   }
 };
 
-// Updated constants with new appointment statuses
+// Constants (unchanged)
 export const constants = {
   DEPARTMENTS: [
     'Computer Science',
@@ -439,17 +508,17 @@ export const constants = {
   ],
   
   APPOINTMENT_STATUSES: [
-    'pending',    // Student requested, waiting for teacher response
-    'confirmed',  // Teacher accepted the request
-    'rejected',   // Teacher rejected the request
-    'cancelled',  // Cancelled by either party
-    'completed',  // Appointment completed
-    'booked'      // Direct booking by teacher (no approval needed)
+    'pending',    
+    'confirmed',  
+    'rejected',   
+    'cancelled',  
+    'completed',  
+    'booked'      
   ],
 
   APPOINTMENT_TYPES: {
-    STUDENT_REQUEST: 'student_request',  // Student requests, teacher approves
-    TEACHER_BOOKING: 'teacher_booking'   // Teacher books directly
+    STUDENT_REQUEST: 'student_request',  
+    TEACHER_BOOKING: 'teacher_booking'   
   }
 };
 
