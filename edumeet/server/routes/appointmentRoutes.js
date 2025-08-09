@@ -193,36 +193,36 @@ const cancellationValidation = [
     .withMessage('Cancellation reason cannot exceed 500 characters')
 ];
 
-// Routes - FIXED ORDER
+// FIXED ROUTES ORDER - Specific routes MUST come before parameterized routes
+// ===================================================================
 
-// Statistics and aggregate routes (must come first to avoid param conflicts)
+// 1. Statistics route (no parameters)
 router.get('/stats', getAppointmentStats);
 
-// Teacher-specific routes
+// 2. Teacher-specific routes (specific paths)
 router.get('/teacher/:teacherId/pending', getTeacherPendingRequests);
 router.get('/teacher/:teacherId', getTeacherAppointments);
 
-// Main appointment routes
-router.get('/', getAllAppointments);
-router.get('/:id', getAppointmentById);
-
-// Student requests appointment (needs teacher approval)
+// 3. Student requests appointment (specific path)
 router.post('/request', requestAppointmentValidation, handleValidationErrors, requestAppointment);
 
-// *** FIXED: Teacher books appointment directly (no approval needed) ***
+// 4. Teacher books appointment directly (specific path)
 router.post('/book', teacherBookingValidation, handleValidationErrors, teacherBookAppointment);
 
-// Teacher response routes
+// 5. CRITICAL FIX: Appointment action routes (specific paths with parameters)
+// These MUST come before the generic /:id routes
 router.put('/:id/accept', responseValidation, handleValidationErrors, acceptAppointmentRequest);
 router.put('/:id/reject', responseValidation, handleValidationErrors, rejectAppointmentRequest);
 router.put('/:id/complete', completeAppointment);
-
-// Update and cancel routes
-router.put('/:id', updateAppointmentValidation, handleValidationErrors, updateAppointment);
 router.put('/:id/cancel', cancellationValidation, handleValidationErrors, cancelAppointment);
+
+// 6. Generic parameterized routes (MUST be last)
+router.get('/', getAllAppointments);
+router.get('/:id', getAppointmentById);
+router.put('/:id', updateAppointmentValidation, handleValidationErrors, updateAppointment);
 router.delete('/:id', cancellationValidation, handleValidationErrors, cancelAppointment);
 
-// Legacy route for backward compatibility (maps to request)
+// 7. Legacy route for backward compatibility (maps to request)
 router.post('/', requestAppointmentValidation, handleValidationErrors, requestAppointment);
 
 module.exports = router;

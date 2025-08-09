@@ -35,7 +35,7 @@ const TeacherDashboard = () => {
       bgColor: "bg-green-50",
       hoverBg: "hover:bg-green-600",
       textColor: "text-green-800",
-      path: "/teacher/approval",
+      path: "/teacher/approve-appointment",
     },
     {
       title: "All Appointments",

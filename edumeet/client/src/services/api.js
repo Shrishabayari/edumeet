@@ -1,4 +1,3 @@
-// client/src/api.js (FIXED - Now checks both localStorage and sessionStorage)
 import axios from 'axios';
 
 // Prioritize environment variable, then remote server, then local development server
@@ -235,10 +234,52 @@ export const apiMethods = {
     return api.post(endpoints.appointments.book, appointmentData);
   },
 
-  acceptAppointmentRequest: (id, responseMessage = '') => {
-    console.log(`🔄 Teacher accepting appointment request: ${id}`);
-    return api.put(endpoints.appointments.accept(id), { responseMessage });
-  },
+  // Improved acceptAppointmentRequest API method
+acceptAppointmentRequest: async (id, responseMessage = '') => {
+  try {
+    console.log('🔄 Accepting appointment request:', id);
+    console.log('Response message:', responseMessage);
+    
+    // Validate ID format on frontend too
+    if (!id || id.length !== 24) {
+      throw new Error('Invalid appointment ID format');
+    }
+    
+    const response = await api.put(endpoints.appointments.accept(id), { 
+      responseMessage: responseMessage.trim() 
+    });
+    
+    console.log('✅ Appointment accepted successfully:', response.data);
+    return response;
+    
+  } catch (error) {
+    console.error('❌ Error accepting appointment:', error);
+    
+    // Enhanced error handling
+    if (error.response) {
+      const { status, data } = error.response;
+      console.error(`HTTP ${status}:`, data);
+      
+      // Provide more specific error messages
+      switch (status) {
+        case 404:
+          throw new Error('Appointment not found or may have been already processed');
+        case 400:
+          throw new Error(data.message || 'Invalid request - check appointment status');
+        case 403:
+          throw new Error('You do not have permission to accept this appointment');
+        case 409:
+          throw new Error('Appointment has already been processed');
+        default:
+          throw new Error(data.message || `Server error (${status}). Please try again.`);
+      }
+    } else if (error.request) {
+      throw new Error('Cannot connect to server. Please check your internet connection.');
+    } else {
+      throw new Error(error.message || 'An unexpected error occurred');
+    }
+  }
+},
 
   rejectAppointmentRequest: (id, responseMessage = '') => {
     console.log(`🔄 Teacher rejecting appointment request: ${id}`);

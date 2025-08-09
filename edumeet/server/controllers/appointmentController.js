@@ -303,49 +303,104 @@ const teacherBookAppointment = async (req, res) => {
   }
 };
 
-// Teacher accepts appointment request
+// Fixed acceptAppointmentRequest function
 const acceptAppointmentRequest = async (req, res) => {
   try {
     const { id } = req.params;
     const { responseMessage } = req.body;
-    const teacherId = req.user?.id; // Assuming auth middleware
     
+    console.log('=== ACCEPT APPOINTMENT REQUEST ===');
+    console.log('Appointment ID:', id);
+    console.log('Response Message:', responseMessage);
+    console.log('Request User:', req.user);
+    
+    // Validate appointment ID format
     if (!mongoose.Types.ObjectId.isValid(id)) {
+      console.error('Invalid appointment ID format:', id);
       return res.status(400).json({
         success: false,
-        message: 'Invalid appointment ID'
+        message: 'Invalid appointment ID format'
       });
     }
     
-    const appointment = await Appointment.findOne({
-      _id: id,
-      teacherId,
-      status: 'pending',
-      createdBy: 'student'
-    });
+    // First, find the appointment without teacher restriction to debug
+    const appointmentCheck = await Appointment.findById(id);
+    console.log('Appointment found (debug):', appointmentCheck);
     
-    if (!appointment) {
+    if (!appointmentCheck) {
+      console.error('Appointment not found with ID:', id);
       return res.status(404).json({
         success: false,
-        message: 'Appointment request not found or already processed'
+        message: 'Appointment not found'
       });
     }
     
-    await appointment.acceptRequest(responseMessage);
-    await appointment.populate('teacherId', 'name email phone subject');
+    // Check if appointment is in correct state
+    if (appointmentCheck.status !== 'pending') {
+      console.error('Appointment not pending. Current status:', appointmentCheck.status);
+      return res.status(400).json({
+        success: false,
+        message: `Cannot accept appointment. Current status: ${appointmentCheck.status}`
+      });
+    }
     
-    res.json({
-      success: true,
-      data: appointment,
-      message: 'Appointment request accepted successfully'
-    });
+    if (appointmentCheck.createdBy !== 'student') {
+      console.error('Appointment not created by student:', appointmentCheck.createdBy);
+      return res.status(400).json({
+        success: false,
+        message: 'Only student requests can be accepted'
+      });
+    }
+    
+    // Get teacherId from request (could be from auth middleware or request body)
+    const teacherId = req.user?.id || req.user?._id || req.body.teacherId;
+    console.log('Teacher ID from request:', teacherId);
+    console.log('Appointment teacherId:', appointmentCheck.teacherId);
+    
+    // If we have teacher auth, verify teacher owns this appointment
+    if (teacherId && appointmentCheck.teacherId.toString() !== teacherId.toString()) {
+      console.error('Teacher mismatch. Auth teacher:', teacherId, 'Appointment teacher:', appointmentCheck.teacherId);
+      return res.status(403).json({
+        success: false,
+        message: 'You can only accept appointments assigned to you'
+      });
+    }
+    
+    // Update the appointment
+    try {
+      console.log('Updating appointment status to confirmed...');
+      await appointmentCheck.acceptRequest(responseMessage);
+      
+      // Populate teacher details for response
+      await appointmentCheck.populate('teacherId', 'name email phone subject');
+      
+      console.log('Appointment accepted successfully:', appointmentCheck._id);
+      
+      res.json({
+        success: true,
+        data: appointmentCheck,
+        message: 'Appointment request accepted successfully'
+      });
+      
+    } catch (updateError) {
+      console.error('Error updating appointment:', updateError);
+      throw updateError;
+    }
     
   } catch (error) {
-    console.error('Error accepting appointment:', error);
+    console.error('=== ERROR IN ACCEPT APPOINTMENT ===');
+    console.error('Error details:', error);
+    console.error('Stack trace:', error.stack);
+    
     res.status(500).json({
       success: false,
       message: 'Failed to accept appointment',
-      error: error.message
+      error: error.message,
+      debug: process.env.NODE_ENV === 'development' ? {
+        appointmentId: req.params.id,
+        userId: req.user?.id,
+        errorStack: error.stack
+      } : undefined
     });
   }
 };
