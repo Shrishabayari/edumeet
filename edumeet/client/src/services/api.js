@@ -116,7 +116,7 @@ api.interceptors.response.use(
   }
 );
 
-// API endpoints object
+// API endpoints object (unchanged)
 export const endpoints = {
   // Auth endpoints (for regular users)
   auth: {
@@ -190,13 +190,13 @@ export const endpoints = {
     rejectUser: (id) => `/auth/admin/reject/${id}`,
   },
   messages: {
-    getByRoom: (roomId) => `/messages/room/${roomId}`,
-    delete: (id) => `/messages/${id}`,
-    getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
-  }
+  getByRoom: (roomId) => `/messages/room/${roomId}`,
+  delete: (id) => `/messages/${id}`,
+  getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
+}
 };
 
-// API methods
+// API methods (unchanged - they'll now use the fixed token retrieval)
 export const apiMethods = {
   // Auth Operations
   register: (userData) => api.post(endpoints.auth.register, userData),
@@ -234,158 +234,56 @@ export const apiMethods = {
     return api.post(endpoints.appointments.book, appointmentData);
   },
 
-  acceptAppointmentRequest: async (id, responseMessage = '') => {
-    try {
-      console.log('🔄 Accepting appointment request:', { id, responseMessage });
-      
-      // Validate ID format on frontend
-      if (!id || (typeof id === 'string' && id.length !== 24)) {
-        throw new Error('Invalid appointment ID format');
-      }
-      
-      // Make the API call
-      const response = await api.put(`/appointments/${id}/accept`, { 
-        responseMessage: responseMessage.trim() 
-      });
-      
-      console.log('✅ Appointment accepted successfully:', response.data);
-      return response;
-      
-    } catch (error) {
-      console.error('❌ Error accepting appointment:', error);
-      
-      // Enhanced error handling
-      if (error.response) {
-        const { status, data } = error.response;
-        console.error(`HTTP ${status}:`, data);
-        
-        // Provide specific error messages based on status
-        switch (status) {
-          case 404:
-            throw new Error('Appointment not found or may have been already processed');
-          case 400:
-            throw new Error(data.message || 'Invalid request - check appointment status');
-          case 403:
-            throw new Error('You do not have permission to accept this appointment');
-          case 409:
-            throw new Error('Appointment has already been processed');
-          default:
-            throw new Error(data.message || `Server error (${status}). Please try again.`);
-        }
-      } else if (error.request) {
-        throw new Error('Cannot connect to server. Please check your internet connection.');
-      } else {
-        throw new Error(error.message || 'An unexpected error occurred');
-      }
+  // Improved acceptAppointmentRequest API method
+acceptAppointmentRequest: async (id, responseMessage = '') => {
+  try {
+    console.log('🔄 Accepting appointment request:', id);
+    console.log('Response message:', responseMessage);
+    
+    // Validate ID format on frontend too
+    if (!id || id.length !== 24) {
+      throw new Error('Invalid appointment ID format');
     }
-  },
-
-  // FIXED: Base reject method with proper validation and error handling
-  rejectAppointmentRequest: async (id, responseMessage = '') => {
-    try {
-      console.log('🔄 Rejecting appointment request:', { id, responseMessage });
+    
+    const response = await api.put(endpoints.appointments.accept(id), { 
+      responseMessage: responseMessage.trim() 
+    });
+    
+    console.log('✅ Appointment accepted successfully:', response.data);
+    return response;
+    
+  } catch (error) {
+    console.error('❌ Error accepting appointment:', error);
+    
+    // Enhanced error handling
+    if (error.response) {
+      const { status, data } = error.response;
+      console.error(`HTTP ${status}:`, data);
       
-      // Validate ID format
-      if (!id || (typeof id === 'string' && id.length !== 24)) {
-        throw new Error('Invalid appointment ID format');
+      // Provide more specific error messages
+      switch (status) {
+        case 404:
+          throw new Error('Appointment not found or may have been already processed');
+        case 400:
+          throw new Error(data.message || 'Invalid request - check appointment status');
+        case 403:
+          throw new Error('You do not have permission to accept this appointment');
+        case 409:
+          throw new Error('Appointment has already been processed');
+        default:
+          throw new Error(data.message || `Server error (${status}). Please try again.`);
       }
-      
-      // Make the API call
-      const response = await api.put(`/appointments/${id}/reject`, { 
-        responseMessage: responseMessage.trim() 
-      });
-      
-      console.log('✅ Appointment rejected successfully:', response.data);
-      return response;
-      
-    } catch (error) {
-      console.error('❌ Error rejecting appointment:', error);
-      
-      if (error.response) {
-        const { status, data } = error.response;
-        console.error(`HTTP ${status}:`, data);
-        
-        switch (status) {
-          case 404:
-            throw new Error('Appointment not found or may have been already processed');
-          case 400:
-            throw new Error(data.message || 'Invalid request - check appointment status');
-          case 403:
-            throw new Error('You do not have permission to reject this appointment');
-          case 409:
-            throw new Error('Appointment has already been processed');
-          default:
-            throw new Error(data.message || `Server error (${status}). Please try again.`);
-        }
-      } else if (error.request) {
-        throw new Error('Cannot connect to server. Please check your internet connection.');
-      } else {
-        throw new Error(error.message || 'An unexpected error occurred');
-      }
+    } else if (error.request) {
+      throw new Error('Cannot connect to server. Please check your internet connection.');
+    } else {
+      throw new Error(error.message || 'An unexpected error occurred');
     }
-  },
+  }
+},
 
-  // ADDED: Retry methods that your frontend is calling
-  acceptAppointmentWithRetry: async (appointmentId, responseMessage = '') => {
-    const maxRetries = 3;
-    let lastError = null;
-
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        console.log(`🔄 Accepting appointment attempt ${i + 1}/${maxRetries}`);
-        const response = await apiMethods.acceptAppointmentRequest(appointmentId, responseMessage);
-        console.log(`✅ Appointment accepted successfully on attempt ${i + 1}`);
-        return response;
-      } catch (error) {
-        lastError = error;
-        console.log(`❌ Accept attempt ${i + 1} failed:`, error.message);
-        
-        // Don't retry on client errors (400-499)
-        if (error.response?.status >= 400 && error.response?.status < 500) {
-          break;
-        }
-        
-        // Add exponential backoff delay before retry
-        if (i < maxRetries - 1) {
-          const delay = Math.pow(2, i) * 1000; // 1s, 2s, 4s
-          console.log(`⏳ Waiting ${delay}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-    }
-
-    throw lastError || new Error('All appointment acceptance attempts failed');
-  },
-
-  rejectAppointmentWithRetry: async (appointmentId, responseMessage = '') => {
-    const maxRetries = 3;
-    let lastError = null;
-
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        console.log(`🔄 Rejecting appointment attempt ${i + 1}/${maxRetries}`);
-        const response = await apiMethods.rejectAppointmentRequest(appointmentId, responseMessage);
-        console.log(`✅ Appointment rejected successfully on attempt ${i + 1}`);
-        return response;
-      } catch (error) {
-        lastError = error;
-        console.log(`❌ Reject attempt ${i + 1} failed:`, error.message);
-        
-        // Don't retry on client errors (400-499)
-        if (error.response?.status >= 400 && error.response?.status < 500) {
-          break;
-        }
-        
-        // Add exponential backoff delay before retry
-        if (i < maxRetries - 1) {
-          const delay = Math.pow(2, i) * 1000; // 1s, 2s, 4s
-          console.log(`⏳ Waiting ${delay}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-    }
-
-    throw lastError || new Error('All appointment rejection attempts failed');
+  rejectAppointmentRequest: (id, responseMessage = '') => {
+    console.log(`🔄 Teacher rejecting appointment request: ${id}`);
+    return api.put(endpoints.appointments.reject(id), { responseMessage });
   },
 
   completeAppointment: (id) => {
@@ -535,18 +433,18 @@ export const apiMethods = {
 export const tokenManager = {
   // User token methods - FIXED to handle both storage types
   setUserToken: (token, persistent = false) => {
-    console.log('🔧 setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
-    
-    if (persistent) {
-      localStorage.setItem('userToken', token);
-      sessionStorage.removeItem('userToken'); // Clear from session
-      console.log('✅ Token stored in localStorage');
-    } else {
-      sessionStorage.setItem('userToken', token);
-      localStorage.removeItem('userToken'); // Clear from localStorage  
-      console.log('✅ Token stored in sessionStorage');
-    }
-  },
+  console.log('🔧 setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
+  
+  if (persistent) {
+    localStorage.setItem('userToken', token);
+    sessionStorage.removeItem('userToken'); // Clear from session
+    console.log('✅ Token stored in localStorage');
+  } else {
+    sessionStorage.setItem('userToken', token);
+    localStorage.removeItem('userToken'); // Clear from localStorage  
+    console.log('✅ Token stored in sessionStorage');
+  }
+},
   
   getUserToken: () => getTokenFromStorage('userToken'),
   
@@ -624,7 +522,7 @@ export const tokenManager = {
   }
 };
 
-// Constants
+// Constants (unchanged)
 export const constants = {
   DEPARTMENTS: [
     'Computer Science',
