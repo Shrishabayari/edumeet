@@ -240,7 +240,6 @@ const TeacherAppointmentManager = () => {
     }
   }, [fetchPendingRequests, fetchAllAppointments, loading]);
 
-  // FIXED: Enhanced appointment approval with better error handling and rate limiting
   const handleApproveRequest = async (appointmentId, message = '') => {
     if (loading) {
       showMessage('Please wait for the current operation to complete.', 'error');
@@ -249,45 +248,31 @@ const TeacherAppointmentManager = () => {
 
     try {
       setLoading(true);
-      console.log('Approving appointment:', appointmentId, 'with message:', message);
+      console.log('🔄 Approving appointment:', appointmentId);
       
-      // Use the retry method for better reliability
-      const response = await apiMethods.acceptAppointmentRequest (appointmentId, message);
-      console.log('Approve response:', response);
+      // Direct call to the base method (no retry wrapper)
+      const response = await apiMethods.acceptAppointmentRequest(appointmentId, message);
+      console.log('✅ Approve response:', response.data);
       
       showMessage('Appointment request approved successfully!');
       
-      // Refresh data with delay to avoid rate limiting
+      // Close modal first
+      setResponseModal({ show: false, type: '', appointmentId: '' });
+      setResponseMessage('');
+      
+      // Refresh data after a short delay
       setTimeout(() => {
         if (mountedRef.current) {
           refreshData();
         }
       }, 1000);
       
-      setResponseModal({ show: false, type: '', appointmentId: '' });
-      setResponseMessage('');
     } catch (error) {
-      console.error('Error approving appointment:', error);
+      console.error('❌ Error approving appointment:', error);
       
-      let errorMessage = 'Failed to approve appointment';
-      if (error.message.includes('401') || error.message.includes('unauthorized')) {
-        errorMessage = 'Authentication failed. Please log in again.';
-        tokenManager.removeTeacherToken();
-      } else if (error.message.includes('403')) {
-        errorMessage = 'You do not have permission to approve this appointment.';
-      } else if (error.message.includes('404')) {
-        errorMessage = 'Appointment not found. It may have been already processed.';
-      } else if (error.message.includes('400')) {
-        errorMessage = error.message || 'Invalid request data.';
-      } else if (error.message.includes('CORS') || error.message.includes('Failed to fetch')) {
-        errorMessage = 'Connection failed. Please check if the server is running and CORS is properly configured.';
-      } else if (error.message.includes('Too many requests')) {
-        errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
+      // Use the error message from the API service
+      showMessage(error.message || 'Failed to approve appointment', 'error');
       
-      showMessage(errorMessage, 'error');
     } finally {
       if (mountedRef.current) {
         setLoading(false);
@@ -295,7 +280,7 @@ const TeacherAppointmentManager = () => {
     }
   };
 
-  // FIXED: Enhanced appointment rejection with better error handling and rate limiting
+  // FIXED: Simplified appointment rejection handler
   const handleRejectRequest = async (appointmentId, message = '') => {
     if (loading) {
       showMessage('Please wait for the current operation to complete.', 'error');
@@ -304,50 +289,65 @@ const TeacherAppointmentManager = () => {
 
     try {
       setLoading(true);
-      console.log('Rejecting appointment:', appointmentId, 'with message:', message);
+      console.log('🔄 Rejecting appointment:', appointmentId);
       
-      // Use the retry method for better reliability
+      // Direct call to the base method (no retry wrapper)
       const response = await apiMethods.rejectAppointmentRequest(appointmentId, message || 'Request rejected by teacher');
-      console.log('Reject response:', response);
+      console.log('✅ Reject response:', response.data);
       
       showMessage('Appointment request rejected');
       
-      // Refresh data with delay to avoid rate limiting
+      // Close modal first
+      setResponseModal({ show: false, type: '', appointmentId: '' });
+      setResponseMessage('');
+      
+      // Refresh data after a short delay
       setTimeout(() => {
         if (mountedRef.current) {
           refreshData();
         }
       }, 1000);
       
-      setResponseModal({ show: false, type: '', appointmentId: '' });
-      setResponseMessage('');
     } catch (error) {
-      console.error('Error rejecting appointment:', error);
+      console.error('❌ Error rejecting appointment:', error);
       
-      let errorMessage = 'Failed to reject appointment';
-      if (error.message.includes('401') || error.message.includes('unauthorized')) {
-        errorMessage = 'Authentication failed. Please log in again.';
-        tokenManager.removeTeacherToken();
-      } else if (error.message.includes('403')) {
-        errorMessage = 'You do not have permission to reject this appointment.';
-      } else if (error.message.includes('404')) {
-        errorMessage = 'Appointment not found. It may have been already processed.';
-      } else if (error.message.includes('400')) {
-        errorMessage = error.message || 'Invalid request data.';
-      } else if (error.message.includes('CORS') || error.message.includes('Failed to fetch')) {
-        errorMessage = 'Connection failed. Please check if the server is running and CORS is properly configured.';
-      } else if (error.message.includes('Too many requests')) {
-        errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
+      // Use the error message from the API service
+      showMessage(error.message || 'Failed to reject appointment', 'error');
       
-      showMessage(errorMessage, 'error');
     } finally {
       if (mountedRef.current) {
         setLoading(false);
       }
     }
+  };
+
+  // FIXED: Modal submission handler - ensure we have the appointment ID
+  const handleModalSubmit = () => {
+    const { type, appointmentId } = responseModal;
+    
+    if (!appointmentId) {
+      showMessage('Invalid appointment ID', 'error');
+      return;
+    }
+    
+    if (type === 'approve') {
+      handleApproveRequest(appointmentId, responseMessage);
+    } else if (type === 'reject') {
+      handleRejectRequest(appointmentId, responseMessage);
+    }
+  };
+
+  // FIXED: Open response modal with proper appointment ID handling
+  const openResponseModal = (type, appointmentId) => {
+    console.log('Opening response modal:', { type, appointmentId });
+    
+    if (!appointmentId) {
+      showMessage('Invalid appointment ID', 'error');
+      return;
+    }
+    
+    setResponseModal({ show: true, type, appointmentId });
+    setResponseMessage('');
   };
 
   // FIXED: Cancel appointment with rate limiting
@@ -445,25 +445,13 @@ const TeacherAppointmentManager = () => {
     return timeString.includes(' - ') ? timeString.split(' - ')[0] : timeString;
   };
 
-  const openResponseModal = (type, appointmentId) => {
-    setResponseModal({ show: true, type, appointmentId });
-    setResponseMessage('');
-  };
-
+  
   const closeResponseModal = () => {
     setResponseModal({ show: false, type: '', appointmentId: '' });
     setResponseMessage('');
   };
 
-  const handleModalSubmit = () => {
-    const { type, appointmentId } = responseModal;
-    if (type === 'approve') {
-      handleApproveRequest(appointmentId, responseMessage);
-    } else if (type === 'reject') {
-      handleRejectRequest(appointmentId, responseMessage);
-    }
-  };
-
+ 
   // Filter appointments based on search and status
   const filteredAppointments = appointments.filter(apt => {
     const matchesSearch = !searchTerm || 

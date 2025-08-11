@@ -32,7 +32,6 @@ const normalizeTimeFormat = (timeString) => {
   return normalized;
 };
 
-// FIXED: Enhanced acceptAppointmentRequest with comprehensive error handling
 const acceptAppointmentRequest = async (req, res) => {
   const session = await mongoose.startSession();
   
@@ -45,55 +44,49 @@ const acceptAppointmentRequest = async (req, res) => {
       console.log('Appointment ID:', id);
       console.log('Response Message:', responseMessage);
       console.log('Request User:', req.user);
-      console.log('Request Body:', req.body);
-      console.log('Request Headers Authorization:', req.headers.authorization);
       
       // 1. Validate appointment ID format
-      if (!id) {
-        throw new Error('Appointment ID is required');
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid appointment ID format'
+        });
       }
       
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        console.error('❌ Invalid appointment ID format:', id);
-        throw new Error('Invalid appointment ID format');
-      }
-      
-      // 2. Find the appointment with detailed logging
+      // 2. Find the appointment
       console.log('🔍 Searching for appointment with ID:', id);
       const appointment = await Appointment.findById(id).session(session);
       
       if (!appointment) {
         console.error('❌ Appointment not found in database');
-        console.log('🔍 Searching all appointments to debug...');
-        
-        // Debug: Check if appointment exists with different ID format
-        const allAppointments = await Appointment.find({}).limit(5);
-        console.log('📋 Sample appointments in database:', allAppointments.map(apt => ({
-          id: apt._id,
-          status: apt.status,
-          createdBy: apt.createdBy
-        })));
-        
-        throw new Error('Appointment request not found or already processed');
+        return res.status(404).json({
+          success: false,
+          message: 'Appointment request not found or already processed'
+        });
       }
       
       console.log('✅ Appointment found:', {
         id: appointment._id,
         status: appointment.status,
         createdBy: appointment.createdBy,
-        teacherId: appointment.teacherId,
-        studentName: appointment.student?.name
+        teacherId: appointment.teacherId
       });
       
       // 3. Validate appointment state
       if (appointment.status !== 'pending') {
         console.error('❌ Appointment status is not pending:', appointment.status);
-        throw new Error(`Cannot accept appointment with status '${appointment.status}'. Only pending appointments can be accepted.`);
+        return res.status(400).json({
+          success: false,
+          message: `Cannot accept appointment with status '${appointment.status}'. Only pending appointments can be accepted.`
+        });
       }
       
       if (appointment.createdBy !== 'student') {
         console.error('❌ Appointment not created by student:', appointment.createdBy);
-        throw new Error('Only student requests can be accepted');
+        return res.status(400).json({
+          success: false,
+          message: 'Only student requests can be accepted'
+        });
       }
       
       // 4. Validate teacher authorization (if user info is available)
@@ -101,19 +94,15 @@ const acceptAppointmentRequest = async (req, res) => {
       console.log('🔒 Authorization check - Teacher ID from auth:', teacherId);
       console.log('🔒 Authorization check - Appointment teacher ID:', appointment.teacherId);
       
-      if (teacherId) {
-        if (appointment.teacherId.toString() !== teacherId.toString()) {
-          console.error('❌ Teacher authorization failed');
-          console.error('Auth teacher ID:', teacherId);
-          console.error('Appointment teacher ID:', appointment.teacherId);
-          throw new Error('You can only accept appointments assigned to you');
-        }
-        console.log('✅ Teacher authorization passed');
-      } else {
-        console.warn('⚠️ No teacher ID in request - skipping authorization check');
+      if (teacherId && appointment.teacherId.toString() !== teacherId.toString()) {
+        console.error('❌ Teacher authorization failed');
+        return res.status(403).json({
+          success: false,
+          message: 'You can only accept appointments assigned to you'
+        });
       }
       
-      // 5. Update appointment status using atomic operation
+      // 5. Update appointment status
       console.log('💾 Updating appointment status to confirmed...');
       const updatedAppointment = await Appointment.findByIdAndUpdate(
         id,
@@ -131,15 +120,13 @@ const acceptAppointmentRequest = async (req, res) => {
       );
       
       if (!updatedAppointment) {
-        console.error('❌ Failed to update appointment');
-        throw new Error('Failed to update appointment status');
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to update appointment status'
+        });
       }
       
-      console.log('✅ Appointment updated successfully:', {
-        id: updatedAppointment._id,
-        status: updatedAppointment.status,
-        respondedAt: updatedAppointment.teacherResponse?.respondedAt
-      });
+      console.log('✅ Appointment updated successfully');
       
       // 6. Populate teacher details for response
       await updatedAppointment.populate('teacherId', 'name email phone subject');
@@ -147,7 +134,7 @@ const acceptAppointmentRequest = async (req, res) => {
       console.log('✅ APPOINTMENT ACCEPTED SUCCESSFULLY');
       
       // 7. Send success response
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         data: updatedAppointment,
         message: 'Appointment request accepted successfully'
@@ -156,9 +143,7 @@ const acceptAppointmentRequest = async (req, res) => {
     
   } catch (error) {
     console.error('=== ERROR IN ACCEPT APPOINTMENT ===');
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Stack trace:', error.stack);
+    console.error('Error details:', error);
     
     // Handle specific MongoDB errors
     if (error.name === 'CastError') {
@@ -177,47 +162,11 @@ const acceptAppointmentRequest = async (req, res) => {
       });
     }
     
-    if (error.name === 'VersionError') {
-      return res.status(409).json({
-        success: false,
-        message: 'Appointment was modified by another process. Please refresh and try again.'
-      });
-    }
-    
-    // Handle custom error messages
-    if (error.message.includes('not found') || error.message.includes('already processed')) {
-      return res.status(404).json({
-        success: false,
-        message: error.message
-      });
-    }
-    
-    if (error.message.includes('permission') || error.message.includes('assigned to you')) {
-      return res.status(403).json({
-        success: false,
-        message: error.message
-      });
-    }
-    
-    if (error.message.includes('status') || error.message.includes('pending')) {
-      return res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-    
     // Generic error response
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to accept appointment request',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
-      debug: process.env.NODE_ENV === 'development' ? {
-        appointmentId: req.params.id,
-        userId: req.user?.id,
-        errorName: error.name,
-        errorMessage: error.message,
-        timestamp: new Date().toISOString()
-      } : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   } finally {
     await session.endSession();
@@ -236,16 +185,13 @@ const rejectAppointmentRequest = async (req, res) => {
       console.log('=== REJECT APPOINTMENT REQUEST ===');
       console.log('Appointment ID:', id);
       console.log('Response Message:', responseMessage);
-      console.log('Request User:', req.user);
       
       // 1. Validate appointment ID format
-      if (!id) {
-        throw new Error('Appointment ID is required');
-      }
-      
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        console.error('❌ Invalid appointment ID format:', id);
-        throw new Error('Invalid appointment ID format');
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid appointment ID format'
+        });
       }
       
       // 2. Find the appointment
@@ -254,32 +200,37 @@ const rejectAppointmentRequest = async (req, res) => {
       
       if (!appointment) {
         console.error('❌ Appointment not found in database');
-        throw new Error('Appointment request not found or already processed');
+        return res.status(404).json({
+          success: false,
+          message: 'Appointment request not found or already processed'
+        });
       }
-      
-      console.log('✅ Appointment found:', {
-        id: appointment._id,
-        status: appointment.status,
-        createdBy: appointment.createdBy,
-        teacherId: appointment.teacherId
-      });
       
       // 3. Validate appointment state
       if (appointment.status !== 'pending') {
         console.error('❌ Appointment status is not pending:', appointment.status);
-        throw new Error(`Cannot reject appointment with status '${appointment.status}'. Only pending appointments can be rejected.`);
+        return res.status(400).json({
+          success: false,
+          message: `Cannot reject appointment with status '${appointment.status}'. Only pending appointments can be rejected.`
+        });
       }
       
       if (appointment.createdBy !== 'student') {
         console.error('❌ Appointment not created by student:', appointment.createdBy);
-        throw new Error('Only student requests can be rejected');
+        return res.status(400).json({
+          success: false,
+          message: 'Only student requests can be rejected'
+        });
       }
       
       // 4. Validate teacher authorization (if user info is available)
       const teacherId = req.user?.id || req.user?._id;
       if (teacherId && appointment.teacherId.toString() !== teacherId.toString()) {
         console.error('❌ Teacher authorization failed');
-        throw new Error('You can only reject appointments assigned to you');
+        return res.status(403).json({
+          success: false,
+          message: 'You can only reject appointments assigned to you'
+        });
       }
       
       // 5. Update appointment status
@@ -300,7 +251,10 @@ const rejectAppointmentRequest = async (req, res) => {
       );
       
       if (!updatedAppointment) {
-        throw new Error('Failed to update appointment status');
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to update appointment status'
+        });
       }
       
       // 6. Populate teacher details
@@ -308,7 +262,7 @@ const rejectAppointmentRequest = async (req, res) => {
       
       console.log('✅ APPOINTMENT REJECTED SUCCESSFULLY');
       
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         data: updatedAppointment,
         message: 'Appointment request rejected successfully'
@@ -319,7 +273,6 @@ const rejectAppointmentRequest = async (req, res) => {
     console.error('=== ERROR IN REJECT APPOINTMENT ===');
     console.error('Error details:', error);
     
-    // Handle specific errors (same pattern as accept)
     if (error.name === 'CastError') {
       return res.status(400).json({
         success: false,
@@ -327,28 +280,7 @@ const rejectAppointmentRequest = async (req, res) => {
       });
     }
     
-    if (error.message.includes('not found') || error.message.includes('already processed')) {
-      return res.status(404).json({
-        success: false,
-        message: error.message
-      });
-    }
-    
-    if (error.message.includes('permission') || error.message.includes('assigned to you')) {
-      return res.status(403).json({
-        success: false,
-        message: error.message
-      });
-    }
-    
-    if (error.message.includes('status') || error.message.includes('pending')) {
-      return res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-    
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to reject appointment request',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
