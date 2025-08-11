@@ -1,5 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const { protect, authenticateTeacher } = require('../middleware/auth'); // Add authentication middleware
 const {
   getAllAppointments,
   getAppointmentById,
@@ -43,7 +44,6 @@ const appointmentValidation = [
     .notEmpty()
     .withMessage('Time is required')
     .custom((value) => {
-      // Accept various time formats
       const validTimes = [
         '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
         '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM',
@@ -56,7 +56,6 @@ const appointmentValidation = [
         return true;
       }
       
-      // Also accept any time format that looks like a time
       const timeRegex = /^([0-9]{1,2}):([0-9]{2})\s?(AM|PM)(\s?-\s?([0-9]{1,2}):([0-9]{2})\s?(AM|PM))?$/i;
       if (timeRegex.test(value)) {
         return true;
@@ -73,7 +72,6 @@ const appointmentValidation = [
       if (isNaN(date.getTime())) {
         throw new Error('Invalid date format');
       }
-      // Check if date is in the future
       if (date < new Date()) {
         throw new Error('Appointment date must be in the future');
       }
@@ -94,7 +92,6 @@ const appointmentValidation = [
     .optional()
     .custom((value) => {
       if (!value || value.trim() === '') return true;
-      // More flexible phone validation
       const phoneRegex = /^[\+]?[\d\s\-\(\)]{7,20}$/;
       if (phoneRegex.test(value)) {
         return true;
@@ -129,7 +126,7 @@ const requestAppointmentValidation = [
     })
 ];
 
-// Teacher direct booking validation (no teacherId needed as it comes from auth)
+// Teacher direct booking validation
 const teacherBookingValidation = [
   ...appointmentValidation,
   body('notes')
@@ -193,36 +190,209 @@ const cancellationValidation = [
     .withMessage('Cancellation reason cannot exceed 500 characters')
 ];
 
-// FIXED ROUTES ORDER - Specific routes MUST come before parameterized routes
-// ===================================================================
+console.log('🚀 Setting up appointment routes...');
 
-// 1. Statistics route (no parameters)
+// CRITICAL: ROUTE ORDERING - MOST SPECIFIC FIRST
+// ================================================================
+
+// 1. DEBUG ROUTE (for troubleshooting)
+router.get('/debug/routes', (req, res) => {
+  const routes = [];
+  router.stack.forEach((middleware) => {
+    if (middleware.route) {
+      const methods = Object.keys(middleware.route.methods);
+      routes.push({
+        path: middleware.route.path,
+        methods: methods
+      });
+    }
+  });
+  
+  res.json({
+    success: true,
+    message: 'Appointment routes debug info',
+    routes: routes,
+    totalRoutes: routes.length,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// 2. STATISTICS ROUTE (static route - no parameters)
 router.get('/stats', getAppointmentStats);
 
-// 2. Teacher-specific routes (specific paths)
-router.get('/teacher/:teacherId/pending', getTeacherPendingRequests);
-router.get('/teacher/:teacherId', getTeacherAppointments);
+// 3. TEACHER-SPECIFIC ROUTES (specific parameter paths)
+// These MUST come before generic parameterized routes
+router.get('/teacher/:teacherId/pending', protect, (req, res, next) => {
+  console.log(`📋 Getting pending requests for teacher: ${req.params.teacherId}`);
+  next();
+}, getTeacherPendingRequests);
 
-// 3. Student requests appointment (specific path)
-router.post('/request', requestAppointmentValidation, handleValidationErrors, requestAppointment);
+router.get('/teacher/:teacherId', protect, (req, res, next) => {
+  console.log(`📋 Getting appointments for teacher: ${req.params.teacherId}`);
+  next();
+}, getTeacherAppointments);
 
-// 4. Teacher books appointment directly (specific path)
-router.post('/book', teacherBookingValidation, handleValidationErrors, teacherBookAppointment);
+// 4. APPOINTMENT ACTION ROUTES - MOST CRITICAL ROUTES
+// These MUST come before the generic /:id routes to avoid conflicts
 
-// 5. CRITICAL FIX: Appointment action routes (specific paths with parameters)
-// These MUST come before the generic /:id routes
-router.put('/:id/accept', responseValidation, handleValidationErrors, acceptAppointmentRequest);
-router.put('/:id/reject', responseValidation, handleValidationErrors, rejectAppointmentRequest);
-router.put('/:id/complete', completeAppointment);
-router.put('/:id/cancel', cancellationValidation, handleValidationErrors, cancelAppointment);
+// ACCEPT appointment request
+router.put('/:id/accept', 
+  (req, res, next) => {
+    console.log(`🔄 ACCEPT route hit for appointment: ${req.params.id}`);
+    console.log(`Request method: ${req.method}`);
+    console.log(`Request URL: ${req.originalUrl}`);
+    console.log(`Request body:`, req.body);
+    next();
+  },
+  protect, // Require authentication
+  responseValidation, 
+  handleValidationErrors, 
+  (req, res, next) => {
+    console.log(`✅ Validation passed for accept appointment: ${req.params.id}`);
+    console.log('Request user:', req.user?.name || req.user?.id);
+    next();
+  },
+  acceptAppointmentRequest
+);
 
-// 6. Generic parameterized routes (MUST be last)
-router.get('/', getAllAppointments);
-router.get('/:id', getAppointmentById);
-router.put('/:id', updateAppointmentValidation, handleValidationErrors, updateAppointment);
-router.delete('/:id', cancellationValidation, handleValidationErrors, cancelAppointment);
+// REJECT appointment request
+router.put('/:id/reject', 
+  (req, res, next) => {
+    console.log(`🔄 REJECT route hit for appointment: ${req.params.id}`);
+    console.log(`Request method: ${req.method}`);
+    console.log(`Request URL: ${req.originalUrl}`);
+    console.log(`Request body:`, req.body);
+    next();
+  },
+  protect, // Require authentication
+  responseValidation, 
+  handleValidationErrors,
+  (req, res, next) => {
+    console.log(`✅ Validation passed for reject appointment: ${req.params.id}`);
+    console.log('Request user:', req.user?.name || req.user?.id);
+    next();
+  },
+  rejectAppointmentRequest
+);
 
-// 7. Legacy route for backward compatibility (maps to request)
+// COMPLETE appointment
+router.put('/:id/complete', 
+  (req, res, next) => {
+    console.log(`🔄 COMPLETE route hit for appointment: ${req.params.id}`);
+    console.log(`Request method: ${req.method}`);
+    console.log(`Request URL: ${req.originalUrl}`);
+    next();
+  },
+  protect, // Require authentication
+  (req, res, next) => {
+    console.log(`✅ Auth passed for complete appointment: ${req.params.id}`);
+    next();
+  },
+  completeAppointment
+);
+
+// CANCEL appointment
+router.put('/:id/cancel', 
+  (req, res, next) => {
+    console.log(`🔄 CANCEL route hit for appointment: ${req.params.id}`);
+    console.log(`Request method: ${req.method}`);
+    console.log(`Request URL: ${req.originalUrl}`);
+    next();
+  },
+  protect, // Require authentication
+  cancellationValidation, 
+  handleValidationErrors,
+  (req, res, next) => {
+    console.log(`✅ Validation passed for cancel appointment: ${req.params.id}`);
+    next();
+  },
+  cancelAppointment
+);
+
+// 5. APPOINTMENT CREATION ROUTES
+// Student requests appointment (public - no auth required)
+router.post('/request', 
+  (req, res, next) => {
+    console.log('🔄 Student appointment request:', req.body);
+    next();
+  },
+  requestAppointmentValidation, 
+  handleValidationErrors, 
+  requestAppointment
+);
+
+// Teacher books appointment directly (requires teacher auth)
+router.post('/book', 
+  (req, res, next) => {
+    console.log('🔄 Teacher direct booking:', req.body);
+    next();
+  },
+  protect, 
+  teacherBookingValidation, 
+  handleValidationErrors, 
+  teacherBookAppointment
+);
+
+// 6. GENERIC ROUTES (MUST BE LAST - these have broader matching patterns)
+
+// Get all appointments
+router.get('/', (req, res, next) => {
+  console.log('📋 Getting all appointments with filters:', req.query);
+  next();
+}, getAllAppointments);
+
+// Get appointment by ID
+router.get('/:id', (req, res, next) => {
+  console.log(`📋 Getting appointment by ID: ${req.params.id}`);
+  next();
+}, getAppointmentById);
+
+// Update appointment (generic update)
+router.put('/:id', 
+  (req, res, next) => {
+    console.log(`🔄 Generic update for appointment: ${req.params.id}`);
+    console.log('Update data:', req.body);
+    next();
+  },
+  protect, 
+  updateAppointmentValidation, 
+  handleValidationErrors, 
+  updateAppointment
+);
+
+// Delete appointment (using cancel logic)
+router.delete('/:id', 
+  (req, res, next) => {
+    console.log(`🗑️ Delete appointment: ${req.params.id}`);
+    next();
+  },
+  protect, 
+  cancellationValidation, 
+  handleValidationErrors, 
+  cancelAppointment
+);
+
+// 7. LEGACY ROUTES for backward compatibility
 router.post('/', requestAppointmentValidation, handleValidationErrors, requestAppointment);
 
+// Route logging middleware (for debugging - only in development)
+if (process.env.NODE_ENV === 'development') {
+  router.use((req, res, next) => {
+    if (req.originalUrl.includes('/appointments/')) {
+      console.log(`📍 Route attempted: ${req.method} ${req.originalUrl}`);
+      console.log('Available routes:');
+      router.stack.forEach((middleware, index) => {
+        if (middleware.route) {
+          const methods = Object.keys(middleware.route.methods).join(', ').toUpperCase();
+          console.log(`  ${index + 1}. ${methods} ${middleware.route.path}`);
+        }
+      });
+    }
+    next();
+  });
+}
+
+console.log('✅ Appointment routes setup complete');
+
+// Export the router
 module.exports = router;
