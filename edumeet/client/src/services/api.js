@@ -5,7 +5,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // Increased timeout to 30 seconds
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -116,7 +116,7 @@ api.interceptors.response.use(
   }
 );
 
-// API endpoints object
+// API endpoints object (unchanged)
 export const endpoints = {
   // Auth endpoints (for regular users)
   auth: {
@@ -159,7 +159,7 @@ export const endpoints = {
     // Teacher workflow - direct booking (no approval needed)
     book: '/appointments/book',
     
-    // Teacher response routes - CRITICAL ENDPOINTS
+    // Teacher response routes
     accept: (id) => `/appointments/${id}/accept`,
     reject: (id) => `/appointments/${id}/reject`,
     complete: (id) => `/appointments/${id}/complete`,
@@ -190,13 +190,13 @@ export const endpoints = {
     rejectUser: (id) => `/auth/admin/reject/${id}`,
   },
   messages: {
-    getByRoom: (roomId) => `/messages/room/${roomId}`,
-    delete: (id) => `/messages/${id}`,
-    getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
-  }
+  getByRoom: (roomId) => `/messages/room/${roomId}`,
+  delete: (id) => `/messages/${id}`,
+  getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
+}
 };
 
-// API methods
+// API methods (unchanged - they'll now use the fixed token retrieval)
 export const apiMethods = {
   // Auth Operations
   register: (userData) => api.post(endpoints.auth.register, userData),
@@ -223,7 +223,7 @@ export const apiMethods = {
   getTeacherProfile: () => api.get(endpoints.teachers.profile),
   teacherLogout: () => api.post(endpoints.teachers.logout),
 
-  // FIXED: Appointment Operations with better error handling and validation
+  // Appointment Operations
   requestAppointment: (appointmentData) => {
     console.log('🔄 Student requesting appointment:', appointmentData);
     return api.post(endpoints.appointments.request, appointmentData);
@@ -234,148 +234,56 @@ export const apiMethods = {
     return api.post(endpoints.appointments.book, appointmentData);
   },
 
-  // CRITICAL FIX: Simplified and more reliable accept/reject methods
-  acceptAppointmentRequest: async (appointmentId, responseMessage = '') => {
-    try {
-      console.log('🔄 Accepting appointment request:', { appointmentId, responseMessage });
-      
-      // Validate ID format
-      if (!appointmentId) {
-        throw new Error('Appointment ID is required');
-      }
-      
-      if (typeof appointmentId === 'string' && appointmentId.length !== 24) {
-        throw new Error('Invalid appointment ID format');
-      }
-      
-      // Prepare request data
-      const requestData = { 
-        responseMessage: responseMessage?.trim() || '' 
-      };
-      
-      console.log('Making API call to:', endpoints.appointments.accept(appointmentId));
-      console.log('Request data:', requestData);
-      
-      // Make the API call with proper error handling
-      const response = await api.put(endpoints.appointments.accept(appointmentId), requestData);
-      
-      console.log('✅ Appointment accepted successfully:', response.data);
-      return response;
-      
-    } catch (error) {
-      console.error('❌ Error accepting appointment:', error);
-      
-      // Enhanced error handling with specific messages
-      if (error.response) {
-        const { status, data } = error.response;
-        console.error(`HTTP ${status}:`, data);
-        
-        let errorMessage = data?.message || `Server error (${status})`;
-        
-        switch (status) {
-          case 400:
-            errorMessage = data?.message || 'Invalid request data';
-            break;
-          case 401:
-            errorMessage = 'Authentication required. Please log in again.';
-            break;
-          case 403:
-            errorMessage = 'You do not have permission to accept this appointment';
-            break;
-          case 404:
-            errorMessage = 'Appointment not found or may have been already processed';
-            break;
-          case 409:
-            errorMessage = 'Appointment has already been processed';
-            break;
-          case 500:
-            errorMessage = 'Server error. Please try again later.';
-            break;
-        }
-        
-        throw new Error(errorMessage);
-      } else if (error.request) {
-        throw new Error('Cannot connect to server. Please check your internet connection.');
-      } else {
-        throw new Error(error.message || 'An unexpected error occurred');
-      }
+  // Improved acceptAppointmentRequest API method
+acceptAppointmentRequest: async (id, responseMessage = '') => {
+  try {
+    console.log('🔄 Accepting appointment request:', id);
+    console.log('Response message:', responseMessage);
+    
+    // Validate ID format on frontend too
+    if (!id || id.length !== 24) {
+      throw new Error('Invalid appointment ID format');
     }
-  },
-
-  // CRITICAL FIX: Simplified and more reliable reject method
-  rejectAppointmentRequest: async (appointmentId, responseMessage = '') => {
-    try {
-      console.log('🔄 Rejecting appointment request:', { appointmentId, responseMessage });
+    
+    const response = await api.put(endpoints.appointments.accept(id), { 
+      responseMessage: responseMessage.trim() 
+    });
+    
+    console.log('✅ Appointment accepted successfully:', response.data);
+    return response;
+    
+  } catch (error) {
+    console.error('❌ Error accepting appointment:', error);
+    
+    // Enhanced error handling
+    if (error.response) {
+      const { status, data } = error.response;
+      console.error(`HTTP ${status}:`, data);
       
-      // Validate ID format
-      if (!appointmentId) {
-        throw new Error('Appointment ID is required');
+      // Provide more specific error messages
+      switch (status) {
+        case 404:
+          throw new Error('Appointment not found or may have been already processed');
+        case 400:
+          throw new Error(data.message || 'Invalid request - check appointment status');
+        case 403:
+          throw new Error('You do not have permission to accept this appointment');
+        case 409:
+          throw new Error('Appointment has already been processed');
+        default:
+          throw new Error(data.message || `Server error (${status}). Please try again.`);
       }
-      
-      if (typeof appointmentId === 'string' && appointmentId.length !== 24) {
-        throw new Error('Invalid appointment ID format');
-      }
-      
-      // Prepare request data
-      const requestData = { 
-        responseMessage: responseMessage?.trim() || 'Request rejected by teacher'
-      };
-      
-      console.log('Making API call to:', endpoints.appointments.reject(appointmentId));
-      console.log('Request data:', requestData);
-      
-      // Make the API call with proper error handling
-      const response = await api.put(endpoints.appointments.reject(appointmentId), requestData);
-      
-      console.log('✅ Appointment rejected successfully:', response.data);
-      return response;
-      
-    } catch (error) {
-      console.error('❌ Error rejecting appointment:', error);
-      
-      if (error.response) {
-        const { status, data } = error.response;
-        console.error(`HTTP ${status}:`, data);
-        
-        let errorMessage = data?.message || `Server error (${status})`;
-        
-        switch (status) {
-          case 400:
-            errorMessage = data?.message || 'Invalid request data';
-            break;
-          case 401:
-            errorMessage = 'Authentication required. Please log in again.';
-            break;
-          case 403:
-            errorMessage = 'You do not have permission to reject this appointment';
-            break;
-          case 404:
-            errorMessage = 'Appointment not found or may have been already processed';
-            break;
-          case 409:
-            errorMessage = 'Appointment has already been processed';
-            break;
-          case 500:
-            errorMessage = 'Server error. Please try again later.';
-            break;
-        }
-        
-        throw new Error(errorMessage);
-      } else if (error.request) {
-        throw new Error('Cannot connect to server. Please check your internet connection.');
-      } else {
-        throw new Error(error.message || 'An unexpected error occurred');
-      }
+    } else if (error.request) {
+      throw new Error('Cannot connect to server. Please check your internet connection.');
+    } else {
+      throw new Error(error.message || 'An unexpected error occurred');
     }
-  },
+  }
+},
 
-  // Keep the retry methods for backward compatibility but use the simplified versions above
-  acceptAppointmentWithRetry: async (appointmentId, responseMessage = '') => {
-    return apiMethods.acceptAppointmentRequest(appointmentId, responseMessage);
-  },
-
-  rejectAppointmentWithRetry: async (appointmentId, responseMessage = '') => {
-    return apiMethods.rejectAppointmentRequest(appointmentId, responseMessage);
+  rejectAppointmentRequest: (id, responseMessage = '') => {
+    console.log(`🔄 Teacher rejecting appointment request: ${id}`);
+    return api.put(endpoints.appointments.reject(id), { responseMessage });
   },
 
   completeAppointment: (id) => {
@@ -431,7 +339,7 @@ export const apiMethods = {
   approveUser: (id) => api.put(endpoints.admin.approveUser(id)),
   rejectUser: (id, reason) => api.put(endpoints.admin.rejectUser(id), { reason }),
 
-  // Enhanced appointment booking with better error handling
+  // Enhanced appointment booking with better error handling and retry logic
   requestAppointmentWithRetry: async (appointmentData) => {
     const maxRetries = 3;
     let lastError = null;
@@ -447,7 +355,7 @@ export const apiMethods = {
         console.log(`❌ Request attempt ${i + 1} failed:`, error.message);
         
         if (error.response?.status === 400 || error.response?.status === 409) {
-          break; // Don't retry client errors
+          break;
         }
         
         if (i < maxRetries - 1) {
@@ -521,22 +429,22 @@ export const apiMethods = {
   }
 };
 
-// FIXED: Token management utilities - now handle both storage types
+// FIXED: Token management utilities - now handle both storage locations
 export const tokenManager = {
   // User token methods - FIXED to handle both storage types
   setUserToken: (token, persistent = false) => {
-    console.log('🔧 setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
-    
-    if (persistent) {
-      localStorage.setItem('userToken', token);
-      sessionStorage.removeItem('userToken'); // Clear from session
-      console.log('✅ Token stored in localStorage');
-    } else {
-      sessionStorage.setItem('userToken', token);
-      localStorage.removeItem('userToken'); // Clear from localStorage  
-      console.log('✅ Token stored in sessionStorage');
-    }
-  },
+  console.log('🔧 setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
+  
+  if (persistent) {
+    localStorage.setItem('userToken', token);
+    sessionStorage.removeItem('userToken'); // Clear from session
+    console.log('✅ Token stored in localStorage');
+  } else {
+    sessionStorage.setItem('userToken', token);
+    localStorage.removeItem('userToken'); // Clear from localStorage  
+    console.log('✅ Token stored in sessionStorage');
+  }
+},
   
   getUserToken: () => getTokenFromStorage('userToken'),
   
@@ -583,8 +491,6 @@ export const tokenManager = {
   removeTeacherToken: () => {
     localStorage.removeItem('teacherToken');
     sessionStorage.removeItem('teacherToken');
-    localStorage.removeItem('teacher');
-    sessionStorage.removeItem('teacher');
   },
   
   clearAllTokens: () => {
@@ -592,22 +498,12 @@ export const tokenManager = {
     sessionStorage.clear();
   },
 
-  // Helper method to check if user is logged in
+  // ADDED: Helper method to check if user is logged in
   isUserLoggedIn: () => {
     return !!getTokenFromStorage('userToken');
   },
 
-  // Helper method to check if teacher is logged in
-  isTeacherLoggedIn: () => {
-    return !!getTokenFromStorage('teacherToken');
-  },
-
-  // Helper method to check if admin is logged in
-  isAdminLoggedIn: () => {
-    return !!getTokenFromStorage('adminToken');
-  },
-
-  // Helper method to get current user info from either storage
+  // ADDED: Helper method to get current user info from either storage
   getCurrentUser: () => {
     let user = localStorage.getItem('user');
     if (!user) {
@@ -616,50 +512,17 @@ export const tokenManager = {
     return user ? JSON.parse(user) : null;
   },
 
-  // Helper method to get current teacher info from either storage
-  getCurrentTeacher: () => {
-    let teacher = localStorage.getItem('teacher');
-    if (!teacher) {
-      teacher = sessionStorage.getItem('teacher');
-    }
-    return teacher ? JSON.parse(teacher) : null;
-  },
-
-  // Helper method to get current user role
+  // ADDED: Helper method to get current user role
   getCurrentUserRole: () => {
     let role = localStorage.getItem('userRole');
     if (!role) {
       role = sessionStorage.getItem('userRole');
     }
     return role;
-  },
-
-  // Helper method to store user data
-  setUserData: (userData, persistent = false) => {
-    const userDataString = JSON.stringify(userData);
-    if (persistent) {
-      localStorage.setItem('user', userDataString);
-      sessionStorage.removeItem('user');
-    } else {
-      sessionStorage.setItem('user', userDataString);
-      localStorage.removeItem('user');
-    }
-  },
-
-  // Helper method to store teacher data
-  setTeacherData: (teacherData, persistent = false) => {
-    const teacherDataString = JSON.stringify(teacherData);
-    if (persistent) {
-      localStorage.setItem('teacher', teacherDataString);
-      sessionStorage.removeItem('teacher');
-    } else {
-      sessionStorage.setItem('teacher', teacherDataString);
-      localStorage.removeItem('teacher');
-    }
   }
 };
 
-// Constants
+// Constants (unchanged)
 export const constants = {
   DEPARTMENTS: [
     'Computer Science',
@@ -697,71 +560,6 @@ export const constants = {
   APPOINTMENT_TYPES: {
     STUDENT_REQUEST: 'student_request',  
     TEACHER_BOOKING: 'teacher_booking'   
-  },
-
-  // API Response Status Codes
-  HTTP_STATUS: {
-    OK: 200,
-    CREATED: 201,
-    BAD_REQUEST: 400,
-    UNAUTHORIZED: 401,
-    FORBIDDEN: 403,
-    NOT_FOUND: 404,
-    CONFLICT: 409,
-    INTERNAL_SERVER_ERROR: 500
-  }
-};
-
-// ADDED: Utility functions for common operations
-export const utils = {
-  // Format date for display
-  formatDate: (dateString) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      });
-    } catch (error) {
-      console.error('Error formatting date:', error);
-      return dateString;
-    }
-  },
-
-  // Format time for display
-  formatTime: (timeString) => {
-    if (!timeString) return 'N/A';
-    return timeString.includes(' - ') ? timeString.split(' - ')[0] : timeString;
-  },
-
-  // Validate appointment ID format
-  isValidAppointmentId: (id) => {
-    return id && typeof id === 'string' && id.length === 24;
-  },
-
-  // Create error message from API response
-  extractErrorMessage: (error) => {
-    if (error.response?.data?.message) {
-      return error.response.data.message;
-    }
-    if (error.message) {
-      return error.message;
-    }
-    return 'An unexpected error occurred';
-  },
-
-  // Delay function for retry mechanisms
-  delay: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
-
-  // Debounce function for API calls
-  debounce: (func, delay) => {
-    let timeoutId;
-    return (...args) => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => func.apply(null, args), delay);
-    };
   }
 };
 

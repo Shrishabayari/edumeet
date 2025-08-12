@@ -2,6 +2,362 @@ const mongoose = require('mongoose');
 const Appointment = require('../models/Appointment');
 const Teacher = require('../models/Teacher');
 
+// Helper function to normalize time format
+const normalizeTimeFormat = (timeString) => {
+  if (!timeString) return timeString;
+  
+  // Remove extra spaces and normalize format
+  let normalized = timeString.trim();
+  
+  // Handle different time formats
+  if (normalized.includes(' - ')) {
+    // Extract start time from range like "3:00 PM - 4:00 PM"
+    normalized = normalized.split(' - ')[0].trim();
+  }
+  
+  // Ensure proper AM/PM format
+  if (normalized.match(/^\d{1,2}:\d{2}\s?(AM|PM)$/i)) {
+    return normalized.toUpperCase();
+  }
+  
+  // Handle 24-hour format conversion if needed
+  if (normalized.match(/^\d{1,2}:\d{2}$/)) {
+    const [hours, minutes] = normalized.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${displayHour}:${minutes} ${ampm}`;
+  }
+  
+  return normalized;
+};
+
+// FIXED: Enhanced acceptAppointmentRequest with comprehensive error handling
+const acceptAppointmentRequest = async (req, res) => {
+  const session = await mongoose.startSession();
+  
+  try {
+    await session.withTransaction(async () => {
+      const { id } = req.params;
+      const { responseMessage } = req.body;
+      
+      console.log('=== ACCEPT APPOINTMENT REQUEST ===');
+      console.log('Appointment ID:', id);
+      console.log('Response Message:', responseMessage);
+      console.log('Request User:', req.user);
+      console.log('Request Body:', req.body);
+      console.log('Request Headers Authorization:', req.headers.authorization);
+      
+      // 1. Validate appointment ID format
+      if (!id) {
+        throw new Error('Appointment ID is required');
+      }
+      
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        console.error('❌ Invalid appointment ID format:', id);
+        throw new Error('Invalid appointment ID format');
+      }
+      
+      // 2. Find the appointment with detailed logging
+      console.log('🔍 Searching for appointment with ID:', id);
+      const appointment = await Appointment.findById(id).session(session);
+      
+      if (!appointment) {
+        console.error('❌ Appointment not found in database');
+        console.log('🔍 Searching all appointments to debug...');
+        
+        // Debug: Check if appointment exists with different ID format
+        const allAppointments = await Appointment.find({}).limit(5);
+        console.log('📋 Sample appointments in database:', allAppointments.map(apt => ({
+          id: apt._id,
+          status: apt.status,
+          createdBy: apt.createdBy
+        })));
+        
+        throw new Error('Appointment request not found or already processed');
+      }
+      
+      console.log('✅ Appointment found:', {
+        id: appointment._id,
+        status: appointment.status,
+        createdBy: appointment.createdBy,
+        teacherId: appointment.teacherId,
+        studentName: appointment.student?.name
+      });
+      
+      // 3. Validate appointment state
+      if (appointment.status !== 'pending') {
+        console.error('❌ Appointment status is not pending:', appointment.status);
+        throw new Error(`Cannot accept appointment with status '${appointment.status}'. Only pending appointments can be accepted.`);
+      }
+      
+      if (appointment.createdBy !== 'student') {
+        console.error('❌ Appointment not created by student:', appointment.createdBy);
+        throw new Error('Only student requests can be accepted');
+      }
+      
+      // 4. Validate teacher authorization (if user info is available)
+      const teacherId = req.user?.id || req.user?._id;
+      console.log('🔒 Authorization check - Teacher ID from auth:', teacherId);
+      console.log('🔒 Authorization check - Appointment teacher ID:', appointment.teacherId);
+      
+      if (teacherId) {
+        if (appointment.teacherId.toString() !== teacherId.toString()) {
+          console.error('❌ Teacher authorization failed');
+          console.error('Auth teacher ID:', teacherId);
+          console.error('Appointment teacher ID:', appointment.teacherId);
+          throw new Error('You can only accept appointments assigned to you');
+        }
+        console.log('✅ Teacher authorization passed');
+      } else {
+        console.warn('⚠️ No teacher ID in request - skipping authorization check');
+      }
+      
+      // 5. Update appointment status using atomic operation
+      console.log('💾 Updating appointment status to confirmed...');
+      const updatedAppointment = await Appointment.findByIdAndUpdate(
+        id,
+        {
+          status: 'confirmed',
+          'teacherResponse.respondedAt': new Date(),
+          'teacherResponse.responseMessage': responseMessage?.trim() || 'Request accepted by teacher',
+          updatedAt: new Date()
+        },
+        {
+          new: true,
+          runValidators: true,
+          session
+        }
+      );
+      
+      if (!updatedAppointment) {
+        console.error('❌ Failed to update appointment');
+        throw new Error('Failed to update appointment status');
+      }
+      
+      console.log('✅ Appointment updated successfully:', {
+        id: updatedAppointment._id,
+        status: updatedAppointment.status,
+        respondedAt: updatedAppointment.teacherResponse?.respondedAt
+      });
+      
+      // 6. Populate teacher details for response
+      await updatedAppointment.populate('teacherId', 'name email phone subject');
+      
+      console.log('✅ APPOINTMENT ACCEPTED SUCCESSFULLY');
+      
+      // 7. Send success response
+      res.status(200).json({
+        success: true,
+        data: updatedAppointment,
+        message: 'Appointment request accepted successfully'
+      });
+    });
+    
+  } catch (error) {
+    console.error('=== ERROR IN ACCEPT APPOINTMENT ===');
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Stack trace:', error.stack);
+    
+    // Handle specific MongoDB errors
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID format'
+      });
+    }
+    
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors
+      });
+    }
+    
+    if (error.name === 'VersionError') {
+      return res.status(409).json({
+        success: false,
+        message: 'Appointment was modified by another process. Please refresh and try again.'
+      });
+    }
+    
+    // Handle custom error messages
+    if (error.message.includes('not found') || error.message.includes('already processed')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    if (error.message.includes('permission') || error.message.includes('assigned to you')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    if (error.message.includes('status') || error.message.includes('pending')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    // Generic error response
+    res.status(500).json({
+      success: false,
+      message: 'Failed to accept appointment request',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      debug: process.env.NODE_ENV === 'development' ? {
+        appointmentId: req.params.id,
+        userId: req.user?.id,
+        errorName: error.name,
+        errorMessage: error.message,
+        timestamp: new Date().toISOString()
+      } : undefined
+    });
+  } finally {
+    await session.endSession();
+  }
+};
+
+// FIXED: Enhanced rejectAppointmentRequest with comprehensive error handling
+const rejectAppointmentRequest = async (req, res) => {
+  const session = await mongoose.startSession();
+  
+  try {
+    await session.withTransaction(async () => {
+      const { id } = req.params;
+      const { responseMessage } = req.body;
+      
+      console.log('=== REJECT APPOINTMENT REQUEST ===');
+      console.log('Appointment ID:', id);
+      console.log('Response Message:', responseMessage);
+      console.log('Request User:', req.user);
+      
+      // 1. Validate appointment ID format
+      if (!id) {
+        throw new Error('Appointment ID is required');
+      }
+      
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        console.error('❌ Invalid appointment ID format:', id);
+        throw new Error('Invalid appointment ID format');
+      }
+      
+      // 2. Find the appointment
+      console.log('🔍 Searching for appointment with ID:', id);
+      const appointment = await Appointment.findById(id).session(session);
+      
+      if (!appointment) {
+        console.error('❌ Appointment not found in database');
+        throw new Error('Appointment request not found or already processed');
+      }
+      
+      console.log('✅ Appointment found:', {
+        id: appointment._id,
+        status: appointment.status,
+        createdBy: appointment.createdBy,
+        teacherId: appointment.teacherId
+      });
+      
+      // 3. Validate appointment state
+      if (appointment.status !== 'pending') {
+        console.error('❌ Appointment status is not pending:', appointment.status);
+        throw new Error(`Cannot reject appointment with status '${appointment.status}'. Only pending appointments can be rejected.`);
+      }
+      
+      if (appointment.createdBy !== 'student') {
+        console.error('❌ Appointment not created by student:', appointment.createdBy);
+        throw new Error('Only student requests can be rejected');
+      }
+      
+      // 4. Validate teacher authorization (if user info is available)
+      const teacherId = req.user?.id || req.user?._id;
+      if (teacherId && appointment.teacherId.toString() !== teacherId.toString()) {
+        console.error('❌ Teacher authorization failed');
+        throw new Error('You can only reject appointments assigned to you');
+      }
+      
+      // 5. Update appointment status
+      console.log('💾 Updating appointment status to rejected...');
+      const updatedAppointment = await Appointment.findByIdAndUpdate(
+        id,
+        {
+          status: 'rejected',
+          'teacherResponse.respondedAt': new Date(),
+          'teacherResponse.responseMessage': responseMessage?.trim() || 'Request rejected by teacher',
+          updatedAt: new Date()
+        },
+        {
+          new: true,
+          runValidators: true,
+          session
+        }
+      );
+      
+      if (!updatedAppointment) {
+        throw new Error('Failed to update appointment status');
+      }
+      
+      // 6. Populate teacher details
+      await updatedAppointment.populate('teacherId', 'name email phone subject');
+      
+      console.log('✅ APPOINTMENT REJECTED SUCCESSFULLY');
+      
+      res.status(200).json({
+        success: true,
+        data: updatedAppointment,
+        message: 'Appointment request rejected successfully'
+      });
+    });
+    
+  } catch (error) {
+    console.error('=== ERROR IN REJECT APPOINTMENT ===');
+    console.error('Error details:', error);
+    
+    // Handle specific errors (same pattern as accept)
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID format'
+      });
+    }
+    
+    if (error.message.includes('not found') || error.message.includes('already processed')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    if (error.message.includes('permission') || error.message.includes('assigned to you')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    if (error.message.includes('status') || error.message.includes('pending')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reject appointment request',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  } finally {
+    await session.endSession();
+  }
+};
+
 // Get all appointments (with filtering options)
 const getAllAppointments = async (req, res) => {
   try {
@@ -69,36 +425,6 @@ const getAppointmentById = async (req, res) => {
       error: error.message
     });
   }
-};
-
-// Helper function to normalize time format
-const normalizeTimeFormat = (timeString) => {
-  if (!timeString) return timeString;
-  
-  // Remove extra spaces and normalize format
-  let normalized = timeString.trim();
-  
-  // Handle different time formats
-  if (normalized.includes(' - ')) {
-    // Extract start time from range like "3:00 PM - 4:00 PM"
-    normalized = normalized.split(' - ')[0].trim();
-  }
-  
-  // Ensure proper AM/PM format
-  if (normalized.match(/^\d{1,2}:\d{2}\s?(AM|PM)$/i)) {
-    return normalized.toUpperCase();
-  }
-  
-  // Handle 24-hour format conversion if needed
-  if (normalized.match(/^\d{1,2}:\d{2}$/)) {
-    const [hours, minutes] = normalized.split(':');
-    const hour = parseInt(hours);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    return `${displayHour}:${minutes} ${ampm}`;
-  }
-  
-  return normalized;
 };
 
 // Student requests appointment (needs teacher approval)
@@ -215,7 +541,7 @@ const teacherBookAppointment = async (req, res) => {
     console.log('Teacher booking appointment with data:', req.body);
     
     const { day, time, date, student, notes } = req.body;
-    const teacherId = req.user?.id || req.user?._id || req.body.teacherId;
+    const teacherId = req.user?.id || req.body.teacherId; // Assuming auth middleware sets req.user
     
     // Validate required fields
     if (!teacherId || !day || !time || !date || !student) {
@@ -303,250 +629,6 @@ const teacherBookAppointment = async (req, res) => {
   }
 };
 
-// FIXED: Accept appointment request with enhanced validation and error handling
-const acceptAppointmentRequest = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { responseMessage } = req.body;
-    
-    console.log('=== ACCEPT APPOINTMENT REQUEST ===');
-    console.log('Appointment ID:', id);
-    console.log('Response Message:', responseMessage);
-    console.log('Request User:', req.user ? { id: req.user.id || req.user._id, role: req.user.role } : 'No user');
-    
-    // Validate appointment ID format
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      console.error('Invalid appointment ID format:', id);
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid appointment ID format'
-      });
-    }
-    
-    // Find the appointment
-    const appointment = await Appointment.findById(id).populate('teacherId', 'name email');
-    console.log('Appointment found:', appointment ? {
-      id: appointment._id,
-      status: appointment.status,
-      createdBy: appointment.createdBy,
-      teacherId: appointment.teacherId
-    } : null);
-    
-    if (!appointment) {
-      console.error('Appointment not found with ID:', id);
-      return res.status(404).json({
-        success: false,
-        message: 'Appointment not found'
-      });
-    }
-    
-    // Check if appointment is in correct state
-    if (appointment.status !== 'pending') {
-      console.error('Appointment not pending. Current status:', appointment.status);
-      return res.status(400).json({
-        success: false,
-        message: `Cannot accept appointment. Current status: ${appointment.status}. Only pending appointments can be accepted.`
-      });
-    }
-    
-    if (appointment.createdBy !== 'student') {
-      console.error('Appointment not created by student:', appointment.createdBy);
-      return res.status(400).json({
-        success: false,
-        message: 'Only student requests can be accepted'
-      });
-    }
-    
-    // Get teacherId from authenticated user (if available)
-    const teacherId = req.user?.id || req.user?._id;
-    console.log('Teacher ID from auth:', teacherId);
-    console.log('Appointment teacherId:', appointment.teacherId._id || appointment.teacherId);
-    
-    // Verify teacher owns this appointment (only if auth is properly set up)
-    if (teacherId) {
-      const appointmentTeacherId = appointment.teacherId._id || appointment.teacherId;
-      if (appointmentTeacherId.toString() !== teacherId.toString()) {
-        console.error('Teacher mismatch. Auth teacher:', teacherId, 'Appointment teacher:', appointmentTeacherId);
-        return res.status(403).json({
-          success: false,
-          message: 'You can only accept appointments assigned to you'
-        });
-      }
-    }
-    
-    // Update the appointment using the instance method
-    console.log('Updating appointment status to confirmed...');
-    await appointment.acceptRequest(responseMessage?.trim() || '');
-    
-    // Reload the appointment with populated data
-    const updatedAppointment = await Appointment.findById(id).populate('teacherId', 'name email phone subject');
-    
-    console.log('✅ Appointment accepted successfully:', appointment._id);
-    
-    res.json({
-      success: true,
-      data: updatedAppointment,
-      message: 'Appointment request accepted successfully'
-    });
-    
-  } catch (error) {
-    console.error('=== ERROR IN ACCEPT APPOINTMENT ===');
-    console.error('Error details:', error);
-    console.error('Stack trace:', error.stack);
-    
-    // Handle specific MongoDB errors
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid appointment ID format'
-      });
-    }
-    
-    if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: validationErrors
-      });
-    }
-    
-    res.status(500).json({
-      success: false,
-      message: 'Failed to accept appointment request',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
-      debug: process.env.NODE_ENV === 'development' ? {
-        appointmentId: req.params.id,
-        userId: req.user?.id || req.user?._id,
-        errorName: error.name,
-        errorMessage: error.message
-      } : undefined
-    });
-  }
-};
-
-// FIXED: Reject appointment request with enhanced validation and error handling
-const rejectAppointmentRequest = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { responseMessage } = req.body;
-    
-    console.log('=== REJECT APPOINTMENT REQUEST ===');
-    console.log('Appointment ID:', id);
-    console.log('Response Message:', responseMessage);
-    console.log('Request User:', req.user ? { id: req.user.id || req.user._id, role: req.user.role } : 'No user');
-    
-    // Validate appointment ID format
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      console.error('Invalid appointment ID format:', id);
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid appointment ID format'
-      });
-    }
-    
-    // Find the appointment
-    const appointment = await Appointment.findById(id).populate('teacherId', 'name email');
-    console.log('Appointment found:', appointment ? {
-      id: appointment._id,
-      status: appointment.status,
-      createdBy: appointment.createdBy,
-      teacherId: appointment.teacherId
-    } : null);
-    
-    if (!appointment) {
-      console.error('Appointment not found with ID:', id);
-      return res.status(404).json({
-        success: false,
-        message: 'Appointment not found'
-      });
-    }
-    
-    // Check if appointment is in correct state
-    if (appointment.status !== 'pending') {
-      console.error('Appointment not pending. Current status:', appointment.status);
-      return res.status(400).json({
-        success: false,
-        message: `Cannot reject appointment. Current status: ${appointment.status}. Only pending appointments can be rejected.`
-      });
-    }
-    
-    if (appointment.createdBy !== 'student') {
-      console.error('Appointment not created by student:', appointment.createdBy);
-      return res.status(400).json({
-        success: false,
-        message: 'Only student requests can be rejected'
-      });
-    }
-    
-    // Get teacherId from authenticated user (if available)
-    const teacherId = req.user?.id || req.user?._id;
-    console.log('Teacher ID from auth:', teacherId);
-    console.log('Appointment teacherId:', appointment.teacherId._id || appointment.teacherId);
-    
-    // Verify teacher owns this appointment (only if auth is properly set up)
-    if (teacherId) {
-      const appointmentTeacherId = appointment.teacherId._id || appointment.teacherId;
-      if (appointmentTeacherId.toString() !== teacherId.toString()) {
-        console.error('Teacher mismatch. Auth teacher:', teacherId, 'Appointment teacher:', appointmentTeacherId);
-        return res.status(403).json({
-          success: false,
-          message: 'You can only reject appointments assigned to you'
-        });
-      }
-    }
-    
-    // Update the appointment using the instance method
-    console.log('Updating appointment status to rejected...');
-    await appointment.rejectRequest(responseMessage?.trim() || 'Request rejected by teacher');
-    
-    // Reload the appointment with populated data
-    const updatedAppointment = await Appointment.findById(id).populate('teacherId', 'name email phone subject');
-    
-    console.log('✅ Appointment rejected successfully:', appointment._id);
-    
-    res.json({
-      success: true,
-      data: updatedAppointment,
-      message: 'Appointment request rejected successfully'
-    });
-    
-  } catch (error) {
-    console.error('=== ERROR IN REJECT APPOINTMENT ===');
-    console.error('Error details:', error);
-    console.error('Stack trace:', error.stack);
-    
-    // Handle specific MongoDB errors
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid appointment ID format'
-      });
-    }
-    
-    if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: validationErrors
-      });
-    }
-    
-    res.status(500).json({
-      success: false,
-      message: 'Failed to reject appointment request',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
-      debug: process.env.NODE_ENV === 'development' ? {
-        appointmentId: req.params.id,
-        userId: req.user?.id || req.user?._id,
-        errorName: error.name,
-        errorMessage: error.message
-      } : undefined
-    });
-  }
-};
-
 // Update appointment
 const updateAppointment = async (req, res) => {
   try {
@@ -609,7 +691,7 @@ const cancelAppointment = async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
-    const cancelledBy = req.user?.role || 'student';
+    const cancelledBy = req.user?.role || 'student'; // Default to student if no user info
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -649,7 +731,7 @@ const cancelAppointment = async (req, res) => {
 // Get pending requests for teacher
 const getTeacherPendingRequests = async (req, res) => {
   try {
-    const teacherId = req.user?.id || req.user?._id || req.params.teacherId;
+    const teacherId = req.user?.id || req.params.teacherId;
     
     if (!mongoose.Types.ObjectId.isValid(teacherId)) {
       return res.status(400).json({
@@ -680,7 +762,7 @@ const getTeacherPendingRequests = async (req, res) => {
 // Get appointments for a specific teacher
 const getTeacherAppointments = async (req, res) => {
   try {
-    const teacherId = req.user?.id || req.user?._id || req.params.teacherId;
+    const { teacherId } = req.params;
     const { status, createdBy } = req.query;
     
     if (!mongoose.Types.ObjectId.isValid(teacherId)) {
@@ -810,17 +892,47 @@ const getAppointmentStats = async (req, res) => {
   }
 };
 
+// Additional helper function to validate appointment ownership
+const validateAppointmentOwnership = async (appointmentId, userId, requiredStatus = 'pending') => {
+  try {
+    const appointment = await Appointment.findById(appointmentId);
+    
+    if (!appointment) {
+      return { success: false, error: 'Appointment not found' };
+    }
+    
+    if (appointment.status !== requiredStatus) {
+      return { 
+        success: false, 
+        error: `Appointment status is '${appointment.status}', expected '${requiredStatus}'` 
+      };
+    }
+    
+    if (userId && appointment.teacherId.toString() !== userId.toString()) {
+      return { 
+        success: false, 
+        error: 'You do not have permission to modify this appointment' 
+      };
+    }
+    
+    return { success: true, appointment };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+};
+
 module.exports = {
   getAllAppointments,
   getAppointmentById,
-  requestAppointment,
-  teacherBookAppointment,
-  acceptAppointmentRequest,
-  rejectAppointmentRequest,
+  requestAppointment,          // Student requests appointment
+  teacherBookAppointment,      // Teacher books directly
+  acceptAppointmentRequest,    // Teacher accepts request - FIXED
+  rejectAppointmentRequest,    // Teacher rejects request - FIXED
+  validateAppointmentOwnership,
   updateAppointment,
   cancelAppointment,
   completeAppointment,
-  getTeacherPendingRequests,
+  getTeacherPendingRequests,   // Get pending requests for teacher
   getTeacherAppointments,
   getAppointmentStats,
   // Legacy method for backward compatibility
