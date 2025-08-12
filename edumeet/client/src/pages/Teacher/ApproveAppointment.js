@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Calendar, Clock, User, Mail, Phone, BookOpen, CheckCircle, XCircle, AlertCircle, Plus, MessageSquare, Filter, Search, RefreshCw } from 'lucide-react';
 
 // Import the centralized API service
-import { apiMethods, tokenManager } from '../../services/api'; // Adjust path as needed
+import { apiMethods, tokenManager, utils } from '../../services/api'; // Adjust path as needed
 
 const TeacherAppointmentManager = () => {
   const [currentTeacher, setCurrentTeacher] = useState(null);
@@ -18,12 +18,13 @@ const TeacherAppointmentManager = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
 
-  // ADDED: Refs to prevent multiple simultaneous requests
+  // Refs to prevent multiple simultaneous requests
   const fetchingPending = useRef(false);
   const fetchingAppointments = useRef(false);
   const mountedRef = useRef(true);
+  const lastRefreshTime = useRef(0);
 
-  // ADDED: Cleanup on unmount
+  // Cleanup on unmount
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -35,35 +36,24 @@ const TeacherAppointmentManager = () => {
   useEffect(() => {
     const loadTeacher = () => {
       // Check for teacher data in both storage types
-      let teacherData = localStorage.getItem('teacher');
-      if (!teacherData) {
-        teacherData = sessionStorage.getItem('teacher');
-      }
-      
-      // Check for auth token using the centralized token manager
+      const teacher = tokenManager.getCurrentTeacher();
       const token = tokenManager.getTeacherToken();
+      
+      console.log('Loading teacher data:', { teacher, hasToken: !!token });
       
       if (!token) {
         setError('Please log in to access this page');
         return;
       }
       
-      if (teacherData) {
-        try {
-          const teacher = JSON.parse(teacherData);
-          console.log('Loaded teacher:', teacher);
-          if (mountedRef.current) {
-            setCurrentTeacher(teacher);
-          }
-        } catch (error) {
-          console.error('Error parsing teacher data:', error);
-          if (mountedRef.current) {
-            setError('Unable to load teacher information');
-          }
+      if (teacher) {
+        console.log('Teacher loaded successfully:', teacher);
+        if (mountedRef.current) {
+          setCurrentTeacher(teacher);
         }
       } else {
         if (mountedRef.current) {
-          setError('Please log in to access this page');
+          setError('Unable to load teacher information. Please log in again.');
         }
       }
     };
@@ -71,7 +61,7 @@ const TeacherAppointmentManager = () => {
     loadTeacher();
   }, []);
 
-  // FIXED: Fetch pending requests with debouncing and request deduplication
+  // FIXED: Fetch pending requests with better error handling
   const fetchPendingRequests = useCallback(async () => {
     if (!currentTeacher?.id && !currentTeacher?._id) return;
     if (fetchingPending.current) {
@@ -82,14 +72,13 @@ const TeacherAppointmentManager = () => {
     fetchingPending.current = true;
     
     try {
-      setLoading(true);
       const teacherId = currentTeacher.id || currentTeacher._id;
       console.log('Fetching pending requests for teacher:', teacherId);
       
       const response = await apiMethods.getTeacherPendingRequests(teacherId);
       console.log('Pending requests response:', response);
       
-      if (!mountedRef.current) return; // Don't update state if component unmounted
+      if (!mountedRef.current) return;
       
       let requestsData = [];
       if (response?.data?.success && Array.isArray(response.data.data)) {
@@ -102,28 +91,21 @@ const TeacherAppointmentManager = () => {
     } catch (error) {
       console.error('Error fetching pending requests:', error);
       
-      if (!mountedRef.current) return; // Don't update state if component unmounted
+      if (!mountedRef.current) return;
       
-      // Handle specific authentication errors
-      if (error.message.includes('401') || error.message.includes('unauthorized')) {
+      const errorMessage = utils.extractErrorMessage(error);
+      if (error.message?.includes('401') || error.message?.includes('unauthorized')) {
         setError('Authentication failed. Please log in again.');
         tokenManager.removeTeacherToken();
-      } else if (error.message.includes('CORS') || error.message.includes('Failed to fetch')) {
-        setError('Connection failed. Please check if the server is running and CORS is properly configured.');
-      } else if (error.message.includes('Too many requests')) {
-        setError('Rate limit exceeded. Please wait a moment before refreshing.');
       } else {
-        setError('Failed to load pending requests: ' + error.message);
+        setError(`Failed to load pending requests: ${errorMessage}`);
       }
     } finally {
       fetchingPending.current = false;
-      if (mountedRef.current) {
-        setLoading(false);
-      }
     }
   }, [currentTeacher]);
 
-  // FIXED: Fetch all appointments with debouncing and request deduplication
+  // FIXED: Fetch all appointments with better error handling
   const fetchAllAppointments = useCallback(async () => {
     if (!currentTeacher?.id && !currentTeacher?._id) return;
     if (fetchingAppointments.current) {
@@ -134,14 +116,13 @@ const TeacherAppointmentManager = () => {
     fetchingAppointments.current = true;
     
     try {
-      setLoading(true);
       const teacherId = currentTeacher.id || currentTeacher._id;
       console.log('Fetching all appointments for teacher:', teacherId);
       
       const response = await apiMethods.getTeacherAppointments(teacherId);
       console.log('All appointments response:', response);
       
-      if (!mountedRef.current) return; // Don't update state if component unmounted
+      if (!mountedRef.current) return;
       
       let appointmentsData = [];
       if (response?.data?.success && Array.isArray(response.data.data)) {
@@ -156,41 +137,47 @@ const TeacherAppointmentManager = () => {
     } catch (error) {
       console.error('Error fetching appointments:', error);
       
-      if (!mountedRef.current) return; // Don't update state if component unmounted
+      if (!mountedRef.current) return;
       
-      if (error.message.includes('401') || error.message.includes('unauthorized')) {
+      const errorMessage = utils.extractErrorMessage(error);
+      if (error.message?.includes('401') || error.message?.includes('unauthorized')) {
         setError('Authentication failed. Please log in again.');
         tokenManager.removeTeacherToken();
-      } else if (error.message.includes('CORS') || error.message.includes('Failed to fetch')) {
-        setError('Connection failed. Please check if the server is running and CORS is properly configured.');
-      } else if (error.message.includes('Too many requests')) {
-        setError('Rate limit exceeded. Please wait a moment before refreshing.');
       } else {
-        setError('Failed to load appointments: ' + error.message);
+        setError(`Failed to load appointments: ${errorMessage}`);
       }
     } finally {
       fetchingAppointments.current = false;
-      if (mountedRef.current) {
-        setLoading(false);
-      }
     }
   }, [currentTeacher]);
 
-  // FIXED: Debounced data fetching with proper cleanup
+  // FIXED: Debounced data fetching with rate limiting
   useEffect(() => {
     if (!currentTeacher) return;
+
+    const now = Date.now();
+    const timeSinceLastRefresh = now - lastRefreshTime.current;
+    const minRefreshInterval = 2000; // 2 seconds minimum between refreshes
+
+    if (timeSinceLastRefresh < minRefreshInterval) {
+      console.log('Rate limiting: Skipping refresh, too soon since last refresh');
+      return;
+    }
 
     // Add delay to prevent multiple rapid requests
     const timeoutId = setTimeout(() => {
       if (mountedRef.current) {
+        lastRefreshTime.current = now;
         // Fetch data sequentially to avoid overwhelming the server
         fetchPendingRequests().then(() => {
           if (mountedRef.current) {
-            return fetchAllAppointments();
+            return new Promise(resolve => setTimeout(resolve, 1000)).then(() => {
+              return fetchAllAppointments();
+            });
           }
         });
       }
-    }, 500); // 500ms delay
+    }, 500);
 
     return () => {
       clearTimeout(timeoutId);
@@ -215,79 +202,98 @@ const TeacherAppointmentManager = () => {
     }, 5000);
   }, []);
 
-  // FIXED: Rate-limited refresh with loading state management
+  // FIXED: Rate-limited refresh
   const refreshData = useCallback(async () => {
+    const now = Date.now();
+    const timeSinceLastRefresh = now - lastRefreshTime.current;
+    const minRefreshInterval = 3000; // 3 seconds minimum between manual refreshes
+
+    if (timeSinceLastRefresh < minRefreshInterval) {
+      showMessage('Please wait a moment before refreshing again to avoid rate limits.', 'error');
+      return;
+    }
+
     if (loading || fetchingPending.current || fetchingAppointments.current) {
-      console.log('🔄 Refresh already in progress or rate limited, skipping...');
+      console.log('🔄 Refresh already in progress, skipping...');
       return;
     }
 
     try {
       setLoading(true);
+      lastRefreshTime.current = now;
+      
       // Sequential fetching to avoid rate limits
       await fetchPendingRequests();
       if (mountedRef.current) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+        await utils.delay(1000); // 1 second delay between requests
         await fetchAllAppointments();
       }
+      
+      showMessage('Data refreshed successfully!');
     } catch (error) {
       console.error('Error refreshing data:', error);
-      showMessage('Failed to refresh data: ' + error.message, 'error');
+      showMessage(`Failed to refresh data: ${utils.extractErrorMessage(error)}`, 'error');
     } finally {
       if (mountedRef.current) {
         setLoading(false);
       }
     }
-  }, [fetchPendingRequests, fetchAllAppointments, loading]);
+  }, [fetchPendingRequests, fetchAllAppointments, loading, showMessage]);
 
-  // FIXED: Enhanced appointment approval with better error handling and rate limiting
+  // CRITICAL FIX: Enhanced appointment approval with proper error handling
   const handleApproveRequest = async (appointmentId, message = '') => {
     if (loading) {
       showMessage('Please wait for the current operation to complete.', 'error');
       return;
     }
 
+    if (!utils.isValidAppointmentId(appointmentId)) {
+      showMessage('Invalid appointment ID format.', 'error');
+      return;
+    }
+
     try {
       setLoading(true);
-      console.log('Approving appointment:', appointmentId, 'with message:', message);
+      console.log('=== APPROVING APPOINTMENT ===');
+      console.log('Appointment ID:', appointmentId);
+      console.log('Message:', message);
+      console.log('Current teacher:', currentTeacher);
       
-      // Use the retry method for better reliability
-      const response = await apiMethods.acceptAppointmentRequest (appointmentId, message);
-      console.log('Approve response:', response);
+      // Use the simplified accept method
+      const response = await apiMethods.acceptAppointmentRequest(appointmentId, message);
+      console.log('✅ Appointment approved successfully:', response.data);
       
       showMessage('Appointment request approved successfully!');
       
-      // Refresh data with delay to avoid rate limiting
+      // Refresh data after a short delay
       setTimeout(() => {
         if (mountedRef.current) {
           refreshData();
         }
-      }, 1000);
+      }, 1500);
       
+      // Close modal
       setResponseModal({ show: false, type: '', appointmentId: '' });
       setResponseMessage('');
+      
     } catch (error) {
-      console.error('Error approving appointment:', error);
+      console.error('❌ Error approving appointment:', error);
       
-      let errorMessage = 'Failed to approve appointment';
-      if (error.message.includes('401') || error.message.includes('unauthorized')) {
-        errorMessage = 'Authentication failed. Please log in again.';
+      const errorMessage = utils.extractErrorMessage(error);
+      
+      // Handle specific error cases
+      if (error.message?.includes('401') || error.message?.includes('unauthorized')) {
+        showMessage('Authentication failed. Please log in again.', 'error');
         tokenManager.removeTeacherToken();
-      } else if (error.message.includes('403')) {
-        errorMessage = 'You do not have permission to approve this appointment.';
-      } else if (error.message.includes('404')) {
-        errorMessage = 'Appointment not found. It may have been already processed.';
-      } else if (error.message.includes('400')) {
-        errorMessage = error.message || 'Invalid request data.';
-      } else if (error.message.includes('CORS') || error.message.includes('Failed to fetch')) {
-        errorMessage = 'Connection failed. Please check if the server is running and CORS is properly configured.';
-      } else if (error.message.includes('Too many requests')) {
-        errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
-      } else if (error.message) {
-        errorMessage = error.message;
+      } else if (error.message?.includes('403')) {
+        showMessage('You do not have permission to approve this appointment.', 'error');
+      } else if (error.message?.includes('404')) {
+        showMessage('Appointment not found. It may have been already processed.', 'error');
+      } else if (error.message?.includes('409')) {
+        showMessage('This appointment has already been processed by another action.', 'error');
+      } else {
+        showMessage(`Failed to approve appointment: ${errorMessage}`, 'error');
       }
-      
-      showMessage(errorMessage, 'error');
     } finally {
       if (mountedRef.current) {
         setLoading(false);
@@ -295,54 +301,64 @@ const TeacherAppointmentManager = () => {
     }
   };
 
-  // FIXED: Enhanced appointment rejection with better error handling and rate limiting
+  // CRITICAL FIX: Enhanced appointment rejection with proper error handling
   const handleRejectRequest = async (appointmentId, message = '') => {
     if (loading) {
       showMessage('Please wait for the current operation to complete.', 'error');
       return;
     }
 
+    if (!utils.isValidAppointmentId(appointmentId)) {
+      showMessage('Invalid appointment ID format.', 'error');
+      return;
+    }
+
+    if (!message || message.trim().length === 0) {
+      showMessage('Please provide a reason for rejection.', 'error');
+      return;
+    }
+
     try {
       setLoading(true);
-      console.log('Rejecting appointment:', appointmentId, 'with message:', message);
+      console.log('=== REJECTING APPOINTMENT ===');
+      console.log('Appointment ID:', appointmentId);
+      console.log('Message:', message);
+      console.log('Current teacher:', currentTeacher);
       
-      // Use the retry method for better reliability
-      const response = await apiMethods.rejectAppointmentRequest(appointmentId, message || 'Request rejected by teacher');
-      console.log('Reject response:', response);
+      // Use the simplified reject method
+      const response = await apiMethods.rejectAppointmentRequest(appointmentId, message);
+      console.log('✅ Appointment rejected successfully:', response.data);
       
-      showMessage('Appointment request rejected');
+      showMessage('Appointment request rejected successfully.');
       
-      // Refresh data with delay to avoid rate limiting
+      // Refresh data after a short delay
       setTimeout(() => {
         if (mountedRef.current) {
           refreshData();
         }
-      }, 1000);
+      }, 1500);
       
+      // Close modal
       setResponseModal({ show: false, type: '', appointmentId: '' });
       setResponseMessage('');
+      
     } catch (error) {
-      console.error('Error rejecting appointment:', error);
+      console.error('❌ Error rejecting appointment:', error);
       
-      let errorMessage = 'Failed to reject appointment';
-      if (error.message.includes('401') || error.message.includes('unauthorized')) {
-        errorMessage = 'Authentication failed. Please log in again.';
+      const errorMessage = utils.extractErrorMessage(error);
+      
+      if (error.message?.includes('401') || error.message?.includes('unauthorized')) {
+        showMessage('Authentication failed. Please log in again.', 'error');
         tokenManager.removeTeacherToken();
-      } else if (error.message.includes('403')) {
-        errorMessage = 'You do not have permission to reject this appointment.';
-      } else if (error.message.includes('404')) {
-        errorMessage = 'Appointment not found. It may have been already processed.';
-      } else if (error.message.includes('400')) {
-        errorMessage = error.message || 'Invalid request data.';
-      } else if (error.message.includes('CORS') || error.message.includes('Failed to fetch')) {
-        errorMessage = 'Connection failed. Please check if the server is running and CORS is properly configured.';
-      } else if (error.message.includes('Too many requests')) {
-        errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
-      } else if (error.message) {
-        errorMessage = error.message;
+      } else if (error.message?.includes('403')) {
+        showMessage('You do not have permission to reject this appointment.', 'error');
+      } else if (error.message?.includes('404')) {
+        showMessage('Appointment not found. It may have been already processed.', 'error');
+      } else if (error.message?.includes('409')) {
+        showMessage('This appointment has already been processed by another action.', 'error');
+      } else {
+        showMessage(`Failed to reject appointment: ${errorMessage}`, 'error');
       }
-      
-      showMessage(errorMessage, 'error');
     } finally {
       if (mountedRef.current) {
         setLoading(false);
@@ -350,7 +366,7 @@ const TeacherAppointmentManager = () => {
     }
   };
 
-  // FIXED: Cancel appointment with rate limiting
+  // Cancel appointment
   const cancelAppointment = async (appointmentId) => {
     if (loading) {
       showMessage('Please wait for the current operation to complete.', 'error');
@@ -362,25 +378,14 @@ const TeacherAppointmentManager = () => {
       await apiMethods.cancelAppointment(appointmentId, 'Cancelled by teacher');
       showMessage('Appointment cancelled successfully');
       
-      // Refresh data with delay to avoid rate limiting
       setTimeout(() => {
         if (mountedRef.current) {
           refreshData();
         }
-      }, 1000);
+      }, 1500);
     } catch (error) {
       console.error('Error cancelling appointment:', error);
-      
-      let errorMessage = 'Failed to cancel appointment';
-      if (error.message.includes('CORS') || error.message.includes('Failed to fetch')) {
-        errorMessage = 'Connection failed. Please check if the server is running and CORS is properly configured.';
-      } else if (error.message.includes('Too many requests')) {
-        errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
-      } else {
-        errorMessage = 'Failed to cancel appointment: ' + (error.message || 'Unknown error');
-      }
-      
-      showMessage(errorMessage, 'error');
+      showMessage(`Failed to cancel appointment: ${utils.extractErrorMessage(error)}`, 'error');
     } finally {
       if (mountedRef.current) {
         setLoading(false);
@@ -388,7 +393,7 @@ const TeacherAppointmentManager = () => {
     }
   };
 
-  // FIXED: Complete appointment with rate limiting
+  // Complete appointment
   const completeAppointment = async (appointmentId) => {
     if (loading) {
       showMessage('Please wait for the current operation to complete.', 'error');
@@ -400,25 +405,14 @@ const TeacherAppointmentManager = () => {
       await apiMethods.completeAppointment(appointmentId);
       showMessage('Appointment marked as completed');
       
-      // Refresh data with delay to avoid rate limiting
       setTimeout(() => {
         if (mountedRef.current) {
           refreshData();
         }
-      }, 1000);
+      }, 1500);
     } catch (error) {
       console.error('Error completing appointment:', error);
-      
-      let errorMessage = 'Failed to complete appointment';
-      if (error.message.includes('CORS') || error.message.includes('Failed to fetch')) {
-        errorMessage = 'Connection failed. Please check if the server is running and CORS is properly configured.';
-      } else if (error.message.includes('Too many requests')) {
-        errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
-      } else {
-        errorMessage = 'Failed to complete appointment: ' + (error.message || 'Unknown error');
-      }
-      
-      showMessage(errorMessage, 'error');
+      showMessage(`Failed to complete appointment: ${utils.extractErrorMessage(error)}`, 'error');
     } finally {
       if (mountedRef.current) {
         setLoading(false);
@@ -426,26 +420,11 @@ const TeacherAppointmentManager = () => {
     }
   };
 
-  const formatDate = (dateString) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      });
-    } catch (error) {
-      return dateString;
-    }
-  };
-
-  const formatTime = (timeString) => {
-    if (!timeString) return 'N/A';
-    return timeString.includes(' - ') ? timeString.split(' - ')[0] : timeString;
-  };
-
   const openResponseModal = (type, appointmentId) => {
+    if (!utils.isValidAppointmentId(appointmentId)) {
+      showMessage('Invalid appointment ID.', 'error');
+      return;
+    }
     setResponseModal({ show: true, type, appointmentId });
     setResponseMessage('');
   };
@@ -555,18 +534,6 @@ const TeacherAppointmentManager = () => {
           </div>
         )}
 
-        {/* Rate Limit Warning */}
-        {(fetchingPending.current || fetchingAppointments.current) && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4 mb-6">
-            <div className="flex items-center">
-              <Clock className="w-5 h-5 text-yellow-500 mr-2" />
-              <span className="text-yellow-700 font-medium">
-                Loading data... Please wait to avoid rate limits.
-              </span>
-            </div>
-          </div>
-        )}
-
         {/* Tabs */}
         <div className="bg-white rounded-2xl shadow-xl mb-6 overflow-hidden">
           <div className="flex border-b border-gray-200">
@@ -634,10 +601,11 @@ const TeacherAppointmentManager = () => {
             <div className="bg-white rounded-2xl p-8 text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4 mx-auto"></div>
               <p className="text-gray-600">Processing request...</p>
-              <p className="text-sm text-gray-500 mt-2">Please wait to avoid rate limits</p>
+              <p className="text-sm text-gray-500 mt-2">Please wait...</p>
             </div>
           </div>
         )}
+
         {/* Pending Requests Tab */}
         {activeTab === 'pending' && (
           <div className="space-y-4">
@@ -671,11 +639,11 @@ const TeacherAppointmentManager = () => {
                           <div className="flex items-center gap-4 text-sm">
                             <span className="flex items-center text-blue-600 font-medium">
                               <Calendar className="w-4 h-4 mr-1" />
-                              {formatDate(request.date || request.appointmentDate)}
+                              {utils.formatDate(request.date || request.appointmentDate)}
                             </span>
                             <span className="flex items-center text-indigo-600 font-medium">
                               <Clock className="w-4 h-4 mr-1" />
-                              {request.day} at {formatTime(request.time)}
+                              {request.day} at {utils.formatTime(request.time)}
                             </span>
                           </div>
                         </div>
@@ -718,7 +686,7 @@ const TeacherAppointmentManager = () => {
                   )}
 
                   <div className="mt-4 text-xs text-gray-500">
-                    Requested on: {formatDate(request.createdAt)}
+                    Requested on: {utils.formatDate(request.createdAt)}
                   </div>
                 </div>
               ))
@@ -761,11 +729,11 @@ const TeacherAppointmentManager = () => {
                             <div className="flex items-center gap-4 text-sm">
                               <span className="flex items-center text-blue-600 font-medium">
                                 <Calendar className="w-4 h-4 mr-1" />
-                                {formatDate(appointment.date || appointment.appointmentDate)}
+                                {utils.formatDate(appointment.date || appointment.appointmentDate)}
                               </span>
                               <span className="flex items-center text-indigo-600 font-medium">
                                 <Clock className="w-4 h-4 mr-1" />
-                                {appointment.day} at {formatTime(appointment.time)}
+                                {appointment.day} at {utils.formatTime(appointment.time)}
                               </span>
                             </div>
                           </div>
@@ -811,7 +779,7 @@ const TeacherAppointmentManager = () => {
                       </div>
                     </div>
 
-                    {(appointment.student?.subject || appointment.student?.message) && (
+                    {(appointment.student?.subject || appointment.student?.message || appointment.teacherResponse?.responseMessage) && (
                       <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
                         {appointment.student?.subject && (
                           <p className="text-sm text-gray-700 mb-2">
@@ -819,15 +787,20 @@ const TeacherAppointmentManager = () => {
                           </p>
                         )}
                         {appointment.student?.message && (
+                          <p className="text-sm text-gray-700 mb-2">
+                            <strong>Student Message:</strong> {appointment.student.message}
+                          </p>
+                        )}
+                        {appointment.teacherResponse?.responseMessage && (
                           <p className="text-sm text-gray-700">
-                            <strong>Message:</strong> {appointment.student.message}
+                            <strong>Teacher Response:</strong> {appointment.teacherResponse.responseMessage}
                           </p>
                         )}
                       </div>
                     )}
 
                     <div className="mt-4 text-xs text-gray-500 flex justify-between">
-                      <span>Created: {formatDate(appointment.createdAt)}</span>
+                      <span>Created: {utils.formatDate(appointment.createdAt)}</span>
                       <span className="capitalize">By: {appointment.createdBy || 'student'}</span>
                     </div>
                   </div>
@@ -836,7 +809,7 @@ const TeacherAppointmentManager = () => {
           </div>
         )}
 
-        {/* Response Modal */}
+        {/* Enhanced Response Modal */}
         {responseModal.show && (
           <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl">
@@ -880,6 +853,12 @@ const TeacherAppointmentManager = () => {
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
                 />
                 
+                {responseModal.type === 'reject' && responseMessage.trim().length === 0 && (
+                  <p className="text-red-500 text-sm mt-2">
+                    A reason for rejection is required.
+                  </p>
+                )}
+                
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={closeResponseModal}
@@ -890,7 +869,7 @@ const TeacherAppointmentManager = () => {
                   </button>
                   <button
                     onClick={handleModalSubmit}
-                    disabled={loading}
+                    disabled={loading || (responseModal.type === 'reject' && responseMessage.trim().length === 0)}
                     className={`flex-1 py-3 text-white rounded-lg transition-colors disabled:opacity-50 ${
                       responseModal.type === 'approve' 
                         ? 'bg-green-500 hover:bg-green-600' 

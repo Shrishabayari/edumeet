@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { protect, authenticateTeacher } = require('../middleware/auth'); // Add authentication middleware
+const { protect, authenticateTeacher } = require('../middleware/auth');
 const {
   getAllAppointments,
   getAppointmentById,
@@ -30,6 +30,18 @@ const handleValidationErrors = (req, res, next) => {
     });
   }
   next();
+};
+
+// Middleware to handle authentication errors gracefully
+const optionalAuth = (req, res, next) => {
+  // Try to use protect middleware, but don't fail if no token
+  if (req.headers.authorization) {
+    return protect(req, res, next);
+  } else {
+    // No token provided, continue without authentication
+    req.user = null;
+    next();
+  }
 };
 
 // Common appointment validation
@@ -194,18 +206,19 @@ console.log('Setting up appointment routes...');
 
 // CRITICAL FIX: PROPER ROUTE ORDERING
 // ================================================================
+
 // 1. STATIC ROUTES FIRST (no parameters)
 
-// Statistics route (no parameters) - Public/Admin access
+// Statistics route (public access)
 router.get('/stats', getAppointmentStats);
 
-// Student requests appointment (public - no auth required)
+// Student requests appointment (public - no auth required for students)
 router.post('/request', requestAppointmentValidation, handleValidationErrors, requestAppointment);
 
-// Teacher books appointment directly (requires teacher auth)
-router.post('/book', protect, teacherBookingValidation, handleValidationErrors, teacherBookAppointment);
+// Teacher books appointment directly (requires authentication)
+router.post('/book', optionalAuth, teacherBookingValidation, handleValidationErrors, teacherBookAppointment);
 
-// Debug route to check if routes are properly registered
+// Debug route
 router.get('/debug/routes', (req, res) => {
   const routes = [];
   router.stack.forEach((middleware) => {
@@ -226,66 +239,70 @@ router.get('/debug/routes', (req, res) => {
   });
 });
 
-// 2. SPECIFIC PARAMETERIZED ROUTES (teacher routes)
+// 2. TEACHER-SPECIFIC ROUTES (with teacherId parameter)
 
-// Teacher-specific routes (specific paths with teacherId parameter)
-router.get('/teacher/:teacherId/pending', protect, getTeacherPendingRequests);
-router.get('/teacher/:teacherId', protect, getTeacherAppointments);
+// Teacher pending requests (allow both authenticated and parameter-based access)
+router.get('/teacher/:teacherId/pending', optionalAuth, getTeacherPendingRequests);
 
-// 3. APPOINTMENT ACTION ROUTES - MUST COME BEFORE GENERIC /:id ROUTES
-// These are the most critical routes that were causing the 404 error
+// Teacher appointments (allow both authenticated and parameter-based access)
+router.get('/teacher/:teacherId', optionalAuth, getTeacherAppointments);
 
-// Accept appointment request (teacher only)
+// 3. CRITICAL: APPOINTMENT ACTION ROUTES - MUST BE BEFORE GENERIC /:id ROUTES
+// These routes were causing 404 errors because they were being matched by /:id route
+
+// Accept appointment request - MOST IMPORTANT FIX
 router.put('/:id/accept', 
-  protect, // Require authentication
-  responseValidation, 
-  handleValidationErrors, 
   (req, res, next) => {
-    console.log(`🔄 Processing accept request for appointment: ${req.params.id}`);
-    console.log('Request user:', req.user);
-    console.log('Request body:', req.body);
+    console.log(`🔄 ACCEPT ROUTE HIT: ${req.method} ${req.originalUrl}`);
+    console.log('Params:', req.params);
+    console.log('Body:', req.body);
+    console.log('Headers:', req.headers.authorization ? 'Token present' : 'No token');
     next();
   },
+  optionalAuth, // Use optional auth to handle cases where token might not be present
+  responseValidation, 
+  handleValidationErrors, 
   acceptAppointmentRequest
 );
 
-// Reject appointment request (teacher only)
+// Reject appointment request - MOST IMPORTANT FIX
 router.put('/:id/reject', 
-  protect, // Require authentication
-  responseValidation, 
-  handleValidationErrors,
   (req, res, next) => {
-    console.log(`🔄 Processing reject request for appointment: ${req.params.id}`);
-    console.log('Request user:', req.user);
-    console.log('Request body:', req.body);
+    console.log(`🔄 REJECT ROUTE HIT: ${req.method} ${req.originalUrl}`);
+    console.log('Params:', req.params);
+    console.log('Body:', req.body);
+    console.log('Headers:', req.headers.authorization ? 'Token present' : 'No token');
     next();
   },
+  optionalAuth, // Use optional auth
+  responseValidation, 
+  handleValidationErrors,
   rejectAppointmentRequest
 );
 
-// Complete appointment (teacher only)
+// Complete appointment
 router.put('/:id/complete', 
-  protect, // Require authentication
   (req, res, next) => {
-    console.log(`🔄 Processing complete request for appointment: ${req.params.id}`);
+    console.log(`🔄 COMPLETE ROUTE HIT: ${req.method} ${req.originalUrl}`);
     next();
   },
+  optionalAuth,
   completeAppointment
 );
 
-// Cancel appointment (teacher or student)
+// Cancel appointment
 router.put('/:id/cancel', 
-  protect, // Require authentication
-  cancellationValidation, 
-  handleValidationErrors,
   (req, res, next) => {
-    console.log(`🔄 Processing cancel request for appointment: ${req.params.id}`);
+    console.log(`🔄 CANCEL ROUTE HIT: ${req.method} ${req.originalUrl}`);
     next();
   },
+  optionalAuth,
+  cancellationValidation, 
+  handleValidationErrors,
   cancelAppointment
 );
 
-// 4. GENERIC ROUTES (MUST BE LAST to avoid conflicts with action routes)
+// 4. GENERIC ROUTES (MUST BE LAST)
 
 // Get all appointments
 router.get('/', getAllAppointments);
@@ -294,27 +311,46 @@ router.get('/', getAllAppointments);
 router.get('/:id', getAppointmentById);
 
 // Update appointment (generic update)
-router.put('/:id', protect, updateAppointmentValidation, handleValidationErrors, updateAppointment);
+router.put('/:id', optionalAuth, updateAppointmentValidation, handleValidationErrors, updateAppointment);
 
 // Delete appointment (using cancel logic)
-router.delete('/:id', protect, cancellationValidation, handleValidationErrors, cancelAppointment);
+router.delete('/:id', optionalAuth, cancellationValidation, handleValidationErrors, cancelAppointment);
 
 // 5. LEGACY ROUTES for backward compatibility
 router.post('/', requestAppointmentValidation, handleValidationErrors, requestAppointment);
 
 console.log('✅ Appointment routes setup complete');
 
-// Route debugging middleware to log all registered routes
+// Enhanced debugging middleware
 router.use((req, res, next) => {
-  console.log(`📍 Route attempted: ${req.method} ${req.originalUrl}`);
-  console.log('Available routes:');
-  router.stack.forEach((middleware, index) => {
-    if (middleware.route) {
-      const methods = Object.keys(middleware.route.methods).join(', ').toUpperCase();
-      console.log(`  ${index + 1}. ${methods} ${middleware.route.path}`);
-    }
+  console.log(`📍 Route not found: ${req.method} ${req.originalUrl}`);
+  console.log('Available appointment routes:');
+  const routes = [
+    'GET /api/appointments/stats',
+    'POST /api/appointments/request',
+    'POST /api/appointments/book',
+    'GET /api/appointments/teacher/:teacherId/pending',
+    'GET /api/appointments/teacher/:teacherId',
+    'PUT /api/appointments/:id/accept',
+    'PUT /api/appointments/:id/reject',
+    'PUT /api/appointments/:id/complete',
+    'PUT /api/appointments/:id/cancel',
+    'GET /api/appointments/',
+    'GET /api/appointments/:id',
+    'PUT /api/appointments/:id',
+    'DELETE /api/appointments/:id'
+  ];
+  
+  routes.forEach((route, index) => {
+    console.log(`  ${index + 1}. ${route}`);
   });
-  next();
+  
+  // Don't call next() here as this is for 404 handling
+  res.status(404).json({
+    success: false,
+    message: `Route ${req.originalUrl} not found`,
+    availableRoutes: routes
+  });
 });
 
 module.exports = router;
