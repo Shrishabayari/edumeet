@@ -177,374 +177,6 @@ const acceptAppointmentRequest = async (req, res) => {
     console.log('✅ APPOINTMENT ACCEPTED SUCCESSFULLY');
 
     // 8. Send success response
-    res.status(200).json({
-      success: true,
-      data: result,
-      message: 'Appointment request accepted successfully'
-    });
-
-  } catch (error) {
-    console.error('\n❌ ACCEPT APPOINTMENT ERROR:', {
-      name: error.name,
-      message: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-
-    // Handle specific error types
-    let statusCode = 500;
-    let errorMessage = error.message || 'Internal server error';
-
-    if (error.name === 'CastError') {
-      statusCode = 400;
-      errorMessage = 'Invalid appointment ID format';
-    } else if (error.name === 'ValidationError') {
-      statusCode = 400;
-      errorMessage = 'Validation failed: ' + Object.values(error.errors).map(err => err.message).join(', ');
-    } else if (error.message.includes('not found')) {
-      statusCode = 404;
-    } else if (error.message.includes('permission') || error.message.includes('assigned to you') || error.message.includes('Authentication required')) {
-      statusCode = 403;
-    } else if (error.message.includes('status') || error.message.includes('pending') || error.message.includes('conflict') || error.message.includes('booked')) {
-      statusCode = 400;
-    }
-
-    res.status(statusCode).json({
-      success: false,
-      message: errorMessage,
-      ...(process.env.NODE_ENV === 'development' && {
-        debug: {
-          appointmentId: req.params.id,
-          userId: req.user?.id || req.user?._id,
-          errorType: error.name,
-          timestamp: new Date().toISOString()
-        }
-      })
-    });
-
-  } finally {
-    await session.endSession();
-    console.log('=== ACCEPT APPOINTMENT REQUEST END ===\n');
-  }
-};
-
-// FIXED: Comprehensive rejectAppointmentRequest with proper error handling
-const rejectAppointmentRequest = async (req, res) => {
-  console.log('\n=== REJECT APPOINTMENT REQUEST START ===');
-  
-  const session = await mongoose.startSession();
-  
-  try {
-    const result = await session.withTransaction(async () => {
-      const { id } = req.params;
-      const { responseMessage } = req.body;
-      
-      console.log('📊 Request Details:', {
-        appointmentId: id,
-        responseMessage: responseMessage || 'No message provided',
-        userId: req.user?.id || req.user?._id,
-        userRole: req.user?.role,
-        userName: req.user?.name
-      });
-
-      // 1. Validate appointment ID
-      if (!id) {
-        throw new Error('Appointment ID is required');
-      }
-
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        console.error('❌ Invalid MongoDB ObjectId format:', id);
-        throw new Error('Invalid appointment ID format');
-      }
-
-      // 2. Find appointment
-      console.log('🔍 Searching for appointment...');
-      const appointment = await Appointment.findById(id).session(session);
-      
-      if (!appointment) {
-        console.error('❌ Appointment not found in database');
-        throw new Error('Appointment not found');
-      }
-
-      console.log('✅ Appointment found:', {
-        id: appointment._id,
-        status: appointment.status,
-        createdBy: appointment.createdBy,
-        teacherId: appointment.teacherId,
-        studentName: appointment.student?.name,
-        date: appointment.date,
-        time: appointment.time
-      });
-
-      // 3. Validate appointment can be rejected
-      if (appointment.status !== 'pending') {
-        console.error('❌ Invalid status for rejection:', appointment.status);
-        throw new Error(`Cannot reject appointment with status '${appointment.status}'. Only pending requests can be rejected.`);
-      }
-
-      if (appointment.createdBy !== 'student') {
-        console.error('❌ Invalid creator type:', appointment.createdBy);
-        throw new Error('Only student requests can be rejected');
-      }
-
-      // 4. Validate teacher authorization
-      const currentUserId = req.user?.id || req.user?._id;
-      if (!currentUserId) {
-        console.error('❌ No user ID found in request');
-        throw new Error('Authentication required');
-      }
-
-      console.log('🔒 Authorization check:', {
-        currentUserId: currentUserId.toString(),
-        appointmentTeacherId: appointment.teacherId.toString(),
-        match: currentUserId.toString() === appointment.teacherId.toString()
-      });
-
-      if (currentUserId.toString() !== appointment.teacherId.toString()) {
-        console.error('❌ Teacher authorization failed');
-        throw new Error('You can only reject appointments assigned to you');
-      }
-
-      console.log('✅ Authorization passed');
-
-      // 5. Update appointment status
-      console.log('💾 Updating appointment status to rejected...');
-      const updatedAppointment = await Appointment.findByIdAndUpdate(
-        id,
-        {
-          $set: {
-            status: 'rejected',
-            'teacherResponse.respondedAt': new Date(),
-            'teacherResponse.responseMessage': responseMessage?.trim() || 'Request rejected',
-            updatedAt: new Date()
-          }
-        },
-        {
-          new: true,
-          runValidators: true,
-          session: session
-        }
-      );
-
-      if (!updatedAppointment) {
-        console.error('❌ Update operation failed');
-        throw new Error('Failed to update appointment - appointment may have been deleted');
-      }
-
-      console.log('✅ Appointment updated successfully:', {
-        id: updatedAppointment._id,
-        status: updatedAppointment.status,
-        respondedAt: updatedAppointment.teacherResponse?.respondedAt
-      });
-
-      // 6. Populate teacher details for response
-      await updatedAppointment.populate('teacherId', 'name email phone subject department');
-
-      return updatedAppointment;
-    });
-
-    console.log('✅ APPOINTMENT REJECTED SUCCESSFULLY');
-
-    // 7. Send success response
-    res.status(200).json({
-      success: true,
-      data: result,
-      message: 'Appointment request rejected successfully'
-    });
-
-  } catch (error) {
-    console.error('\n❌ REJECT APPOINTMENT ERROR:', {
-      name: error.name,
-      message: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-
-    // Handle specific error types
-    let statusCode = 500;
-    let errorMessage = error.message || 'Internal server error';
-
-    if (error.name === 'CastError') {
-      statusCode = 400;
-      errorMessage = 'Invalid appointment ID format';
-    } else if (error.name === 'ValidationError') {
-      statusCode = 400;
-      errorMessage = 'Validation failed: ' + Object.values(error.errors).map(err => err.message).join(', ');
-    } else if (error.message.includes('not found')) {
-      statusCode = 404;
-    } else if (error.message.includes('permission') || error.message.includes('assigned to you') || error.message.includes('Authentication required')) {
-      statusCode = 403;
-    } else if (error.message.includes('status') || error.message.includes('pending')) {
-      statusCode = 400;
-    }
-
-    res.status(statusCode).json({
-      success: false,
-      message: errorMessage,
-      ...(process.env.NODE_ENV === 'development' && {
-        debug: {
-          appointmentId: req.params.id,
-          userId: req.user?.id || req.user?._id,
-          errorType: error.name,
-          timestamp: new Date().toISOString()
-        }
-      })
-    });
-
-  } finally {
-    await session.endSession();
-    console.log('=== REJECT APPOINTMENT REQUEST END ===\n');
-  }
-};
-
-// Get all appointments (with filtering options)
-const getAllAppointments = async (req, res) => {
-  try {
-    console.log('Fetching all appointments with filters:', req.query);
-    
-    const { status, createdBy, teacherId } = req.query;
-    const filter = {};
-    
-    if (status) filter.status = status;
-    if (createdBy) filter.createdBy = createdBy;
-    if (teacherId) filter.teacherId = teacherId;
-    
-    const appointments = await Appointment.find(filter)
-      .populate('teacherId', 'name email phone subject')
-      .sort({ createdAt: -1 });
-    
-    console.log(`Found ${appointments.length} appointments`);
-    
-    res.json({
-      success: true,
-      data: appointments,
-      count: appointments.length
-    });
-  } catch (error) {
-    console.error('Error fetching appointments:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch appointments',
-      error: error.message
-    });
-  }
-};
-
-// Get appointment by ID
-const getAppointmentById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid appointment ID'
-      });
-    }
-    
-    const appointment = await Appointment.findById(id)
-      .populate('teacherId', 'name email phone subject');
-    
-    if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Appointment not found'
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: appointment
-    });
-  } catch (error) {
-    console.error('Error fetching appointment:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch appointment',
-      error: error.message
-    });
-  }
-};
-
-// Student requests appointment (needs teacher approval)
-const requestAppointment = async (req, res) => {
-  try {
-    console.log('Student requesting appointment with data:', req.body);
-    
-    const { teacherId, day, time, date, student } = req.body;
-    
-    // Validate required fields
-    if (!teacherId || !day || !time || !date || !student) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required fields',
-        required: ['teacherId', 'day', 'time', 'date', 'student']
-      });
-    }
-    
-    // Validate student required fields
-    if (!student.name || !student.email) {
-      return res.status(400).json({
-        success: false,
-        message: 'Student name and email are required'
-      });
-    }
-    
-    // CORRECTED: Find teacher in User model with role 'teacher'
-    const teacher = await User.findById(teacherId);
-    if (!teacher || teacher.role !== 'teacher') {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher not found'
-      });
-    }
-    
-    // Normalize time format
-    const normalizedTime = normalizeTimeFormat(time);
-    console.log('Normalized time:', normalizedTime);
-    
-    // Check if slot is already booked or has pending request
-    const conflictingAppointment = await Appointment.findOne({
-      teacherId, 
-      date: new Date(date),
-      time: normalizedTime,
-      status: { $in: ['pending', 'confirmed', 'booked'] }
-    });
-    
-    if (conflictingAppointment) {
-      return res.status(409).json({
-        success: false,
-        message: 'This time slot is already booked or has a pending request'
-      });
-    }
-    
-    // Create appointment request
-    const appointmentData = {
-      teacherId,
-      teacherName: teacher.name,
-      student: {
-        name: student.name?.trim(),
-        email: student.email?.trim()?.toLowerCase(),
-        phone: student.phone?.trim() || '',
-        subject: student.subject?.trim() || '',
-        message: student.message?.trim() || ''
-      },
-      day,
-      time: normalizedTime,
-      date: new Date(date),
-      appointmentDate: new Date(date).toISOString(),
-      status: 'pending',
-      createdBy: 'student'
-    };
-    
-    console.log('Creating appointment request with data:', appointmentData);
-    
-    const appointment = new Appointment(appointmentData);
-    await appointment.save();
-    
-    // Populate teacher details for response
-    await appointment.populate('teacherId', 'name email phone subject');
-    
-    console.log('Appointment request created successfully:', appointment._id);
-    
     res.status(201).json({
       success: true,
       data: appointment,
@@ -750,9 +382,11 @@ const cancelAppointment = async (req, res) => {
     
     // Update appointment to cancelled status
     appointment.status = 'cancelled';
-    appointment.cancellationReason = reason || 'No reason provided';
-    appointment.cancelledBy = cancelledBy;
-    appointment.cancelledAt = new Date();
+    appointment.cancellation = {
+      cancelledBy: cancelledBy,
+      cancelledAt: new Date(),
+      cancellationReason: reason || 'No reason provided'
+    };
     appointment.updatedAt = new Date();
     
     await appointment.save();
@@ -779,6 +413,8 @@ const getTeacherPendingRequests = async (req, res) => {
   try {
     const teacherId = req.user?.id || req.user?._id || req.params.teacherId;
     
+    console.log('🔍 Getting pending requests for teacher:', teacherId);
+    
     if (!mongoose.Types.ObjectId.isValid(teacherId)) {
       return res.status(400).json({
         success: false,
@@ -786,7 +422,7 @@ const getTeacherPendingRequests = async (req, res) => {
       });
     }
     
-    // CORRECTED: Use direct find instead of static method
+    // Find pending requests for the teacher
     const pendingRequests = await Appointment.find({ 
       teacherId: teacherId,
       status: 'pending',
@@ -794,6 +430,8 @@ const getTeacherPendingRequests = async (req, res) => {
     })
     .populate('teacherId', 'name email phone subject')
     .sort({ createdAt: -1 });
+    
+    console.log(`✅ Found ${pendingRequests.length} pending requests`);
     
     res.json({
       success: true,
@@ -817,6 +455,8 @@ const getTeacherAppointments = async (req, res) => {
     const teacherId = req.user?.id || req.user?._id || req.params.teacherId;
     const { status, createdBy } = req.query;
     
+    console.log('🔍 Getting appointments for teacher:', teacherId, 'with filters:', { status, createdBy });
+    
     if (!mongoose.Types.ObjectId.isValid(teacherId)) {
       return res.status(400).json({
         success: false,
@@ -831,6 +471,8 @@ const getTeacherAppointments = async (req, res) => {
     const appointments = await Appointment.find(filter)
       .populate('teacherId', 'name email phone subject')
       .sort({ date: 1 });
+    
+    console.log(`✅ Found ${appointments.length} appointments`);
     
     res.json({
       success: true,
@@ -994,4 +636,4 @@ module.exports = {
   getAppointmentStats,
   // Legacy method for backward compatibility
   bookAppointment: requestAppointment
-};
+}
