@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Appointment = require('../models/Appointment');
-const Teacher = require('../models/Teacher');
+// CORRECTED: Import from User model since teachers should be users with role 'teacher'
+const User = require('../models/User');
 
 // Helper function to normalize time format
 const normalizeTimeFormat = (timeString) => {
@@ -487,9 +488,9 @@ const requestAppointment = async (req, res) => {
       });
     }
     
-    // Find teacher
-    const teacher = await Teacher.findById(teacherId);
-    if (!teacher) {
+    // CORRECTED: Find teacher in User model with role 'teacher'
+    const teacher = await User.findById(teacherId);
+    if (!teacher || teacher.role !== 'teacher') {
       return res.status(404).json({
         success: false,
         message: 'Teacher not found'
@@ -501,11 +502,12 @@ const requestAppointment = async (req, res) => {
     console.log('Normalized time:', normalizedTime);
     
     // Check if slot is already booked or has pending request
-    const conflictingAppointment = await Appointment.checkTimeSlotAvailability(
+    const conflictingAppointment = await Appointment.findOne({
       teacherId, 
-      date, 
-      normalizedTime
-    );
+      date: new Date(date),
+      time: normalizedTime,
+      status: { $in: ['pending', 'confirmed', 'booked'] }
+    });
     
     if (conflictingAppointment) {
       return res.status(409).json({
@@ -577,7 +579,7 @@ const teacherBookAppointment = async (req, res) => {
     console.log('Teacher booking appointment with data:', req.body);
     
     const { day, time, date, student, notes } = req.body;
-    const teacherId = req.user?.id || req.body.teacherId; // Assuming auth middleware sets req.user
+    const teacherId = req.user?.id || req.user?._id; // Get from authenticated user
     
     // Validate required fields
     if (!teacherId || !day || !time || !date || !student) {
@@ -596,12 +598,12 @@ const teacherBookAppointment = async (req, res) => {
       });
     }
     
-    // Find teacher
-    const teacher = await Teacher.findById(teacherId);
-    if (!teacher) {
+    // Find teacher (should be the authenticated user)
+    const teacher = await User.findById(teacherId);
+    if (!teacher || teacher.role !== 'teacher') {
       return res.status(404).json({
         success: false,
-        message: 'Teacher not found'
+        message: 'Teacher not found or invalid role'
       });
     }
     
@@ -609,11 +611,12 @@ const teacherBookAppointment = async (req, res) => {
     const normalizedTime = normalizeTimeFormat(time);
     
     // Check if slot is already booked
-    const conflictingAppointment = await Appointment.checkTimeSlotAvailability(
+    const conflictingAppointment = await Appointment.findOne({
       teacherId, 
-      date, 
-      normalizedTime
-    );
+      date: new Date(date),
+      time: normalizedTime,
+      status: { $in: ['pending', 'confirmed', 'booked'] }
+    });
     
     if (conflictingAppointment) {
       return res.status(409).json({
@@ -745,7 +748,14 @@ const cancelAppointment = async (req, res) => {
       });
     }
     
-    await appointment.cancelAppointment(cancelledBy, reason);
+    // Update appointment to cancelled status
+    appointment.status = 'cancelled';
+    appointment.cancellationReason = reason || 'No reason provided';
+    appointment.cancelledBy = cancelledBy;
+    appointment.cancelledAt = new Date();
+    appointment.updatedAt = new Date();
+    
+    await appointment.save();
     await appointment.populate('teacherId', 'name email phone subject');
     
     res.json({
@@ -767,7 +777,7 @@ const cancelAppointment = async (req, res) => {
 // Get pending requests for teacher
 const getTeacherPendingRequests = async (req, res) => {
   try {
-    const teacherId = req.user?.id || req.params.teacherId;
+    const teacherId = req.user?.id || req.user?._id || req.params.teacherId;
     
     if (!mongoose.Types.ObjectId.isValid(teacherId)) {
       return res.status(400).json({
@@ -776,8 +786,14 @@ const getTeacherPendingRequests = async (req, res) => {
       });
     }
     
-    const pendingRequests = await Appointment.findPendingForTeacher(teacherId)
-      .populate('teacherId', 'name email phone subject');
+    // CORRECTED: Use direct find instead of static method
+    const pendingRequests = await Appointment.find({ 
+      teacherId: teacherId,
+      status: 'pending',
+      createdBy: 'student'
+    })
+    .populate('teacherId', 'name email phone subject')
+    .sort({ createdAt: -1 });
     
     res.json({
       success: true,
@@ -798,7 +814,7 @@ const getTeacherPendingRequests = async (req, res) => {
 // Get appointments for a specific teacher
 const getTeacherAppointments = async (req, res) => {
   try {
-    const { teacherId } = req.params;
+    const teacherId = req.user?.id || req.user?._id || req.params.teacherId;
     const { status, createdBy } = req.query;
     
     if (!mongoose.Types.ObjectId.isValid(teacherId)) {
@@ -860,7 +876,12 @@ const completeAppointment = async (req, res) => {
       });
     }
     
-    await appointment.completeAppointment();
+    // Update to completed status
+    appointment.status = 'completed';
+    appointment.completedAt = new Date();
+    appointment.updatedAt = new Date();
+    
+    await appointment.save();
     await appointment.populate('teacherId', 'name email phone subject');
     
     res.json({

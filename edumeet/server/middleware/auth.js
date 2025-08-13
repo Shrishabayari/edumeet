@@ -1,4 +1,4 @@
-// middleware/auth.js - FIXED version to match frontend token structure
+// middleware/auth.js - CORRECTED version with consistent token handling
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
@@ -28,8 +28,18 @@ exports.protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('🔍 Decoded token payload (protect):', decoded);
 
-    // Find user by ID (use 'id' field from token)
-    const user = await User.findById(decoded.id);
+    // FIXED: Use consistent field name 'id' for all lookups
+    const userId = decoded.id || decoded._id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token structure - no user ID found'
+      });
+    }
+
+    // Find user by ID
+    const user = await User.findById(userId);
     
     if (!user) {
       return res.status(401).json({
@@ -82,7 +92,7 @@ exports.protect = async (req, res, next) => {
   }
 };
 
-// FIXED Admin-specific authentication middleware
+// FIXED: Admin-specific authentication middleware
 exports.authenticateAdmin = async (req, res, next) => {
   try {
     let token;
@@ -108,8 +118,8 @@ exports.authenticateAdmin = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('🔍 Decoded admin token payload:', decoded);
     
-    // FIXED: Try multiple possible ID fields in the token
-    let adminId = decoded.adminId || decoded.id || decoded._id;
+    // FIXED: Use consistent field name 'id'
+    const adminId = decoded.id || decoded._id;
     
     if (!adminId) {
       console.log('❌ No admin ID found in token payload');
@@ -164,7 +174,7 @@ exports.authenticateAdmin = async (req, res, next) => {
   }
 };
 
-// ADDED: Teacher-specific authentication middleware
+// CORRECTED: Teacher-specific authentication middleware
 exports.authenticateTeacher = async (req, res, next) => {
   try {
     let token;
@@ -189,8 +199,8 @@ exports.authenticateTeacher = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('🔍 Decoded teacher token payload:', decoded);
     
-    // Try multiple possible ID fields in the token
-    let teacherId = decoded.teacherId || decoded.id || decoded._id;
+    // FIXED: Use consistent field name 'id'
+    const teacherId = decoded.id || decoded._id;
     
     if (!teacherId) {
       return res.status(401).json({
@@ -199,7 +209,8 @@ exports.authenticateTeacher = async (req, res, next) => {
       });
     }
     
-    // Find teacher - assuming you have a Teacher model or teachers are stored in User model
+    // FIXED: Find teacher in User model with role check, or create separate Teacher model
+    // Assuming teachers are stored in User model with role 'teacher'
     const teacher = await User.findById(teacherId);
     
     if (!teacher || teacher.role !== 'teacher') {
@@ -217,9 +228,17 @@ exports.authenticateTeacher = async (req, res, next) => {
       });
     }
 
+    // Check if teacher is approved
+    if (teacher.approvalStatus !== 'approved') {
+      return res.status(401).json({
+        success: false,
+        message: 'Teacher account is not approved.'
+      });
+    }
+
     // Attach teacher to request object
     req.teacher = teacher;
-    req.user = teacher;
+    req.user = teacher; // For consistency with other middlewares
     
     next();
     
@@ -300,12 +319,17 @@ exports.optionalAuth = async (req, res, next) => {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       
-      // Find user by ID
-      const user = await User.findById(decoded.id);
+      // FIXED: Use consistent field name
+      const userId = decoded.id || decoded._id;
       
-      // Only attach user if found, active, and approved (or admin)
-      if (user && user.isActive && (user.role === 'admin' || user.approvalStatus === 'approved')) {
-        req.user = user;
+      if (userId) {
+        // Find user by ID
+        const user = await User.findById(userId);
+        
+        // Only attach user if found, active, and approved (or admin)
+        if (user && user.isActive && (user.role === 'admin' || user.approvalStatus === 'approved')) {
+          req.user = user;
+        }
       }
     }
 

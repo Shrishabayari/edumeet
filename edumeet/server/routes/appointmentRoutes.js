@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { protect, authenticateTeacher } = require('../middleware/auth');
+const { protect, authenticateTeacher, authorize } = require('../middleware/auth');
 const {
   getAllAppointments,
   getAppointmentById,
@@ -118,12 +118,8 @@ const requestAppointmentValidation = [
   body('teacherId')
     .notEmpty()
     .withMessage('Teacher ID is required')
-    .custom((value) => {
-      if (typeof value === 'string' && value.length > 0) {
-        return true;
-      }
-      throw new Error('Valid teacher ID is required');
-    })
+    .isMongoId()
+    .withMessage('Valid teacher ID is required')
 ];
 
 // Teacher direct booking validation
@@ -219,14 +215,14 @@ router.get('/debug/routes', (req, res) => {
 });
 
 // 2. STATISTICS ROUTE (static route - no parameters)
-router.get('/stats', getAppointmentStats);
+router.get('/stats', protect, getAppointmentStats);
 
 // ================================================================
 // 3. APPOINTMENT ACTION ROUTES - HIGHEST PRIORITY
 // These MUST come before ANY parameterized routes (/:id)
 // ================================================================
 
-// ACCEPT appointment request - FIXED ROUTE
+// ACCEPT appointment request - REQUIRES TEACHER AUTHENTICATION
 router.put('/:id/accept', 
   (req, res, next) => {
     console.log(`🎯 ACCEPT ROUTE HIT - ID: ${req.params.id}`);
@@ -240,7 +236,8 @@ router.put('/:id/accept',
     console.log(`   Body:`, req.body);
     next();
   },
-  protect, // Authentication middleware
+  protect, // Use general protect middleware that handles teachers
+  authorize('teacher'), // Ensure only teachers can accept
   responseValidation,
   handleValidationErrors,
   (req, res, next) => {
@@ -255,7 +252,7 @@ router.put('/:id/accept',
   acceptAppointmentRequest
 );
 
-// REJECT appointment request - FIXED ROUTE
+// REJECT appointment request - REQUIRES TEACHER AUTHENTICATION
 router.put('/:id/reject',
   (req, res, next) => {
     console.log(`🎯 REJECT ROUTE HIT - ID: ${req.params.id}`);
@@ -269,7 +266,8 @@ router.put('/:id/reject',
     console.log(`   Body:`, req.body);
     next();
   },
-  protect, // Authentication middleware
+  protect, // Use general protect middleware
+  authorize('teacher'), // Ensure only teachers can reject
   responseValidation,
   handleValidationErrors,
   (req, res, next) => {
@@ -284,7 +282,7 @@ router.put('/:id/reject',
   rejectAppointmentRequest
 );
 
-// COMPLETE appointment - FIXED ROUTE
+// COMPLETE appointment - REQUIRES TEACHER AUTHENTICATION
 router.put('/:id/complete',
   (req, res, next) => {
     console.log(`🎯 COMPLETE ROUTE HIT - ID: ${req.params.id}`);
@@ -293,6 +291,7 @@ router.put('/:id/complete',
     next();
   },
   protect,
+  authorize('teacher'),
   (req, res, next) => {
     console.log(`✅ Complete route auth passed for ID: ${req.params.id}`);
     next();
@@ -300,7 +299,7 @@ router.put('/:id/complete',
   completeAppointment
 );
 
-// CANCEL appointment - FIXED ROUTE
+// CANCEL appointment - CAN BE DONE BY BOTH STUDENTS AND TEACHERS
 router.put('/:id/cancel',
   (req, res, next) => {
     console.log(`🎯 CANCEL ROUTE HIT - ID: ${req.params.id}`);
@@ -327,6 +326,7 @@ router.get('/teacher/:teacherId/pending',
     next();
   },
   protect, 
+  authorize('teacher'), // Only teachers can access this
   getTeacherPendingRequests
 );
 
@@ -336,6 +336,7 @@ router.get('/teacher/:teacherId',
     next();
   },
   protect, 
+  authorize('teacher'), // Only teachers can access this
   getTeacherAppointments
 );
 
@@ -343,7 +344,8 @@ router.get('/teacher/:teacherId',
 // 5. APPOINTMENT CREATION ROUTES
 // ================================================================
 
-// Student requests appointment (public - no auth required)
+// Student requests appointment (public - no auth required initially)
+// CORRECTED: Made this route public so students can request appointments
 router.post('/request',
   (req, res, next) => {
     console.log('🎯 STUDENT REQUEST ROUTE:', req.body);
@@ -361,6 +363,7 @@ router.post('/book',
     next();
   },
   protect,
+  authorize('teacher'),
   teacherBookingValidation,
   handleValidationErrors,
   teacherBookAppointment
@@ -370,25 +373,27 @@ router.post('/book',
 // 6. GENERIC ROUTES (MUST BE LAST - broader matching patterns)
 // ================================================================
 
-// Get all appointments
+// Get all appointments - PROTECTED
 router.get('/', 
   (req, res, next) => {
     console.log('🎯 GET ALL APPOINTMENTS with filters:', req.query);
     next();
   }, 
+  protect,
   getAllAppointments
 );
 
-// Get appointment by ID - MUST come after all specific /:id/* routes
+// Get appointment by ID - PROTECTED
 router.get('/:id', 
   (req, res, next) => {
     console.log(`🎯 GET APPOINTMENT BY ID: ${req.params.id}`);
     next();
   }, 
+  protect,
   getAppointmentById
 );
 
-// Update appointment (generic update) - MUST come after all specific PUT routes
+// Update appointment (generic update) - PROTECTED
 router.put('/:id',
   (req, res, next) => {
     console.log(`🎯 GENERIC UPDATE ROUTE - ID: ${req.params.id}`);
@@ -401,7 +406,7 @@ router.put('/:id',
   updateAppointment
 );
 
-// Delete appointment (using cancel logic) - MUST come last
+// Delete appointment (using cancel logic) - PROTECTED
 router.delete('/:id',
   (req, res, next) => {
     console.log(`🎯 DELETE ROUTE - ID: ${req.params.id}`);
@@ -453,6 +458,6 @@ if (process.env.NODE_ENV === 'development') {
   });
 }
 
-console.log('✅ Appointment routes setup complete with proper ordering');
+console.log('✅ Appointment routes setup complete with proper ordering and authentication');
 
 module.exports = router;
