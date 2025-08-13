@@ -1,108 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Calendar, Clock, User, Mail, Phone, BookOpen, CheckCircle, XCircle, AlertCircle, Plus, MessageSquare, Filter, Search, RefreshCw } from 'lucide-react';
 
-// CORRECTED: Mock API service for demonstration - replace with your actual API service
-// In your actual implementation, replace this with: import { apiMethods, tokenManager } from '../../services/api';
-
-// Mock API service for demonstration
-const mockApiService = {
-  getTeacherPendingRequests: async (teacherId) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Mock data - replace with actual API call
-    return {
-      data: {
-        success: true,
-        data: [
-          {
-            _id: '507f1f77bcf86cd799439011',
-            student: {
-              name: 'John Doe',
-              email: 'john@example.com',
-              phone: '+1234567890',
-              subject: 'Mathematics Help',
-              message: 'Need help with calculus problems'
-            },
-            day: 'Monday',
-            time: '2:00 PM',
-            date: new Date('2024-03-25'),
-            status: 'pending',
-            createdBy: 'student',
-            createdAt: new Date('2024-03-20')
-          }
-        ]
-      }
-    };
-  },
-  
-  getTeacherAppointments: async (teacherId) => {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    return {
-      data: {
-        success: true,
-        data: [
-          {
-            _id: '507f1f77bcf86cd799439012',
-            student: {
-              name: 'Jane Smith',
-              email: 'jane@example.com',
-              phone: '+1234567891',
-              subject: 'Physics Review',
-              message: 'Review for upcoming exam'
-            },
-            day: 'Wednesday',
-            time: '3:00 PM',
-            date: new Date('2024-03-27'),
-            status: 'confirmed',
-            createdBy: 'student',
-            createdAt: new Date('2024-03-21')
-          }
-        ]
-      }
-    };
-  },
-  
-  acceptAppointmentRequest: async (id, responseMessage) => {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    console.log(`Accepting appointment ${id} with message: ${responseMessage}`);
-    return { data: { success: true, message: 'Appointment accepted' } };
-  },
-  
-  rejectAppointmentRequest: async (id, responseMessage) => {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    console.log(`Rejecting appointment ${id} with message: ${responseMessage}`);
-    return { data: { success: true, message: 'Appointment rejected' } };
-  },
-  
-  completeAppointment: async (id) => {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    return { data: { success: true, message: 'Appointment completed' } };
-  },
-  
-  cancelAppointment: async (id, reason) => {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    return { data: { success: true, message: 'Appointment cancelled' } };
-  }
-};
-
-const mockTokenManager = {
-  getTeacherToken: () => 'mock-teacher-token',
-  removeTeacherToken: () => console.log('Teacher token removed')
-};
-
-// Use actual API service in production
-const apiMethods = mockApiService;
-const tokenManager = mockTokenManager;
+// CORRECTED: Import actual API methods instead of mock
+import { apiMethods, tokenManager } from '../../services/api';
 
 const TeacherAppointmentManager = () => {
-  const [currentTeacher, setCurrentTeacher] = useState({
-    id: 'teacher123',
-    _id: 'teacher123',
-    name: 'Dr. John Smith',
-    email: 'john.smith@school.edu'
-  });
+  const [currentTeacher, setCurrentTeacher] = useState(null);
   const [appointments, setAppointments] = useState([]);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [activeTab, setActiveTab] = useState('pending');
@@ -115,12 +18,12 @@ const TeacherAppointmentManager = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
 
-  // ADDED: Refs to prevent multiple simultaneous requests
+  // Refs to prevent multiple simultaneous requests
   const fetchingPending = useRef(false);
   const fetchingAppointments = useRef(false);
   const mountedRef = useRef(true);
 
-  // ADDED: Cleanup on unmount
+  // Cleanup on unmount
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -128,11 +31,10 @@ const TeacherAppointmentManager = () => {
     };
   }, []);
 
-  // FIXED: Enhanced teacher loading with token validation
+  // FIXED: Enhanced teacher loading with proper token validation
   useEffect(() => {
     const loadTeacher = () => {
-      // In production, this would load from actual storage
-      // Check for teacher data in both storage types
+      // Check for teacher data in storage
       let teacherData = localStorage.getItem('teacher');
       if (!teacherData) {
         teacherData = sessionStorage.getItem('teacher');
@@ -160,14 +62,9 @@ const TeacherAppointmentManager = () => {
           }
         }
       } else {
-        // For demo purposes, use mock teacher data
+        // Try to get teacher profile from API
         if (mountedRef.current) {
-          setCurrentTeacher({
-            id: 'teacher123',
-            _id: 'teacher123',
-            name: 'Dr. John Smith',
-            email: 'john.smith@school.edu'
-          });
+          fetchTeacherProfile();
         }
       }
     };
@@ -175,7 +72,39 @@ const TeacherAppointmentManager = () => {
     loadTeacher();
   }, []);
 
-  // FIXED: Fetch pending requests with debouncing and request deduplication
+  // ADDED: Function to fetch teacher profile from API
+  const fetchTeacherProfile = async () => {
+    try {
+      setLoading(true);
+      const response = await apiMethods.getTeacherProfile();
+      console.log('Teacher profile response:', response);
+      
+      if (response.data && response.data.success) {
+        const teacher = response.data.data || response.data.user;
+        if (teacher && mountedRef.current) {
+          setCurrentTeacher(teacher);
+          // Store teacher data for future use
+          localStorage.setItem('teacher', JSON.stringify(teacher));
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching teacher profile:', error);
+      if (mountedRef.current) {
+        if (error.message.includes('401') || error.message.includes('unauthorized')) {
+          setError('Authentication failed. Please log in again.');
+          tokenManager.removeTeacherToken();
+        } else {
+          setError('Failed to load teacher profile: ' + error.message);
+        }
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  };
+
+  // FIXED: Fetch pending requests with proper API endpoint
   const fetchPendingRequests = useCallback(async () => {
     if (!currentTeacher?.id && !currentTeacher?._id) return;
     if (fetchingPending.current) {
@@ -193,7 +122,7 @@ const TeacherAppointmentManager = () => {
       const response = await apiMethods.getTeacherPendingRequests(teacherId);
       console.log('Pending requests response:', response);
       
-      if (!mountedRef.current) return; // Don't update state if component unmounted
+      if (!mountedRef.current) return;
       
       let requestsData = [];
       if (response?.data?.success && Array.isArray(response.data.data)) {
@@ -202,11 +131,12 @@ const TeacherAppointmentManager = () => {
         requestsData = response.data;
       }
       
+      console.log('Setting pending requests:', requestsData);
       setPendingRequests(requestsData);
     } catch (error) {
       console.error('Error fetching pending requests:', error);
       
-      if (!mountedRef.current) return; // Don't update state if component unmounted
+      if (!mountedRef.current) return;
       
       // Handle specific authentication errors
       if (error.message.includes('401') || error.message.includes('unauthorized')) {
@@ -227,7 +157,7 @@ const TeacherAppointmentManager = () => {
     }
   }, [currentTeacher]);
 
-  // FIXED: Fetch all appointments with debouncing and request deduplication
+  // FIXED: Fetch all appointments with proper API endpoint
   const fetchAllAppointments = useCallback(async () => {
     if (!currentTeacher?.id && !currentTeacher?._id) return;
     if (fetchingAppointments.current) {
@@ -245,7 +175,7 @@ const TeacherAppointmentManager = () => {
       const response = await apiMethods.getTeacherAppointments(teacherId);
       console.log('All appointments response:', response);
       
-      if (!mountedRef.current) return; // Don't update state if component unmounted
+      if (!mountedRef.current) return;
       
       let appointmentsData = [];
       if (response?.data?.success && Array.isArray(response.data.data)) {
@@ -256,11 +186,12 @@ const TeacherAppointmentManager = () => {
       
       // Filter out pending requests (they'll be shown separately)
       const nonPendingAppointments = appointmentsData.filter(apt => apt.status !== 'pending');
+      console.log('Setting appointments:', nonPendingAppointments);
       setAppointments(nonPendingAppointments);
     } catch (error) {
       console.error('Error fetching appointments:', error);
       
-      if (!mountedRef.current) return; // Don't update state if component unmounted
+      if (!mountedRef.current) return;
       
       if (error.message.includes('401') || error.message.includes('unauthorized')) {
         setError('Authentication failed. Please log in again.');
@@ -342,9 +273,9 @@ const TeacherAppointmentManager = () => {
         setLoading(false);
       }
     }
-  }, [fetchPendingRequests, fetchAllAppointments, loading]);
+  }, [fetchPendingRequests, fetchAllAppointments, loading, showMessage]);
 
-  // FIXED: Enhanced appointment approval with better error handling and rate limiting
+  // FIXED: Enhanced appointment approval with better error handling
   const handleApproveRequest = async (appointmentId, message = '') => {
     if (loading) {
       showMessage('Please wait for the current operation to complete.', 'error');
@@ -355,7 +286,6 @@ const TeacherAppointmentManager = () => {
       setLoading(true);
       console.log('Approving appointment:', appointmentId, 'with message:', message);
       
-      // Use the retry method for better reliability
       const response = await apiMethods.acceptAppointmentRequest(appointmentId, message);
       console.log('Approve response:', response);
       
@@ -399,7 +329,7 @@ const TeacherAppointmentManager = () => {
     }
   };
 
-  // FIXED: Enhanced appointment rejection with better error handling and rate limiting
+  // FIXED: Enhanced appointment rejection with better error handling
   const handleRejectRequest = async (appointmentId, message = '') => {
     if (loading) {
       showMessage('Please wait for the current operation to complete.', 'error');
@@ -410,7 +340,6 @@ const TeacherAppointmentManager = () => {
       setLoading(true);
       console.log('Rejecting appointment:', appointmentId, 'with message:', message);
       
-      // Use the retry method for better reliability
       const response = await apiMethods.rejectAppointmentRequest(appointmentId, message || 'Request rejected by teacher');
       console.log('Reject response:', response);
       
@@ -754,7 +683,7 @@ const TeacherAppointmentManager = () => {
               </div>
             ) : (
               filteredPendingRequests.map(request => (
-                <div key={request.id || request._id} className="bg-white rounded-2xl shadow-xl p-6 border border-orange-200">
+                <div key={request._id || request.id} className="bg-white rounded-2xl shadow-xl p-6 border border-orange-200">
                   <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
                     <div className="flex items-center space-x-4 flex-1">
                       <div className="bg-gradient-to-r from-orange-400 to-red-500 p-3 rounded-full">
@@ -789,7 +718,7 @@ const TeacherAppointmentManager = () => {
 
                     <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
                       <button
-                        onClick={() => openResponseModal('approve', request.id || request._id)}
+                        onClick={() => openResponseModal('approve', request._id || request.id)}
                         disabled={loading}
                         className="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600 transition-colors font-semibold shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
                       >
@@ -797,7 +726,7 @@ const TeacherAppointmentManager = () => {
                         Approve
                       </button>
                       <button
-                        onClick={() => openResponseModal('reject', request.id || request._id)}
+                        onClick={() => openResponseModal('reject', request._id || request.id)}
                         disabled={loading}
                         className="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 transition-colors font-semibold shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
                       >
@@ -844,7 +773,7 @@ const TeacherAppointmentManager = () => {
               filteredAppointments
                 .sort((a, b) => new Date(a.date || a.appointmentDate) - new Date(b.date || b.appointmentDate))
                 .map(appointment => (
-                  <div key={appointment.id || appointment._id} className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
+                  <div key={appointment._id || appointment.id} className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
                     <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
                       <div className="flex items-center space-x-4 flex-1">
                         <div className="bg-gradient-to-r from-blue-400 to-purple-500 p-3 rounded-full">
@@ -897,14 +826,14 @@ const TeacherAppointmentManager = () => {
                           {(appointment.status === 'confirmed' || appointment.status === 'booked') && (
                             <>
                               <button
-                                onClick={() => completeAppointment(appointment.id || appointment._id)}
+                                onClick={() => completeAppointment(appointment._id || appointment.id)}
                                 disabled={loading}
                                 className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors text-sm disabled:opacity-50"
                               >
                                 Complete
                               </button>
                               <button
-                                onClick={() => cancelAppointment(appointment.id || appointment._id)}
+                                onClick={() => cancelAppointment(appointment._id || appointment.id)}
                                 disabled={loading}
                                 className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors text-sm disabled:opacity-50"
                               >
