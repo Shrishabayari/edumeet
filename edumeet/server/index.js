@@ -23,45 +23,74 @@ const connectDB = require('./config/db');
 // Import models
 const Message = require('./models/Message');
 const User = require('./models/User');
-const Teacher = require('./models/Teacher');
+const Admin = require('./models/Admin');
 
 const app = express();
 
 // Create HTTP server and Socket.io instance
 const server = http.createServer(app);
 
-// Connect to MongoDB
-connectDB();
+// Connect to MongoDB with error handling
+connectDB().catch(err => {
+  console.error('Failed to connect to MongoDB:', err);
+  process.exit(1);
+});
 
-// Middleware: Security headers
+// Security middleware
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable CSP for Socket.IO
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      connectSrc: ["'self'", "ws:", "wss:"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
   crossOriginEmbedderPolicy: false
 }));
 
-// Rate Limiting
-const limiter = rateLimit({
+// Rate Limiting with different limits for different routes
+const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // Increased for socket connections
+  max: 100, // limit each IP to 100 requests per windowMs
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again later.',
   },
+  standardHeaders: true,
+  legacyHeaders: false,
   skip: (req) => {
-    // Skip rate limiting for socket.io requests
-    return req.url.startsWith('/socket.io/');
+    // Skip rate limiting for socket.io requests and health checks
+    return req.url.startsWith('/socket.io/') || req.url === '/api/health';
   }
 });
-app.use(limiter);
 
-// Allowed Origins
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // limit each IP to 5 requests per windowMs for auth routes
+  message: {
+    success: false,
+    message: 'Too many authentication attempts, please try again later.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply rate limiting
+app.use('/api/auth', authLimiter);
+app.use(generalLimiter);
+
+// Allowed Origins with environment variable support
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
   'https://edumeet-1.onrender.com',
-  'https://edumeet.onrender.com'
+  'https://edumeet.onrender.com',
+  ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [])
 ];
 
-// Socket.io setup with CORS
+// Socket.io setup with enhanced CORS and error handling
 const io = socketIo(server, {
   cors: {
     origin: allowedOrigins,
@@ -69,14 +98,17 @@ const io = socketIo(server, {
     credentials: true
   },
   transports: ['websocket', 'polling'],
-  allowEIO3: true
+  allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
-// CORS Middleware
+// Enhanced CORS middleware
 app.use(cors({
   origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) {
-      console.log('[CORS] No origin - allowing request (Postman or same-origin)');
+      console.log('[CORS] No origin - allowing request');
       return callback(null, true);
     }
 
@@ -96,94 +128,104 @@ app.use(cors({
     'X-Requested-With',
     'Accept',
     'Origin',
-    'Access-Control-Allow-Origin'
+    'Cache-Control',
+    'Pragma'
   ],
+  exposedHeaders: ['Content-Length', 'X-Request-Id'],
   optionsSuccessStatus: 200,
   preflightContinue: false
 }));
 
-// Request logging middleware
+// Request logging middleware with better formatting
 app.use((req, res, next) => {
   if (process.env.NODE_ENV === 'development') {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - Origin: ${req.headers.origin || 'No Origin'}`);
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${req.method} ${req.originalUrl}`, {
+      origin: req.headers.origin || 'No Origin',
+      userAgent: req.headers['user-agent']?.substring(0, 50) + '...' || 'No User Agent'
+    });
   }
   next();
 });
 
-// Body parsers
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Body parsers with enhanced limits and error handling
+app.use(express.json({ 
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    try {
+      JSON.parse(buf);
+    } catch (e) {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid JSON format'
+      });
+      throw new Error('Invalid JSON');
+    }
+  }
+}));
+
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: '10mb',
+  parameterLimit: 20
+}));
+
 app.use(cookieParser());
 
-// Logger (only in development)
+// Enhanced logging (only in development)
 if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
+  app.use(morgan('combined'));
 }
 
-// Enhanced Socket.io middleware for authentication
+// Socket.io authentication middleware
 io.use(async (socket, next) => {
   try {
-    const token = socket.handshake.auth.token;
+    let token = socket.handshake.auth.token || socket.handshake.headers.authorization;
     
     if (!token) {
-      console.log('❌ Socket connection rejected: No token provided');
-      return next(new Error('No token provided'));
+      return next(new Error('Authentication required'));
+    }
+
+    const cleanToken = token.replace('Bearer ', '');
+    
+    let decoded;
+    try {
+      decoded = jwt.verify(cleanToken, process.env.JWT_SECRET);
+    } catch (tokenError) {
+      return next(new Error('Invalid or expired token'));
     }
     
-    // Verify JWT token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('🔍 Socket token decoded:', { id: decoded.id, role: decoded.role });
+    const userId = decoded.id || decoded._id;
+    if (!userId) {
+      return next(new Error('Invalid token structure'));
+    }
     
-    // Attach basic user info from token
-    socket.userId = decoded.id;
+    socket.userId = userId;
     socket.userRole = decoded.role || 'student';
     
-    // Fetch user details from database based on role
     let user;
-    try {
-      if (decoded.role === 'teacher') {
-        user = await Teacher.findById(decoded.id).select('name email isActive');
-      } else {
-        user = await User.findById(decoded.id).select('name email isActive approvalStatus');
-      }
-      
-      if (!user) {
-        console.log('❌ Socket connection rejected: User not found in database');
-        return next(new Error('User not found'));
-      }
-      
-      if (!user.isActive) {
-        console.log('❌ Socket connection rejected: User account is not active');
-        return next(new Error('User account is not active'));
-      }
-      
-      // For students, check approval status
-      if (decoded.role !== 'teacher' && user.approvalStatus !== 'approved') {
-        console.log('❌ Socket connection rejected: User not approved');
-        return next(new Error('User account is not approved'));
-      }
-      
-      // Attach user details to socket
-      socket.userName = user.name;
-      socket.userEmail = user.email;
-      socket.user = user;
-      
-      console.log(`✅ Socket authenticated: ${socket.userName} (${socket.userRole}) - ID: ${socket.userId}`);
-      next();
-      
-    } catch (dbError) {
-      console.error('❌ Database error during socket authentication:', dbError);
-      return next(new Error('Database error during authentication'));
+    if (decoded.role === 'admin') {
+      user = await Admin.findById(userId).select('name email isActive');
+    } else {
+      user = await User.findById(userId).select('name email isActive approvalStatus role');
     }
     
+    if (!user || !user.isActive) {
+      return next(new Error('User not found or inactive'));
+    }
+    
+    if (decoded.role !== 'admin' && user.approvalStatus !== 'approved') {
+      return next(new Error('Account not approved'));
+    }
+    
+    socket.userName = user.name;
+    socket.user = user;
+    
+    console.log(`✅ Socket authenticated: ${socket.userName} (${socket.userRole})`);
+    next();
+    
   } catch (error) {
-    console.error('❌ Socket authentication error:', error.message);
-    if (error.name === 'JsonWebTokenError') {
-      return next(new Error('Invalid token'));
-    }
-    if (error.name === 'TokenExpiredError') {
-      return next(new Error('Token expired'));
-    }
+    console.error('❌ Socket auth error:', error.message);
     return next(new Error('Authentication failed'));
   }
 });
@@ -192,17 +234,39 @@ io.use(async (socket, next) => {
 io.on('connection', (socket) => {
   console.log(`👤 User connected: ${socket.userName} (${socket.userRole}) - Socket ID: ${socket.id}`);
   
-  // Join a room
-  socket.on('join-room', (roomId) => {
+  // Store connected users
+  socket.on('user-online', () => {
+    socket.broadcast.emit('user-status', {
+      userId: socket.userId,
+      userName: socket.userName,
+      status: 'online'
+    });
+  });
+  
+  // Enhanced room management
+  socket.on('join-room', (data) => {
     try {
+      const { roomId, roomType = 'general' } = data;
+      
       if (!roomId || typeof roomId !== 'string') {
         socket.emit('error', { message: 'Invalid room ID' });
         return;
       }
       
+      // Leave current room if in one
+      if (socket.currentRoom) {
+        socket.leave(socket.currentRoom);
+        socket.to(socket.currentRoom).emit('user-left', {
+          userName: socket.userName,
+          userId: socket.userId
+        });
+      }
+      
       socket.join(roomId);
       socket.currentRoom = roomId;
-      console.log(`🏠 ${socket.userName} joined room: ${roomId}`);
+      socket.roomType = roomType;
+      
+      console.log(`🏠 ${socket.userName} joined room: ${roomId} (${roomType})`);
       
       // Notify others in the room
       socket.to(roomId).emit('user-joined', {
@@ -212,7 +276,7 @@ io.on('connection', (socket) => {
       });
       
       // Confirm room join to the user
-      socket.emit('room-joined', { roomId });
+      socket.emit('room-joined', { roomId, roomType });
       
     } catch (error) {
       console.error('❌ Error joining room:', error);
@@ -220,64 +284,49 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Leave a room
-  socket.on('leave-room', (roomId) => {
-    try {
-      if (roomId && typeof roomId === 'string') {
-        socket.leave(roomId);
-        socket.to(roomId).emit('user-left', {
-          userName: socket.userName,
-          userRole: socket.userRole,
-          userId: socket.userId
-        });
-        console.log(`🚪 ${socket.userName} left room: ${roomId}`);
-        
-        if (socket.currentRoom === roomId) {
-          socket.currentRoom = null;
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error leaving room:', error);
-    }
-  });
-  
-  // Handle sending messages
+  // Enhanced message handling
   socket.on('send-message', async (data) => {
     try {
-      // Validate input data
+      // Comprehensive input validation
       if (!data.text || typeof data.text !== 'string' || data.text.trim().length === 0) {
-        socket.emit('error', { message: 'Message text is required' });
+        socket.emit('message-error', { message: 'Message text is required' });
         return;
       }
       
       if (!data.roomId || typeof data.roomId !== 'string') {
-        socket.emit('error', { message: 'Room ID is required' });
+        socket.emit('message-error', { message: 'Room ID is required' });
         return;
       }
       
       if (data.text.length > 1000) {
-        socket.emit('error', { message: 'Message cannot exceed 1000 characters' });
+        socket.emit('message-error', { message: 'Message too long (max 1000 characters)' });
         return;
       }
       
-      // Ensure user is authenticated
+      // Ensure user is authenticated and in the room
       if (!socket.userName || !socket.userId) {
-        socket.emit('error', { message: 'User authentication required' });
+        socket.emit('message-error', { message: 'Authentication required' });
         return;
       }
       
-      console.log(`💬 Processing message from: ${socket.userName} (${socket.userRole}) in room: ${data.roomId}`);
+      if (socket.currentRoom !== data.roomId) {
+        socket.emit('message-error', { message: 'You must join the room first' });
+        return;
+      }
       
-      // Create message using the Message model's static method
+      console.log(`💬 Processing message from: ${socket.userName} in room: ${data.roomId}`);
+      
+      // Create message
       const messageData = {
         text: data.text.trim(),
         sender: socket.userName,
         senderId: socket.userId,
         role: socket.userRole,
-        roomId: data.roomId
+        roomId: data.roomId,
+        messageType: data.messageType || 'text'
       };
       
-      const savedMessage = await Message.createMessage(messageData);
+      const savedMessage = await Message.create(messageData);
       console.log(`✅ Message saved: ${savedMessage._id}`);
       
       // Format message for client
@@ -288,7 +337,8 @@ io.on('connection', (socket) => {
         senderId: savedMessage.senderId,
         role: savedMessage.role,
         roomId: savedMessage.roomId,
-        reactions: savedMessage.reactions,
+        messageType: savedMessage.messageType,
+        reactions: savedMessage.reactions || [],
         timestamp: savedMessage.createdAt,
         createdAt: savedMessage.createdAt
       };
@@ -299,69 +349,31 @@ io.on('connection', (socket) => {
       
     } catch (error) {
       console.error('❌ Error sending message:', error);
-      socket.emit('error', { 
+      socket.emit('message-error', { 
         message: 'Failed to send message',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   });
   
-  // Handle reactions (only teachers can react)
-  socket.on('add-reaction', async (data) => {
-    try {
-      if (socket.userRole !== 'teacher') {
-        socket.emit('error', { message: 'Only teachers can add reactions' });
-        return;
-      }
-      
-      if (!data.messageId || !data.reactionType) {
-        socket.emit('error', { message: 'Message ID and reaction type are required' });
-        return;
-      }
-      
-      console.log(`❤️ Adding reaction: ${data.reactionType} to message ${data.messageId} by ${socket.userName}`);
-      
-      // Use the static method from Message model
-      const updatedMessage = await Message.addReactionToMessage(
-        data.messageId,
-        data.reactionType,
-        socket.userId
-      );
-      
-      // Format updated message for client
-      const messageForClient = {
-        id: updatedMessage._id,
-        text: updatedMessage.text,
-        sender: updatedMessage.sender,
-        senderId: updatedMessage.senderId,
-        role: updatedMessage.role,
-        roomId: updatedMessage.roomId,
-        reactions: updatedMessage.reactions,
-        timestamp: updatedMessage.createdAt,
-        createdAt: updatedMessage.createdAt
-      };
-      
-      // Broadcast updated message to all users in the room
-      io.to(updatedMessage.roomId).emit('message-updated', messageForClient);
-      console.log(`✅ Reaction added and broadcasted to room: ${updatedMessage.roomId}`);
-      
-    } catch (error) {
-      console.error('❌ Error adding reaction:', error);
-      socket.emit('error', { 
-        message: error.message || 'Failed to add reaction',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  });
-  
-  // Handle typing indicators
+  // Enhanced typing indicators with throttling
+  let typingTimeout;
   socket.on('typing-start', (data) => {
     try {
       if (data.roomId && socket.currentRoom === data.roomId) {
+        clearTimeout(typingTimeout);
         socket.to(data.roomId).emit('user-typing', {
           userName: socket.userName,
           userId: socket.userId
         });
+        
+        // Auto-stop typing after 3 seconds
+        typingTimeout = setTimeout(() => {
+          socket.to(data.roomId).emit('user-stop-typing', {
+            userName: socket.userName,
+            userId: socket.userId
+          });
+        }, 3000);
       }
     } catch (error) {
       console.error('❌ Error handling typing start:', error);
@@ -370,6 +382,7 @@ io.on('connection', (socket) => {
   
   socket.on('typing-stop', (data) => {
     try {
+      clearTimeout(typingTimeout);
       if (data.roomId && socket.currentRoom === data.roomId) {
         socket.to(data.roomId).emit('user-stop-typing', {
           userName: socket.userName,
@@ -381,57 +394,11 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Handle message deletion
-  socket.on('delete-message', async (data) => {
-    try {
-      const { messageId } = data;
-      
-      if (!messageId) {
-        socket.emit('error', { message: 'Message ID is required' });
-        return;
-      }
-      
-      const message = await Message.findById(messageId);
-      
-      if (!message) {
-        socket.emit('error', { message: 'Message not found' });
-        return;
-      }
-      
-      if (message.isDeleted) {
-        socket.emit('error', { message: 'Message is already deleted' });
-        return;
-      }
-      
-      // Check if user can delete (sender or teacher)
-      if (message.senderId.toString() !== socket.userId && socket.userRole !== 'teacher') {
-        socket.emit('error', { message: 'Not authorized to delete this message' });
-        return;
-      }
-      
-      // Soft delete
-      message.isDeleted = true;
-      await message.save();
-      
-      // Notify all users in the room
-      io.to(message.roomId).emit('message-deleted', {
-        messageId: message._id,
-        roomId: message.roomId
-      });
-      
-      console.log(`🗑️ Message ${messageId} deleted by ${socket.userName}`);
-      
-    } catch (error) {
-      console.error('❌ Error deleting message:', error);
-      socket.emit('error', { 
-        message: error.message || 'Failed to delete message'
-      });
-    }
-  });
-  
   // Handle disconnection
   socket.on('disconnect', (reason) => {
-    console.log(`👋 User disconnected: ${socket.userName} (${socket.userRole}) - Reason: ${reason}`);
+    console.log(`👋 User disconnected: ${socket.userName} - Reason: ${reason}`);
+    
+    clearTimeout(typingTimeout);
     
     // Notify current room if user was in one
     if (socket.currentRoom) {
@@ -441,6 +408,13 @@ io.on('connection', (socket) => {
         userId: socket.userId
       });
     }
+    
+    // Broadcast user offline status
+    socket.broadcast.emit('user-status', {
+      userId: socket.userId,
+      userName: socket.userName,
+      status: 'offline'
+    });
   });
   
   // Handle socket errors
@@ -452,15 +426,41 @@ io.on('connection', (socket) => {
 // Make io available to routes
 app.set('io', io);
 
-// Mount routes with proper prefixes
-app.use('/api/auth', authRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/teachers', teacherRoutes);
-app.use('/api/appointments', appointmentRoutes);
-app.use('/api/messages', messageRoutes);
+// Request ID middleware for better debugging
+app.use((req, res, next) => {
+  req.id = Math.random().toString(36).substr(2, 9);
+  res.setHeader('X-Request-Id', req.id);
+  next();
+});
 
-// Enhanced health check
-app.get('/api/health', (req, res) => {
+// Mount routes with proper error handling
+app.use('/api/auth', (req, res, next) => {
+  console.log(`🔐 Auth route accessed: ${req.method} ${req.originalUrl}`);
+  next();
+}, authRoutes);
+
+app.use('/api/admin', (req, res, next) => {
+  console.log(`👑 Admin route accessed: ${req.method} ${req.originalUrl}`);
+  next();
+}, adminRoutes);
+
+app.use('/api/teachers', (req, res, next) => {
+  console.log(`👨‍🏫 Teacher route accessed: ${req.method} ${req.originalUrl}`);
+  next();
+}, teacherRoutes);
+
+app.use('/api/appointments', (req, res, next) => {
+  console.log(`📅 Appointment route accessed: ${req.method} ${req.originalUrl}`);
+  next();
+}, appointmentRoutes);
+
+app.use('/api/messages', (req, res, next) => {
+  console.log(`💬 Message route accessed: ${req.method} ${req.originalUrl}`);
+  next();
+}, messageRoutes);
+
+// Enhanced health check with dependency status
+app.get('/api/health', async (req, res) => {
   const dbState = mongoose.connection.readyState;
   const dbStatus = {
     0: 'disconnected',
@@ -469,88 +469,135 @@ app.get('/api/health', (req, res) => {
     3: 'disconnecting'
   };
 
-  res.status(200).json({
+  // Check if JWT secret is configured
+  const jwtConfigured = !!process.env.JWT_SECRET;
+  
+  // Get basic stats
+  let stats = {};
+  try {
+    const userCount = await User.countDocuments();
+    const adminCount = await Admin.countDocuments();
+    stats = { users: userCount, admins: adminCount };
+  } catch (error) {
+    console.error('Health check stats error:', error);
+    stats = { error: 'Unable to fetch stats' };
+  }
+
+  const healthData = {
     success: true,
     message: 'Server is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
+    version: process.env.npm_package_version || '1.0.0',
     database: {
       status: dbStatus[dbState],
-      name: mongoose.connection.name
+      name: mongoose.connection.name || 'unknown'
     },
     socketIO: {
       connected: io.engine.clientsCount,
       status: 'active'
+    },
+    configuration: {
+      jwtConfigured,
+      corsOrigins: allowedOrigins.length
+    },
+    stats
+  };
+
+  const statusCode = dbState === 1 ? 200 : 503;
+  res.status(statusCode).json(healthData);
+});
+
+// API documentation endpoint
+app.get('/api/docs', (req, res) => {
+  res.json({
+    success: true,
+    message: 'EduMeet API Documentation',
+    version: '1.0.0',
+    endpoints: {
+      authentication: {
+        'POST /api/auth/register': 'Register new user',
+        'POST /api/auth/login': 'User login',
+        'GET /api/auth/profile': 'Get user profile',
+        'POST /api/auth/logout': 'User logout',
+        'GET /api/auth/verify-token': 'Verify JWT token'
+      },
+      appointments: {
+        'GET /api/appointments': 'Get all appointments',
+        'POST /api/appointments/request': 'Student request appointment',
+        'POST /api/appointments/book': 'Teacher book appointment directly',
+        'PUT /api/appointments/:id/accept': 'Teacher accept request',
+        'PUT /api/appointments/:id/reject': 'Teacher reject request',
+        'PUT /api/appointments/:id/complete': 'Mark appointment complete',
+        'PUT /api/appointments/:id/cancel': 'Cancel appointment',
+        'GET /api/appointments/teacher/:teacherId': 'Get teacher appointments',
+        'GET /api/appointments/stats': 'Get appointment statistics'
+      },
+      teachers: {
+        'GET /api/teachers': 'Get all teachers',
+        'GET /api/teachers/:id': 'Get teacher by ID',
+        'POST /api/teachers': 'Create new teacher',
+        'PUT /api/teachers/:id': 'Update teacher',
+        'DELETE /api/teachers/:id': 'Delete teacher'
+      },
+      admin: {
+        'POST /api/admin/login': 'Admin login',
+        'GET /api/admin/dashboard/stats': 'Dashboard statistics',
+        'GET /api/admin/users': 'Get all users',
+        'PUT /api/admin/users/:id/approve': 'Approve user',
+        'PUT /api/admin/users/:id/reject': 'Reject user'
+      },
+      messages: {
+        'GET /api/messages/room/:roomId': 'Get room messages',
+        'DELETE /api/messages/:messageId': 'Delete message',
+        'GET /api/messages/room/:roomId/stats': 'Get room statistics'
+      }
+    },
+    websocket: {
+      events: {
+        'join-room': 'Join a chat room',
+        'send-message': 'Send a message',
+        'typing-start': 'Start typing indicator',
+        'typing-stop': 'Stop typing indicator'
+      }
     }
   });
 });
 
-// Enhanced route listing for 404 handler
+// Enhanced 404 handler with helpful information
 app.all('*', (req, res) => {
   console.log(`❌ Route not found: ${req.method} ${req.path}`);
+  
+  const suggestions = [];
+  const path = req.path.toLowerCase();
+  
+  if (path.includes('appointment')) {
+    suggestions.push('Did you mean /api/appointments?');
+  }
+  if (path.includes('teacher')) {
+    suggestions.push('Did you mean /api/teachers?');
+  }
+  if (path.includes('auth')) {
+    suggestions.push('Did you mean /api/auth?');
+  }
+  if (path.includes('admin')) {
+    suggestions.push('Did you mean /api/admin?');
+  }
+  
   res.status(404).json({
     success: false,
     message: `Route ${req.path} not found`,
     method: req.method,
-    availableRoutes: {
-      health: ['GET /api/health'],
-      auth: [
-        'POST /api/auth/register',
-        'POST /api/auth/login',
-        'GET /api/auth/profile',
-        'POST /api/auth/logout',
-        'GET /api/auth/verify-token'
-      ],
-      teachers: [
-        'GET /api/teachers',
-        'POST /api/teachers',
-        'GET /api/teachers/:id',
-        'PUT /api/teachers/:id',
-        'DELETE /api/teachers/:id',
-        'GET /api/teachers/stats',
-        'GET /api/teachers/department/:department',
-        'POST /api/teachers/login',
-        'POST /api/teachers/send-setup-link',
-        'POST /api/teachers/setup-account/:token',
-        'GET /api/teachers/profile',
-        'POST /api/teachers/logout'
-      ],
-      appointments: [
-        'GET /api/appointments',
-        'POST /api/appointments',
-        'GET /api/appointments/:id',
-        'PUT /api/appointments/:id',
-        'DELETE /api/appointments/:id',
-        'GET /api/appointments/stats',
-        'POST /api/appointments/request',
-        'POST /api/appointments/book',
-        'PUT /api/appointments/:id/accept',
-        'PUT /api/appointments/:id/reject',
-        'PUT /api/appointments/:id/complete',
-        'PUT /api/appointments/:id/cancel',
-        'GET /api/appointments/teacher/:teacherId',
-        'GET /api/appointments/teacher/:teacherId/pending'
-      ],
-      messages: [
-        'GET /api/messages/room/:roomId',
-        'DELETE /api/messages/:messageId',
-        'GET /api/messages/room/:roomId/stats',
-        'GET /api/messages/rooms',
-        'GET /api/messages/room/:roomId/search'
-      ],
-      admin: [
-        'POST /api/admin/register',
-        'POST /api/admin/login',
-        'GET /api/admin/profile',
-        'PUT /api/admin/profile',
-        'GET /api/admin/dashboard/stats',
-        'GET /api/admin/users',
-        'DELETE /api/admin/users/:userId',
-        'GET /api/admin/appointments',
-        'PUT /api/admin/users/:id/approve',
-        'PUT /api/admin/users/:id/reject'
-      ]
-    }
+    timestamp: new Date().toISOString(),
+    requestId: req.id,
+    suggestions: suggestions.length > 0 ? suggestions : ['Check /api/docs for available endpoints'],
+    availableEndpoints: [
+      'GET /api/health - Server health check',
+      'GET /api/docs - API documentation',
+      'POST /api/auth/login - User authentication',
+      'GET /api/appointments - List appointments',
+      'GET /api/teachers - List teachers'
+    ]
   });
 });
 
@@ -560,7 +607,9 @@ app.use((err, req, res, next) => {
     message: err.message,
     stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
     url: req.originalUrl,
-    method: req.method
+    method: req.method,
+    requestId: req.id,
+    timestamp: new Date().toISOString()
   });
 
   let error = { ...err };
@@ -569,15 +618,15 @@ app.use((err, req, res, next) => {
   // Mongoose CastError
   if (err.name === 'CastError') {
     error = { 
-      message: `Resource not found with ID: ${err.value}`, 
-      statusCode: 404 
+      message: `Invalid ${err.path}: ${err.value}`, 
+      statusCode: 400 
     };
   }
 
   // Mongoose duplicate key error
   if (err.code === 11000) {
-    const field = Object.keys(err.keyValue)[0];
-    const value = err.keyValue[field];
+    const field = Object.keys(err.keyValue || {})[0] || 'field';
+    const value = err.keyValue ? err.keyValue[field] : 'unknown';
     error = { 
       message: `Duplicate ${field}: ${value} already exists`, 
       statusCode: 400 
@@ -586,75 +635,118 @@ app.use((err, req, res, next) => {
 
   // Mongoose validation error
   if (err.name === 'ValidationError') {
-    const message = Object.values(err.errors).map(val => val.message).join(', ');
-    error = { message, statusCode: 400 };
+    const message = Object.values(err.errors || {}).map(val => val.message).join(', ');
+    error = { message: message || 'Validation failed', statusCode: 400 };
   }
 
   // JWT errors
   if (err.name === 'JsonWebTokenError') {
-    error = { message: 'Invalid token', statusCode: 401 };
+    error = { message: 'Invalid authentication token', statusCode: 401 };
   }
 
   if (err.name === 'TokenExpiredError') {
-    error = { message: 'Token expired', statusCode: 401 };
+    error = { message: 'Authentication token expired', statusCode: 401 };
   }
 
-  res.status(error.statusCode || 500).json({
+  // MongoDB connection errors
+  if (err.name === 'MongooseError') {
+    error = { message: 'Database operation failed', statusCode: 500 };
+  }
+
+  // CORS errors
+  if (err.message && err.message.includes('CORS')) {
+    error = { message: 'CORS policy violation', statusCode: 403 };
+  }
+
+  const statusCode = error.statusCode || 500;
+  const isDevelopment = process.env.NODE_ENV === 'development';
+
+  res.status(statusCode).json({
     success: false,
     message: error.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { 
+    requestId: req.id,
+    timestamp: new Date().toISOString(),
+    ...(isDevelopment && { 
       stack: err.stack,
-      error: err
+      originalError: err.name
     })
   });
 });
 
-// Start server
+// Server startup
 const PORT = process.env.PORT || 5000;
+const HOST = process.env.HOST || 'localhost';
+
 server.listen(PORT, () => {
-  console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-  console.log(`📡 Socket.IO server ready for connections`);
-  console.log(`🔗 Available at: http://localhost:${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+  console.log('\n' + '='.repeat(50));
+  console.log('🚀 EduMeet Server Started Successfully!');
+  console.log('='.repeat(50));
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔗 Server URL: http://${HOST}:${PORT}`);
+  console.log(`📊 Health Check: http://${HOST}:${PORT}/api/health`);
+  console.log(`📚 API Docs: http://${HOST}:${PORT}/api/docs`);
+  console.log(`📡 Socket.IO: Ready for connections`);
+  console.log(`🗄️ Database: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Connecting...'}`);
+  console.log(`🔐 CORS Origins: ${allowedOrigins.length} configured`);
+  console.log('='.repeat(50) + '\n');
 });
 
-// Enhanced process handlers
+// Enhanced process handlers with graceful shutdown
+const gracefulShutdown = (signal) => {
+  console.log(`\n📴 ${signal} received. Starting graceful shutdown...`);
+  
+  server.close((err) => {
+    if (err) {
+      console.error('❌ Error during server shutdown:', err);
+      return process.exit(1);
+    }
+    
+    console.log('✅ HTTP server closed');
+    
+    // Close Socket.IO
+    io.close(() => {
+      console.log('✅ Socket.IO server closed');
+      
+      // Close database connection
+      mongoose.connection.close(false, () => {
+        console.log('✅ MongoDB connection closed');
+        console.log('🎯 Graceful shutdown completed');
+        process.exit(0);
+      });
+    });
+  });
+  
+  // Force shutdown after 30 seconds
+  setTimeout(() => {
+    console.error('❌ Forced shutdown after 30 seconds');
+    process.exit(1);
+  }, 30000);
+};
+
+// Error handlers
 process.on('unhandledRejection', (err, promise) => {
   console.error(`❌ Unhandled Promise Rejection: ${err.message}`);
-  console.error('Closing server...');
-  server.close(() => {
-    process.exit(1);
-  });
+  console.error('Stack:', err.stack);
+  gracefulShutdown('UNHANDLED_REJECTION');
 });
 
 process.on('uncaughtException', (err) => {
   console.error(`❌ Uncaught Exception: ${err.message}`);
+  console.error('Stack:', err.stack);
   console.error('Shutting down immediately...');
   process.exit(1);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('📴 SIGTERM received. Shutting down gracefully...');
-  server.close(() => {
-    console.log('✅ Process terminated gracefully');
-    mongoose.connection.close(false, () => {
-      console.log('✅ MongoDB connection closed');
-      process.exit(0);
-    });
-  });
+// Graceful shutdown handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle warnings
+process.on('warning', (warning) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.warn('⚠️ Warning:', warning.name, warning.message);
+  }
 });
 
-process.on('SIGINT', () => {
-  console.log('📴 SIGINT received. Shutting down gracefully...');
-  server.close(() => {
-    console.log('✅ Process terminated gracefully');
-    mongoose.connection.close(false, () => {
-      console.log('✅ MongoDB connection closed');
-      process.exit(0);
-    });
-  });
-});
-
-// Export for use in other files
+// Export for testing
 module.exports = { app, io, server };
