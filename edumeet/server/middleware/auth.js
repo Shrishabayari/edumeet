@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
 
@@ -47,20 +48,41 @@ exports.protect = async (req, res, next) => {
       throw tokenError;
     }
 
-    console.log('🔍 Decoded token payload (protect):', decoded);
+    console.log('🔍 Decoded token payload (protect):', {
+      id: decoded.id,
+      role: decoded.role,
+      iat: decoded.iat,
+      exp: decoded.exp
+    });
 
     // Use consistent field name 'id' for all lookups
     const userId = decoded.id || decoded._id;
     
-    if (!userId) {
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid token structure - no user ID found'
+        message: 'Invalid token structure - no valid user ID found'
       });
     }
 
-    // Find user by ID
-    const user = await User.findById(userId).select('+isActive +approvalStatus');
+    // Find user by ID - check both User and Admin models based on role
+    let user;
+    try {
+      if (decoded.role === 'admin') {
+        user = await Admin.findById(userId).select('+isActive');
+        if (user) {
+          user.role = 'admin'; // Ensure role is set
+        }
+      } else {
+        user = await User.findById(userId).select('+isActive +approvalStatus');
+      }
+    } catch (dbError) {
+      console.error('Database error when finding user:', dbError);
+      return res.status(500).json({
+        success: false,
+        message: 'Database error during authentication'
+      });
+    }
     
     if (!user) {
       return res.status(401).json({
@@ -70,7 +92,7 @@ exports.protect = async (req, res, next) => {
     }
 
     // Check if user is active
-    if (!user.isActive) {
+    if (user.isActive === false) {
       return res.status(401).json({
         success: false,
         message: 'Account is deactivated. Please contact support.'
@@ -85,9 +107,15 @@ exports.protect = async (req, res, next) => {
       });
     }
 
-    // Attach user to request
-    req.user = user;
-    console.log(`✅ User authenticated: ${user.name} (${user.role})`);
+    // Attach user to request with consistent field names
+    req.user = {
+      ...user.toObject(),
+      id: user._id,
+      _id: user._id,
+      role: user.role || decoded.role
+    };
+    
+    console.log(`✅ User authenticated: ${user.name} (${user.role || decoded.role})`);
     next();
 
   } catch (error) {
@@ -142,21 +170,41 @@ exports.authenticateAdmin = async (req, res, next) => {
       });
     }
 
-    console.log('🔍 Decoded admin token payload:', decoded);
+    console.log('🔍 Decoded admin token payload:', {
+      id: decoded.id,
+      role: decoded.role
+    });
     
     // Use consistent field name 'id'
     const adminId = decoded.id || decoded._id;
     
-    if (!adminId) {
-      console.log('❌ No admin ID found in token payload');
+    if (!adminId || !mongoose.Types.ObjectId.isValid(adminId)) {
+      console.log('❌ No valid admin ID found in token payload');
       return res.status(401).json({
         success: false,
-        message: 'Invalid token structure - no admin ID found'
+        message: 'Invalid token structure - no valid admin ID found'
+      });
+    }
+    
+    // Check if role is admin
+    if (decoded.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
       });
     }
     
     // Find admin using the ID from token
-    const admin = await Admin.findById(adminId).select('+isActive');
+    let admin;
+    try {
+      admin = await Admin.findById(adminId).select('+isActive');
+    } catch (dbError) {
+      console.error('Database error when finding admin:', dbError);
+      return res.status(500).json({
+        success: false,
+        message: 'Database error during admin authentication'
+      });
+    }
     
     if (!admin) {
       console.log('❌ Admin not found with ID:', adminId);
@@ -169,16 +217,21 @@ exports.authenticateAdmin = async (req, res, next) => {
     console.log('✅ Admin authenticated:', admin.email);
 
     // Check if admin is active
-    if (!admin.isActive) {
+    if (admin.isActive === false) {
       return res.status(401).json({
         success: false,
         message: 'Admin account is deactivated.'
       });
     }
 
-    // Attach admin to request object
-    req.admin = admin;
-    req.user = admin; // For consistency with 'protect' middleware
+    // Attach admin to request object with consistent field names
+    req.admin = {
+      ...admin.toObject(),
+      id: admin._id,
+      _id: admin._id,
+      role: 'admin'
+    };
+    req.user = req.admin; // For consistency with 'protect' middleware
     
     next();
     
@@ -233,20 +286,40 @@ exports.authenticateTeacher = async (req, res, next) => {
       });
     }
 
-    console.log('🔍 Decoded teacher token payload:', decoded);
+    console.log('🔍 Decoded teacher token payload:', {
+      id: decoded.id,
+      role: decoded.role
+    });
     
     // Use consistent field name 'id'
     const teacherId = decoded.id || decoded._id;
     
-    if (!teacherId) {
+    if (!teacherId || !mongoose.Types.ObjectId.isValid(teacherId)) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid token structure - no teacher ID found'
+        message: 'Invalid token structure - no valid teacher ID found'
+      });
+    }
+    
+    // Check if role is teacher
+    if (decoded.role !== 'teacher') {
+      return res.status(403).json({
+        success: false,
+        message: 'Teacher access required'
       });
     }
     
     // Find teacher in User model with role check
-    const teacher = await User.findById(teacherId).select('+isActive +approvalStatus');
+    let teacher;
+    try {
+      teacher = await User.findById(teacherId).select('+isActive +approvalStatus');
+    } catch (dbError) {
+      console.error('Database error when finding teacher:', dbError);
+      return res.status(500).json({
+        success: false,
+        message: 'Database error during teacher authentication'
+      });
+    }
     
     if (!teacher || teacher.role !== 'teacher') {
       return res.status(401).json({
@@ -256,7 +329,7 @@ exports.authenticateTeacher = async (req, res, next) => {
     }
 
     // Check if teacher is active
-    if (!teacher.isActive) {
+    if (teacher.isActive === false) {
       return res.status(401).json({
         success: false,
         message: 'Teacher account is deactivated.'
@@ -271,9 +344,13 @@ exports.authenticateTeacher = async (req, res, next) => {
       });
     }
 
-    // Attach teacher to request object
-    req.teacher = teacher;
-    req.user = teacher; // For consistency with other middlewares
+    // Attach teacher to request object with consistent field names
+    req.teacher = {
+      ...teacher.toObject(),
+      id: teacher._id,
+      _id: teacher._id
+    };
+    req.user = req.teacher; // For consistency with other middlewares
     
     console.log(`✅ Teacher authenticated: ${teacher.name}`);
     next();
@@ -288,7 +365,7 @@ exports.authenticateTeacher = async (req, res, next) => {
   }
 };
 
-// Role-based authorization middleware
+// Role-based authorization middleware - FIXED
 exports.authorize = (...roles) => {
   return (req, res, next) => {
     console.log('🔐 Authorization check:', {
@@ -370,13 +447,25 @@ exports.optionalAuth = async (req, res, next) => {
         // Use consistent field name
         const userId = decoded.id || decoded._id;
         
-        if (userId) {
-          // Find user by ID
-          const user = await User.findById(userId).select('+isActive +approvalStatus');
+        if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+          let user;
+          if (decoded.role === 'admin') {
+            user = await Admin.findById(userId).select('+isActive');
+            if (user) {
+              user.role = 'admin';
+            }
+          } else {
+            user = await User.findById(userId).select('+isActive +approvalStatus');
+          }
           
           // Only attach user if found, active, and approved (or admin)
-          if (user && user.isActive && (user.role === 'admin' || user.approvalStatus === 'approved')) {
-            req.user = user;
+          if (user && user.isActive !== false && (user.role === 'admin' || user.approvalStatus === 'approved')) {
+            req.user = {
+              ...user.toObject(),
+              id: user._id,
+              _id: user._id,
+              role: user.role || decoded.role
+            };
           }
         }
       } catch (tokenError) {
@@ -412,8 +501,9 @@ exports.checkOwnershipOrAdmin = (resourceUserIdField = 'userId') => {
 
       // Check if user owns the resource
       const resourceUserId = req.params[resourceUserIdField] || req.body[resourceUserIdField];
+      const currentUserId = req.user.id || req.user._id;
       
-      if (resourceUserId && req.user.id.toString() !== resourceUserId.toString()) {
+      if (resourceUserId && currentUserId.toString() !== resourceUserId.toString()) {
         return res.status(403).json({
           success: false,
           message: 'Access denied. You can only access your own resources.'
@@ -443,7 +533,7 @@ exports.validateObjectId = (paramName = 'id') => {
       });
     }
 
-    if (!require('mongoose').Types.ObjectId.isValid(id)) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: `Invalid ${paramName} format`
@@ -466,4 +556,51 @@ exports.logAuthAttempt = (req, res, next) => {
   });
 
   next();
+};
+
+// Enhanced middleware for checking teacher ownership of appointments
+exports.checkTeacherAppointmentAccess = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID'
+      });
+    }
+
+    // Find the appointment
+    const appointment = await require('../models/Appointment').findById(id);
+    
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    // Admin can access all appointments
+    if (req.user.role === 'admin') {
+      return next();
+    }
+
+    // Check if teacher owns the appointment
+    const currentUserId = req.user.id || req.user._id;
+    if (req.user.role === 'teacher' && currentUserId.toString() === appointment.teacherId.toString()) {
+      return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. You can only access your own appointments.'
+    });
+
+  } catch (error) {
+    console.error('Teacher appointment access check error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during appointment access verification'
+    });
+  }
 };

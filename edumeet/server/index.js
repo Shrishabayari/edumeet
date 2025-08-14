@@ -136,7 +136,7 @@ app.use(cors({
   preflightContinue: false
 }));
 
-// Request logging middleware with better formatting
+// Request logging middleware
 app.use((req, res, next) => {
   if (process.env.NODE_ENV === 'development') {
     const timestamp = new Date().toISOString();
@@ -148,7 +148,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Body parsers with enhanced limits and error handling
+// Body parsers with enhanced limits
 app.use(express.json({ 
   limit: '10mb',
   verify: (req, res, buf) => {
@@ -177,7 +177,7 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('combined'));
 }
 
-// Socket.io authentication middleware
+// Socket.io authentication middleware - FIXED
 io.use(async (socket, next) => {
   try {
     let token = socket.handshake.auth.token || socket.handshake.headers.authorization;
@@ -192,6 +192,7 @@ io.use(async (socket, next) => {
     try {
       decoded = jwt.verify(cleanToken, process.env.JWT_SECRET);
     } catch (tokenError) {
+      console.error('Socket token verification failed:', tokenError.message);
       return next(new Error('Invalid or expired token'));
     }
     
@@ -230,7 +231,7 @@ io.use(async (socket, next) => {
   }
 });
 
-// Enhanced Socket.io connection handling
+// Enhanced Socket.io connection handling - FIXED
 io.on('connection', (socket) => {
   console.log(`👤 User connected: ${socket.userName} (${socket.userRole}) - Socket ID: ${socket.id}`);
   
@@ -243,7 +244,7 @@ io.on('connection', (socket) => {
     });
   });
   
-  // Enhanced room management
+  // Enhanced room management - FIXED
   socket.on('join-room', (data) => {
     try {
       const { roomId, roomType = 'general' } = data;
@@ -284,7 +285,7 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Enhanced message handling
+  // Enhanced message handling - FIXED
   socket.on('send-message', async (data) => {
     try {
       // Comprehensive input validation
@@ -356,7 +357,7 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Enhanced typing indicators with throttling
+  // Enhanced typing indicators - FIXED
   let typingTimeout;
   socket.on('typing-start', (data) => {
     try {
@@ -459,7 +460,7 @@ app.use('/api/messages', (req, res, next) => {
   next();
 }, messageRoutes);
 
-// Enhanced health check with dependency status
+// Enhanced health check
 app.get('/api/health', async (req, res) => {
   const dbState = mongoose.connection.readyState;
   const dbStatus = {
@@ -469,10 +470,8 @@ app.get('/api/health', async (req, res) => {
     3: 'disconnecting'
   };
 
-  // Check if JWT secret is configured
   const jwtConfigured = !!process.env.JWT_SECRET;
   
-  // Get basic stats
   let stats = {};
   try {
     const userCount = await User.countDocuments();
@@ -508,63 +507,7 @@ app.get('/api/health', async (req, res) => {
   res.status(statusCode).json(healthData);
 });
 
-// API documentation endpoint
-app.get('/api/docs', (req, res) => {
-  res.json({
-    success: true,
-    message: 'EduMeet API Documentation',
-    version: '1.0.0',
-    endpoints: {
-      authentication: {
-        'POST /api/auth/register': 'Register new user',
-        'POST /api/auth/login': 'User login',
-        'GET /api/auth/profile': 'Get user profile',
-        'POST /api/auth/logout': 'User logout',
-        'GET /api/auth/verify-token': 'Verify JWT token'
-      },
-      appointments: {
-        'GET /api/appointments': 'Get all appointments',
-        'POST /api/appointments/request': 'Student request appointment',
-        'POST /api/appointments/book': 'Teacher book appointment directly',
-        'PUT /api/appointments/:id/accept': 'Teacher accept request',
-        'PUT /api/appointments/:id/reject': 'Teacher reject request',
-        'PUT /api/appointments/:id/complete': 'Mark appointment complete',
-        'PUT /api/appointments/:id/cancel': 'Cancel appointment',
-        'GET /api/appointments/teacher/:teacherId': 'Get teacher appointments',
-        'GET /api/appointments/stats': 'Get appointment statistics'
-      },
-      teachers: {
-        'GET /api/teachers': 'Get all teachers',
-        'GET /api/teachers/:id': 'Get teacher by ID',
-        'POST /api/teachers': 'Create new teacher',
-        'PUT /api/teachers/:id': 'Update teacher',
-        'DELETE /api/teachers/:id': 'Delete teacher'
-      },
-      admin: {
-        'POST /api/admin/login': 'Admin login',
-        'GET /api/admin/dashboard/stats': 'Dashboard statistics',
-        'GET /api/admin/users': 'Get all users',
-        'PUT /api/admin/users/:id/approve': 'Approve user',
-        'PUT /api/admin/users/:id/reject': 'Reject user'
-      },
-      messages: {
-        'GET /api/messages/room/:roomId': 'Get room messages',
-        'DELETE /api/messages/:messageId': 'Delete message',
-        'GET /api/messages/room/:roomId/stats': 'Get room statistics'
-      }
-    },
-    websocket: {
-      events: {
-        'join-room': 'Join a chat room',
-        'send-message': 'Send a message',
-        'typing-start': 'Start typing indicator',
-        'typing-stop': 'Stop typing indicator'
-      }
-    }
-  });
-});
-
-// Enhanced 404 handler with helpful information
+// Enhanced 404 handler
 app.all('*', (req, res) => {
   console.log(`❌ Route not found: ${req.method} ${req.path}`);
   
@@ -593,7 +536,6 @@ app.all('*', (req, res) => {
     suggestions: suggestions.length > 0 ? suggestions : ['Check /api/docs for available endpoints'],
     availableEndpoints: [
       'GET /api/health - Server health check',
-      'GET /api/docs - API documentation',
       'POST /api/auth/login - User authentication',
       'GET /api/appointments - List appointments',
       'GET /api/teachers - List teachers'
@@ -648,16 +590,6 @@ app.use((err, req, res, next) => {
     error = { message: 'Authentication token expired', statusCode: 401 };
   }
 
-  // MongoDB connection errors
-  if (err.name === 'MongooseError') {
-    error = { message: 'Database operation failed', statusCode: 500 };
-  }
-
-  // CORS errors
-  if (err.message && err.message.includes('CORS')) {
-    error = { message: 'CORS policy violation', statusCode: 403 };
-  }
-
   const statusCode = error.statusCode || 500;
   const isDevelopment = process.env.NODE_ENV === 'development';
 
@@ -684,14 +616,13 @@ server.listen(PORT, () => {
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Server URL: http://${HOST}:${PORT}`);
   console.log(`📊 Health Check: http://${HOST}:${PORT}/api/health`);
-  console.log(`📚 API Docs: http://${HOST}:${PORT}/api/docs`);
   console.log(`📡 Socket.IO: Ready for connections`);
   console.log(`🗄️ Database: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Connecting...'}`);
   console.log(`🔐 CORS Origins: ${allowedOrigins.length} configured`);
   console.log('='.repeat(50) + '\n');
 });
 
-// Enhanced process handlers with graceful shutdown
+// Enhanced process handlers
 const gracefulShutdown = (signal) => {
   console.log(`\n📴 ${signal} received. Starting graceful shutdown...`);
   
@@ -741,12 +672,4 @@ process.on('uncaughtException', (err) => {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Handle warnings
-process.on('warning', (warning) => {
-  if (process.env.NODE_ENV === 'development') {
-    console.warn('⚠️ Warning:', warning.name, warning.message);
-  }
-});
-
-// Export for testing
 module.exports = { app, io, server };
