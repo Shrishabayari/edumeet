@@ -33,7 +33,7 @@ const handleValidationErrors = (req, res, next) => {
       success: false,
       message: 'Validation failed',
       errors: errors.array().map(error => ({
-        field: error.path,
+        field: error.path || error.param,
         message: error.msg,
         value: error.value
       }))
@@ -54,31 +54,19 @@ const appointmentValidation = [
     .notEmpty()
     .withMessage('Time is required')
     .custom((value) => {
-      // Validate common time formats
-      const validTimes = [
-        '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
-        '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM',
-        '9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '11:00 AM - 12:00 PM',
-        '12:00 PM - 1:00 PM', '2:00 PM - 3:00 PM', '3:00 PM - 4:00 PM',
-        '4:00 PM - 5:00 PM', '5:00 PM - 6:00 PM'
-      ];
-      
-      if (validTimes.includes(value)) {
-        return true;
-      }
-      
-      // Allow custom time format validation
+      // Validate time formats: "9:00 AM", "2:00 PM - 3:00 PM", etc.
       const timeRegex = /^([0-9]{1,2}):([0-9]{2})\s?(AM|PM)(\s?-\s?([0-9]{1,2}):([0-9]{2})\s?(AM|PM))?$/i;
       if (timeRegex.test(value)) {
         return true;
       }
-      
       throw new Error('Invalid time format. Use formats like "2:00 PM" or "2:00 PM - 3:00 PM"');
     }),
     
   body('date')
     .notEmpty()
     .withMessage('Date is required')
+    .isISO8601()
+    .withMessage('Date must be in valid ISO format (YYYY-MM-DD)')
     .custom((value) => {
       const date = new Date(value);
       if (isNaN(date.getTime())) {
@@ -95,7 +83,7 @@ const appointmentValidation = [
         throw new Error('Appointment date must be today or in the future');
       }
       
-      // Check if date is not too far in the future (e.g., 1 year)
+      // Check if date is not too far in the future (1 year)
       const oneYearFromNow = new Date();
       oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
       
@@ -112,8 +100,8 @@ const appointmentValidation = [
     .withMessage('Student name is required')
     .isLength({ min: 2, max: 100 })
     .withMessage('Student name must be between 2 and 100 characters')
-    .matches(/^[a-zA-Z\s]+$/)
-    .withMessage('Student name can only contain letters and spaces'),
+    .matches(/^[a-zA-Z\s'-]+$/)
+    .withMessage('Student name can only contain letters, spaces, hyphens and apostrophes'),
     
   body('student.email')
     .isEmail()
@@ -123,7 +111,7 @@ const appointmentValidation = [
     .withMessage('Email cannot exceed 255 characters'),
     
   body('student.phone')
-    .optional()
+    .optional({ values: 'falsy' })
     .custom((value) => {
       if (!value || value.trim() === '') return true;
       const phoneRegex = /^[\+]?[\d\s\-\(\)]{7,20}$/;
@@ -201,6 +189,8 @@ const updateAppointmentValidation = [
     
   body('date')
     .optional()
+    .isISO8601()
+    .withMessage('Date must be in valid ISO format')
     .custom((value) => {
       if (!value) return true;
       const date = new Date(value);
@@ -225,10 +215,12 @@ const queryValidation = [
   query('page')
     .optional()
     .isInt({ min: 1 })
+    .toInt()
     .withMessage('Page must be a positive integer'),
   query('limit')
     .optional()
     .isInt({ min: 1, max: 100 })
+    .toInt()
     .withMessage('Limit must be between 1 and 100'),
   query('status')
     .optional()
@@ -237,7 +229,11 @@ const queryValidation = [
   query('createdBy')
     .optional()
     .isIn(['student', 'teacher'])
-    .withMessage('Invalid createdBy filter')
+    .withMessage('Invalid createdBy filter'),
+  query('teacherId')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid teacher ID format')
 ];
 
 // Parameter validation
@@ -261,18 +257,19 @@ if (process.env.NODE_ENV === 'development') {
       message: 'Appointment routes active',
       timestamp: new Date().toISOString(),
       routes: {
-        'GET /appointments/stats': 'Get appointment statistics',
-        'POST /appointments/request': 'Student request appointment',
-        'POST /appointments/book': 'Teacher book appointment',
-        'GET /appointments/teacher/:teacherId/pending': 'Get pending requests for teacher',
-        'GET /appointments/teacher/:teacherId': 'Get appointments for teacher',
-        'PUT /appointments/:id/accept': 'Accept appointment request',
-        'PUT /appointments/:id/reject': 'Reject appointment request',
-        'PUT /appointments/:id/complete': 'Complete appointment',
-        'PUT /appointments/:id/cancel': 'Cancel appointment',
-        'GET /appointments': 'Get all appointments',
-        'GET /appointments/:id': 'Get appointment by ID',
-        'PUT /appointments/:id': 'Update appointment'
+        'GET /api/appointments/stats': 'Get appointment statistics',
+        'POST /api/appointments/request': 'Student request appointment',
+        'POST /api/appointments/book': 'Teacher book appointment',
+        'GET /api/appointments/teacher/:teacherId/pending': 'Get pending requests for teacher',
+        'GET /api/appointments/teacher/:teacherId': 'Get appointments for teacher',
+        'PUT /api/appointments/:id/accept': 'Accept appointment request',
+        'PUT /api/appointments/:id/reject': 'Reject appointment request',
+        'PUT /api/appointments/:id/complete': 'Complete appointment',
+        'PUT /api/appointments/:id/cancel': 'Cancel appointment',
+        'GET /api/appointments': 'Get all appointments',
+        'GET /api/appointments/:id': 'Get appointment by ID',
+        'PUT /api/appointments/:id': 'Update appointment',
+        'DELETE /api/appointments/:id': 'Delete appointment (admin only)'
       }
     });
   });
@@ -355,7 +352,6 @@ router.put('/:id/cancel',
   handleValidationErrors,
   protect,
   authorize('teacher', 'admin'),
-  checkTeacherAppointmentAccess,
   cancelAppointment
 );
 
@@ -395,7 +391,8 @@ router.delete('/:id',
   async (req, res) => {
     try {
       const { id } = req.params;
-      const appointment = await require('../models/Appointment').findByIdAndDelete(id);
+      const Appointment = require('../models/Appointment');
+      const appointment = await Appointment.findByIdAndDelete(id);
       
       if (!appointment) {
         return res.status(404).json({
@@ -420,17 +417,6 @@ router.delete('/:id',
   }
 );
 
-// Legacy route for backward compatibility
-router.post('/', 
-  (req, res, next) => {
-    console.log('🎯 LEGACY POST ROUTE (redirecting to request)');
-    next();
-  },
-  requestAppointmentValidation, 
-  handleValidationErrors, 
-  requestAppointment
-);
-
 // Error handling middleware for unmatched routes
 router.use('*', (req, res) => {
   console.log(`⚠️  Unmatched appointment route: ${req.method} ${req.originalUrl}`);
@@ -438,19 +424,19 @@ router.use('*', (req, res) => {
     success: false,
     message: `Route ${req.method} ${req.originalUrl} not found`,
     availableRoutes: [
-      'GET /appointments/stats',
-      'POST /appointments/request',
-      'POST /appointments/book',
-      'GET /appointments/teacher/:teacherId/pending',
-      'GET /appointments/teacher/:teacherId',
-      'PUT /appointments/:id/accept',
-      'PUT /appointments/:id/reject',
-      'PUT /appointments/:id/complete',
-      'PUT /appointments/:id/cancel',
-      'GET /appointments',
-      'GET /appointments/:id',
-      'PUT /appointments/:id',
-      'DELETE /appointments/:id'
+      'GET /api/appointments/stats',
+      'POST /api/appointments/request',
+      'POST /api/appointments/book',
+      'GET /api/appointments/teacher/:teacherId/pending',
+      'GET /api/appointments/teacher/:teacherId',
+      'PUT /api/appointments/:id/accept',
+      'PUT /api/appointments/:id/reject',
+      'PUT /api/appointments/:id/complete',
+      'PUT /api/appointments/:id/cancel',
+      'GET /api/appointments',
+      'GET /api/appointments/:id',
+      'PUT /api/appointments/:id',
+      'DELETE /api/appointments/:id'
     ]
   });
 });

@@ -4,7 +4,7 @@ const appointmentSchema = new mongoose.Schema({
   // Reference User model for teachers
   teacherId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Teacher',
     required: [true, 'Teacher ID is required'],
     validate: {
       validator: function(v) {

@@ -55,8 +55,8 @@ exports.protect = async (req, res, next) => {
       exp: decoded.exp
     });
 
-    // Use consistent field name 'id' for all lookups
-    const userId = decoded.id || decoded._id;
+    // Use consistent field name 'id' for all lookups - FIXED
+    const userId = decoded.id;
     
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(401).json({
@@ -107,12 +107,15 @@ exports.protect = async (req, res, next) => {
       });
     }
 
-    // Attach user to request with consistent field names
+    // Attach user to request with consistent field names - FIXED
     req.user = {
-      ...user.toObject(),
-      id: user._id,
+      id: user._id.toString(), // Ensure consistent string format
       _id: user._id,
-      role: user.role || decoded.role
+      name: user.name,
+      email: user.email,
+      role: user.role || decoded.role,
+      isActive: user.isActive,
+      approvalStatus: user.approvalStatus
     };
     
     console.log(`✅ User authenticated: ${user.name} (${user.role || decoded.role})`);
@@ -175,8 +178,8 @@ exports.authenticateAdmin = async (req, res, next) => {
       role: decoded.role
     });
     
-    // Use consistent field name 'id'
-    const adminId = decoded.id || decoded._id;
+    // Use consistent field name 'id' - FIXED
+    const adminId = decoded.id;
     
     if (!adminId || !mongoose.Types.ObjectId.isValid(adminId)) {
       console.log('❌ No valid admin ID found in token payload');
@@ -224,12 +227,14 @@ exports.authenticateAdmin = async (req, res, next) => {
       });
     }
 
-    // Attach admin to request object with consistent field names
+    // Attach admin to request object with consistent field names - FIXED
     req.admin = {
-      ...admin.toObject(),
-      id: admin._id,
+      id: admin._id.toString(),
       _id: admin._id,
-      role: 'admin'
+      name: admin.name,
+      email: admin.email,
+      role: 'admin',
+      isActive: admin.isActive
     };
     req.user = req.admin; // For consistency with 'protect' middleware
     
@@ -245,7 +250,7 @@ exports.authenticateAdmin = async (req, res, next) => {
   }
 };
 
-// Teacher-specific authentication middleware (using User model with role check)
+// Teacher-specific authentication middleware
 exports.authenticateTeacher = async (req, res, next) => {
   try {
     let token;
@@ -291,8 +296,8 @@ exports.authenticateTeacher = async (req, res, next) => {
       role: decoded.role
     });
     
-    // Use consistent field name 'id'
-    const teacherId = decoded.id || decoded._id;
+    // Use consistent field name 'id' - FIXED
+    const teacherId = decoded.id;
     
     if (!teacherId || !mongoose.Types.ObjectId.isValid(teacherId)) {
       return res.status(401).json({
@@ -344,11 +349,15 @@ exports.authenticateTeacher = async (req, res, next) => {
       });
     }
 
-    // Attach teacher to request object with consistent field names
+    // Attach teacher to request object with consistent field names - FIXED
     req.teacher = {
-      ...teacher.toObject(),
-      id: teacher._id,
-      _id: teacher._id
+      id: teacher._id.toString(),
+      _id: teacher._id,
+      name: teacher.name,
+      email: teacher.email,
+      role: teacher.role,
+      isActive: teacher.isActive,
+      approvalStatus: teacher.approvalStatus
     };
     req.user = req.teacher; // For consistency with other middlewares
     
@@ -372,7 +381,7 @@ exports.authorize = (...roles) => {
       requiredRoles: roles,
       userRole: req.user?.role,
       userName: req.user?.name,
-      userId: req.user?.id || req.user?._id
+      userId: req.user?.id
     });
 
     if (!req.user) {
@@ -444,8 +453,8 @@ exports.optionalAuth = async (req, res, next) => {
         // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-        // Use consistent field name
-        const userId = decoded.id || decoded._id;
+        // Use consistent field name - FIXED
+        const userId = decoded.id;
         
         if (userId && mongoose.Types.ObjectId.isValid(userId)) {
           let user;
@@ -461,10 +470,13 @@ exports.optionalAuth = async (req, res, next) => {
           // Only attach user if found, active, and approved (or admin)
           if (user && user.isActive !== false && (user.role === 'admin' || user.approvalStatus === 'approved')) {
             req.user = {
-              ...user.toObject(),
-              id: user._id,
+              id: user._id.toString(),
               _id: user._id,
-              role: user.role || decoded.role
+              name: user.name,
+              email: user.email,
+              role: user.role || decoded.role,
+              isActive: user.isActive,
+              approvalStatus: user.approvalStatus
             };
           }
         }
@@ -501,7 +513,7 @@ exports.checkOwnershipOrAdmin = (resourceUserIdField = 'userId') => {
 
       // Check if user owns the resource
       const resourceUserId = req.params[resourceUserIdField] || req.body[resourceUserIdField];
-      const currentUserId = req.user.id || req.user._id;
+      const currentUserId = req.user.id;
       
       if (resourceUserId && currentUserId.toString() !== resourceUserId.toString()) {
         return res.status(403).json({
@@ -558,7 +570,7 @@ exports.logAuthAttempt = (req, res, next) => {
   next();
 };
 
-// Enhanced middleware for checking teacher ownership of appointments
+// Enhanced middleware for checking teacher ownership of appointments - FIXED
 exports.checkTeacherAppointmentAccess = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -571,7 +583,8 @@ exports.checkTeacherAppointmentAccess = async (req, res, next) => {
     }
 
     // Find the appointment
-    const appointment = await require('../models/Appointment').findById(id);
+    const Appointment = require('../models/Appointment');
+    const appointment = await Appointment.findById(id);
     
     if (!appointment) {
       return res.status(404).json({
@@ -585,8 +598,8 @@ exports.checkTeacherAppointmentAccess = async (req, res, next) => {
       return next();
     }
 
-    // Check if teacher owns the appointment
-    const currentUserId = req.user.id || req.user._id;
+    // Check if teacher owns the appointment - FIXED
+    const currentUserId = req.user.id;
     if (req.user.role === 'teacher' && currentUserId.toString() === appointment.teacherId.toString()) {
       return next();
     }
