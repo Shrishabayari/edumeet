@@ -31,15 +31,14 @@ api.interceptors.request.use(
   (config) => {
     let token = null;
 
-    // CORRECTED: Determine which token to use based on the URL
+    // Determine which token to use based on the URL
     if (config.url.startsWith('/admin')) {
       token = getTokenFromStorage('adminToken');
-    } else if (config.url.includes('/teacher') || config.url.includes('/appointments/')) {
-      // For teacher routes and appointment management, prioritize teacher token
-      token = getTokenFromStorage('teacherToken') || getTokenFromStorage('userToken');
+    } else if (config.url.startsWith('/teachers')) {
+      token = getTokenFromStorage('teacherToken');
     } else {
-      // For regular routes, use userToken
-      token = getTokenFromStorage('userToken');
+      // For appointment routes and other routes, use teacherToken if available, otherwise userToken
+      token = getTokenFromStorage('teacherToken') || getTokenFromStorage('userToken');
     }
 
     if (token) {
@@ -96,7 +95,7 @@ api.interceptors.response.use(
             if (window.location.pathname.startsWith('/admin')) {
               window.location.href = '/admin/login';
             }
-          } else if (config.url.includes('/teacher') || config.url.includes('/appointments/')) {
+          } else if (config.url.startsWith('/teachers') || config.url.includes('/appointments/')) {
             tokenManager.removeTeacherToken();
             if (window.location.pathname.startsWith('/teacher')) {
               window.location.href = '/teacher/login';
@@ -801,4 +800,30 @@ export const constants = {
     'Psychology'
   ],
   
-  AVAILABILITY
+  AVAILABILITY_SLOTS: [
+    '9:00 AM - 10:00 AM',
+    '10:00 AM - 11:00 AM',
+    '11:00 AM - 12:00 PM',
+    '12:00 PM - 1:00 PM',
+    '2:00 PM - 3:00 PM',
+    '3:00 PM - 4:00 PM',
+    '4:00 PM - 5:00 PM',
+    '5:00 PM - 6:00 PM'
+  ],
+  
+  APPOINTMENT_STATUSES: [
+    'pending',    
+    'confirmed',  
+    'rejected',   
+    'cancelled',  
+    'completed',  
+    'booked'      
+  ],
+
+  APPOINTMENT_TYPES: {
+    STUDENT_REQUEST: 'student_request',  
+    TEACHER_BOOKING: 'teacher_booking'   
+  }
+};
+
+export default api;
