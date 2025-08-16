@@ -12,7 +12,7 @@ const api = axios.create({
   },
 });
 
-// Token management utilities using in-memory storage for Claude.ai compatibility
+// ✅ FIXED: Enhanced memory storage with proper initialization
 let memoryStorage = {
   userToken: null,
   teacherToken: null,
@@ -21,6 +21,11 @@ let memoryStorage = {
   teacher: null,
   userRole: null
 };
+
+// ✅ CRITICAL: Make memoryStorage globally accessible for debugging
+if (typeof window !== 'undefined') {
+  window.memoryStorage = memoryStorage;
+}
 
 // Helper function to get token from memory storage
 const getTokenFromStorage = (tokenType = 'userToken') => {
@@ -155,7 +160,7 @@ api.interceptors.response.use(
 
 // CORRECTED: API endpoints with proper paths
 export const endpoints = {
-  // Auth endpoints (for regular users) - assuming /api prefix is already in baseURL
+  // Auth endpoints (for regular users)
   auth: {
     register: '/auth/register',
     login: '/auth/login',
@@ -164,7 +169,7 @@ export const endpoints = {
     verifyToken: '/auth/verify-token',
   },
 
-  // CORRECTED: Teacher endpoints with proper paths
+  // Teacher endpoints
   teachers: {
     getAll: '/teachers',
     getById: (id) => `/teachers/${id}`,
@@ -175,7 +180,7 @@ export const endpoints = {
     getStats: '/teachers/stats',
     getByDepartment: (department) => `/teachers/department/${department}`,
     
-    // Teacher Authentication routes - CORRECTED paths
+    // Teacher Authentication routes
     login: '/teachers/login',
     sendSetupLink: '/teachers/send-setup-link',
     setupAccount: (token) => `/teachers/setup-account/${token}`,
@@ -183,29 +188,18 @@ export const endpoints = {
     logout: '/teachers/logout',
   },
 
-  // CORRECTED: Appointment endpoints with proper paths
+  // Appointment endpoints
   appointments: {
-    // General appointment routes
     getAll: '/appointments',
     getById: (id) => `/appointments/${id}`,
     getStats: '/appointments/stats',
-    
-    // Student workflow - request appointment (needs teacher approval)
     request: '/appointments/request',
-    
-    // Teacher workflow - direct booking (no approval needed)
     book: '/appointments/book',
-    
-    // Teacher response routes
     accept: (id) => `/appointments/${id}/accept`,
     reject: (id) => `/appointments/${id}/reject`,
     complete: (id) => `/appointments/${id}/complete`,
-    
-    // Common routes
     update: (id) => `/appointments/${id}`,
     cancel: (id) => `/appointments/${id}/cancel`,
-    
-    // Teacher-specific routes
     getByTeacher: (teacherId) => `/appointments/teacher/${teacherId}`,
     getTeacherPending: (teacherId) => `/appointments/teacher/${teacherId}/pending`,
   },
@@ -234,7 +228,7 @@ export const endpoints = {
   }
 };
 
-// CORRECTED: API methods with comprehensive error handling
+// API methods with comprehensive error handling
 export const apiMethods = {
   // Auth Operations
   register: (userData) => api.post(endpoints.auth.register, userData),
@@ -261,7 +255,7 @@ export const apiMethods = {
   getTeacherProfile: () => api.get(endpoints.teachers.profile),
   teacherLogout: () => api.post(endpoints.teachers.logout),
 
-  // Appointment Operations
+  // Appointment Operations (keeping existing methods for compatibility)
   requestAppointment: async (appointmentData) => {
     try {
       console.log('🔄 Student requesting appointment:', appointmentData);
@@ -293,7 +287,6 @@ export const apiMethods = {
       console.log('   Appointment ID:', id);
       console.log('   Response Message:', responseMessage);
       
-      // Validate ID format on frontend
       if (!id) {
         throw new Error('Appointment ID is required');
       }
@@ -303,7 +296,6 @@ export const apiMethods = {
         throw new Error('Invalid appointment ID format');
       }
       
-      // Check if teacher token exists
       const teacherToken = tokenManager.getTeacherToken();
       if (!teacherToken) {
         console.error('❌ No teacher token found');
@@ -336,7 +328,6 @@ export const apiMethods = {
         console.error(`   HTTP Status: ${status}`);
         console.error('   Response data:', data);
         
-        // Provide user-friendly error messages
         switch (status) {
           case 400:
             if (data.message?.includes('ID format')) {
@@ -427,6 +418,7 @@ export const apiMethods = {
         console.error(`   HTTP Status: ${status}`);
         console.error('   Response data:', data);
         
+        // Provide user-friendly error messages
         switch (status) {
           case 400:
             if (data.message?.includes('ID format')) {
@@ -642,65 +634,145 @@ export const apiMethods = {
   }
 };
 
+// ✅ FIXED: Enhanced token manager with proper memory storage and validation
 export const tokenManager = {
-  // User token methods with memory storage for Claude.ai compatibility
+  // ✅ FIXED: User token methods with enhanced error handling and validation
   setUserToken: (token, persistent = false) => {
     console.log('🔧 setUserToken called with:', { 
-      token: token?.substring(0, 20) + '...', 
+      hasToken: !!token, 
+      tokenLength: token?.length,
       persistent,
       timestamp: new Date().toISOString()
     });
     
-    memoryStorage.userToken = token;
-    console.log('✅ User token stored in memory');
+    if (!token || typeof token !== 'string' || token.trim() === '') {
+      console.error('❌ Invalid token provided to setUserToken');
+      return false;
+    }
+    
+    memoryStorage.userToken = token.trim();
+    console.log('✅ User token stored in memory successfully');
+    return true;
   },
   
-  getUserToken: () => memoryStorage.userToken,
+  getUserToken: () => {
+    const token = memoryStorage.userToken;
+    if (process.env.NODE_ENV === 'development' && token) {
+      console.log('🔍 Retrieved user token:', token.substring(0, 20) + '...');
+    }
+    return token;
+  },
   
   removeUserToken: () => {
     console.log('🗑️ Removing user token from memory');
     memoryStorage.userToken = null;
     memoryStorage.user = null;
     memoryStorage.userRole = null;
+    console.log('✅ User token and data cleared from memory');
   },
   
-  // Teacher token methods with memory storage
+  // ✅ FIXED: Enhanced teacher token methods with proper validation
   setTeacherToken: (token, persistent = false) => {
     console.log('🔧 setTeacherToken called with:', { 
-      token: token?.substring(0, 20) + '...', 
+      hasToken: !!token, 
+      tokenLength: token?.length,
       persistent,
       timestamp: new Date().toISOString()
     });
     
-    memoryStorage.teacherToken = token;
-    console.log('✅ Teacher token stored in memory');
+    if (!token || typeof token !== 'string' || token.trim() === '') {
+      console.error('❌ Invalid token provided to setTeacherToken');
+      return false;
+    }
+    
+    memoryStorage.teacherToken = token.trim();
+    console.log('✅ Teacher token stored in memory successfully');
+    return true;
   },
   
-  getTeacherToken: () => memoryStorage.teacherToken,
+  getTeacherToken: () => {
+    const token = memoryStorage.teacherToken;
+    if (process.env.NODE_ENV === 'development' && token) {
+      console.log('🔍 Retrieved teacher token:', token.substring(0, 20) + '...');
+    }
+    return token;
+  },
   
   removeTeacherToken: () => {
     console.log('🗑️ Removing teacher token from memory');
     memoryStorage.teacherToken = null;
     memoryStorage.teacher = null;
+    console.log('✅ Teacher token and data cleared from memory');
+  },
+
+  // ✅ FIXED: Enhanced teacher data management with validation
+  setTeacherData: (teacherData) => {
+    console.log('💾 setTeacherData called with:', teacherData);
+    
+    if (!teacherData || typeof teacherData !== 'object') {
+      console.error('❌ Invalid teacher data provided to setTeacherData');
+      return false;
+    }
+    
+    try {
+      const teacherDataString = JSON.stringify(teacherData);
+      memoryStorage.teacher = teacherDataString;
+      console.log('✅ Teacher data stored in memory successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Error serializing teacher data:', error);
+      return false;
+    }
+  },
+
+  getTeacherData: () => {
+    try {
+      const teacherData = memoryStorage.teacher;
+      if (teacherData && typeof teacherData === 'string') {
+        const parsed = JSON.parse(teacherData);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🔍 Retrieved teacher data:', parsed);
+        }
+        return parsed;
+      }
+    } catch (error) {
+      console.error('❌ Error parsing teacher data:', error);
+      memoryStorage.teacher = null;
+    }
+    return null;
   },
   
   // Admin token methods
   setAdminToken: (token, persistent = false) => {
     console.log('🔧 setAdminToken called with:', { 
-      token: token?.substring(0, 20) + '...', 
+      hasToken: !!token, 
+      tokenLength: token?.length,
       persistent,
       timestamp: new Date().toISOString()
     });
     
-    memoryStorage.adminToken = token;
-    console.log('✅ Admin token stored in memory');
+    if (!token || typeof token !== 'string' || token.trim() === '') {
+      console.error('❌ Invalid token provided to setAdminToken');
+      return false;
+    }
+    
+    memoryStorage.adminToken = token.trim();
+    console.log('✅ Admin token stored in memory successfully');
+    return true;
   },
   
-  getAdminToken: () => memoryStorage.adminToken,
+  getAdminToken: () => {
+    const token = memoryStorage.adminToken;
+    if (process.env.NODE_ENV === 'development' && token) {
+      console.log('🔍 Retrieved admin token:', token.substring(0, 20) + '...');
+    }
+    return token;
+  },
   
   removeAdminToken: () => {
     console.log('🗑️ Removing admin token from memory');
     memoryStorage.adminToken = null;
+    console.log('✅ Admin token cleared from memory');
   },
   
   clearAllTokens: () => {
@@ -713,27 +785,54 @@ export const tokenManager = {
       teacher: null,
       userRole: null
     };
+    // Update the global reference
+    if (typeof window !== 'undefined') {
+      window.memoryStorage = memoryStorage;
+    }
+    console.log('✅ All tokens and data cleared from memory');
   },
 
-  // Helper methods for user state management
+  // ✅ FIXED: Helper methods for user state management with proper validation
   isUserLoggedIn: () => {
-    return !!memoryStorage.userToken;
+    const hasToken = !!(memoryStorage.userToken && memoryStorage.userToken.trim());
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 User login status:', hasToken);
+    }
+    return hasToken;
   },
 
   isTeacherLoggedIn: () => {
-    return !!memoryStorage.teacherToken;
+    const hasToken = !!(memoryStorage.teacherToken && memoryStorage.teacherToken.trim());
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 Teacher login status:', hasToken);
+    }
+    return hasToken;
   },
 
   isAdminLoggedIn: () => {
-    return !!memoryStorage.adminToken;
+    const hasToken = !!(memoryStorage.adminToken && memoryStorage.adminToken.trim());
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 Admin login status:', hasToken);
+    }
+    return hasToken;
   },
 
   getCurrentUser: () => {
-    return memoryStorage.user ? JSON.parse(memoryStorage.user) : null;
+    try {
+      return memoryStorage.user ? JSON.parse(memoryStorage.user) : null;
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+      return null;
+    }
   },
 
   getCurrentTeacher: () => {
-    return memoryStorage.teacher ? JSON.parse(memoryStorage.teacher) : null;
+    try {
+      return memoryStorage.teacher ? JSON.parse(memoryStorage.teacher) : null;
+    } catch (error) {
+      console.error('Error parsing teacher data:', error);
+      return null;
+    }
   },
 
   getCurrentUserRole: () => {
@@ -752,10 +851,75 @@ export const tokenManager = {
     }
     
     return null;
+  },
+
+  // Enhanced login status checker
+  getAuthenticationStatus: () => {
+    return {
+      isTeacherLoggedIn: tokenManager.isTeacherLoggedIn(),
+      isUserLoggedIn: tokenManager.isUserLoggedIn(),
+      isAdminLoggedIn: tokenManager.isAdminLoggedIn(),
+      hasAnyAuth: tokenManager.isTeacherLoggedIn() || tokenManager.isUserLoggedIn() || tokenManager.isAdminLoggedIn(),
+      currentUser: tokenManager.getCurrentAuthenticatedUser()
+    };
+  },
+
+  // ✅ FIXED: Enhanced debug method to check storage state
+  getStorageState: () => {
+    if (process.env.NODE_ENV === 'development') {
+      const state = {
+        hasUserToken: !!(memoryStorage.userToken && memoryStorage.userToken.trim()),
+        hasTeacherToken: !!(memoryStorage.teacherToken && memoryStorage.teacherToken.trim()),
+        hasAdminToken: !!(memoryStorage.adminToken && memoryStorage.adminToken.trim()),
+        hasUserData: !!memoryStorage.user,
+        hasTeacherData: !!memoryStorage.teacher,
+        userRole: memoryStorage.userRole,
+        teacherTokenLength: memoryStorage.teacherToken ? memoryStorage.teacherToken.length : 0,
+        teacherDataKeys: memoryStorage.teacher ? Object.keys(JSON.parse(memoryStorage.teacher) || {}).length : 0,
+        memoryStorageKeys: Object.keys(memoryStorage)
+      };
+      console.log('🔍 Current storage state:', state);
+      return state;
+    }
+    return null;
+  },
+
+  // ✅ NEW: Method to validate token format
+  validateTokenFormat: (token) => {
+    if (!token || typeof token !== 'string') {
+      return { valid: false, error: 'Token must be a non-empty string' };
+    }
+    
+    if (token.trim() === '') {
+      return { valid: false, error: 'Token cannot be empty or whitespace only' };
+    }
+    
+    // Basic JWT format check (3 parts separated by dots)
+    const parts = token.trim().split('.');
+    if (parts.length !== 3) {
+      return { valid: false, error: 'Invalid JWT format (should have 3 parts)' };
+    }
+    
+    return { valid: true, error: null };
+  },
+
+  // ✅ NEW: Method to safely store token with validation
+  safeSetTeacherToken: (token, persistent = false) => {
+    const validation = tokenManager.validateTokenFormat(token);
+    if (!validation.valid) {
+      console.error('❌ Token validation failed:', validation.error);
+      return { success: false, error: validation.error };
+    }
+    
+    const result = tokenManager.setTeacherToken(token, persistent);
+    return { 
+      success: result, 
+      error: result ? null : 'Failed to store token in memory storage' 
+    };
   }
 };
 
-// Constants
+// Constants (keeping existing for compatibility)
 export const constants = {
   DEPARTMENTS: [
     'Computer Science',
@@ -796,7 +960,7 @@ export const constants = {
   }
 };
 
-// CORRECTED: Create API client function for backward compatibility with your TeacherLogin component
+// ✅ FIXED: Create API client function for backward compatibility
 export const createApiClient = () => {
   const handleErrors = async (response) => {
     const data = await response.json();
