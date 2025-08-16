@@ -19,12 +19,12 @@ const { protect, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Validation middleware
+// Validation middleware - Updated to match User model structure
 const teacherValidation = [
   body('name')
     .trim()
-    .isLength({ min: 2, max: 50 })
-    .withMessage('Name must be between 2 and 50 characters')
+    .isLength({ min: 2, max: 100 }) // Updated to match User model
+    .withMessage('Name must be between 2 and 100 characters')
     .matches(/^[a-zA-Z\s.]+$/)
     .withMessage('Name can only contain letters, spaces, and dots'),
   
@@ -33,6 +33,7 @@ const teacherValidation = [
     .normalizeEmail()
     .withMessage('Please provide a valid email address'),
   
+  // Teacher profile validations
   body('phone')
     .matches(/^[\+]?[1-9][\d]{0,15}$/)
     .withMessage('Please provide a valid phone number'),
@@ -54,8 +55,8 @@ const teacherValidation = [
   
   body('subject')
     .trim()
-    .isLength({ min: 2, max: 50 })
-    .withMessage('Subject must be between 2 and 50 characters'),
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Subject is required and must be less than 50 characters'),
   
   body('experience')
     .trim()
@@ -64,8 +65,8 @@ const teacherValidation = [
   
   body('qualification')
     .trim()
-    .isLength({ min: 5, max: 100 })
-    .withMessage('Qualification must be between 5 and 100 characters'),
+    .isLength({ min: 1, max: 100 }) // Updated to match User model
+    .withMessage('Qualification is required and must be less than 100 characters'),
   
   body('bio')
     .optional()
@@ -90,15 +91,21 @@ const teacherValidation = [
       '4:00 PM - 5:00 PM',
       '5:00 PM - 6:00 PM'
     ])
-    .withMessage('Invalid availability slot')
+    .withMessage('Invalid availability slot'),
+
+  // Optional password validation for direct creation
+  body('password')
+    .optional()
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters long')
 ];
 
 const updateTeacherValidation = [
   body('name')
     .optional()
     .trim()
-    .isLength({ min: 2, max: 50 })
-    .withMessage('Name must be between 2 and 50 characters')
+    .isLength({ min: 2, max: 100 }) // Updated to match User model
+    .withMessage('Name must be between 2 and 100 characters')
     .matches(/^[a-zA-Z\s.]+$/)
     .withMessage('Name can only contain letters, spaces, and dots'),
   
@@ -108,6 +115,7 @@ const updateTeacherValidation = [
     .normalizeEmail()
     .withMessage('Please provide a valid email address'),
   
+  // Teacher profile update validations
   body('phone')
     .optional()
     .matches(/^[\+]?[1-9][\d]{0,15}$/)
@@ -132,8 +140,8 @@ const updateTeacherValidation = [
   body('subject')
     .optional()
     .trim()
-    .isLength({ min: 2, max: 50 })
-    .withMessage('Subject must be between 2 and 50 characters'),
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Subject must be less than 50 characters'),
   
   body('experience')
     .optional()
@@ -144,8 +152,8 @@ const updateTeacherValidation = [
   body('qualification')
     .optional()
     .trim()
-    .isLength({ min: 5, max: 100 })
-    .withMessage('Qualification must be between 5 and 100 characters'),
+    .isLength({ min: 1, max: 100 }) // Updated to match User model
+    .withMessage('Qualification must be less than 100 characters'),
   
   body('bio')
     .optional()
@@ -173,19 +181,7 @@ const updateTeacherValidation = [
     .withMessage('Invalid availability slot')
 ];
 
-// Routes (Fixed route ordering)
-// Special routes first
-router.get('/stats', getTeacherStats);
-router.get('/department/:department', getTeachersByDepartment);
-
-// CRUD routes
-router.get('/', getAllTeachers);
-router.get('/:id', getTeacherById);
-router.post('/', teacherValidation, createTeacher);  // Fixed: Changed from '/teachers' to '/'
-router.put('/:id', updateTeacherValidation, updateTeacher);
-router.delete('/:id', deleteTeacher);
-router.delete('/:id/permanent', permanentDeleteTeacher);
-// Validation middlewares
+// Authentication validation middlewares
 const loginValidation = [
   body('email')
     .isEmail()
@@ -204,11 +200,24 @@ const setupValidation = [
     .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
 ];
 
-// Routes
+// Routes - Fixed route ordering
+// Special routes first (before parameterized routes)
+router.get('/stats', protect, authorize('admin'), getTeacherStats);
+router.get('/department/:department', getTeachersByDepartment);
+
+// Authentication routes
 router.post('/login', loginValidation, teacherLogin);
 router.post('/send-setup-link', protect, authorize('admin'), sendAccountSetupLink);
 router.post('/setup-account/:token', setupValidation, setupTeacherAccount);
 router.get('/profile', protect, authorize('teacher'), getTeacherProfile);
 router.post('/logout', protect, authorize('teacher'), teacherLogout);
+
+// CRUD routes
+router.get('/', getAllTeachers);
+router.get('/:id', getTeacherById);
+router.post('/', protect, authorize('admin'), teacherValidation, createTeacher);
+router.put('/:id', protect, authorize('admin'), updateTeacherValidation, updateTeacher);
+router.delete('/:id', protect, authorize('admin'), deleteTeacher);
+router.delete('/:id/permanent', protect, authorize('admin'), permanentDeleteTeacher);
 
 module.exports = router;

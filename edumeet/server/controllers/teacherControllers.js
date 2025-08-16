@@ -1,4 +1,4 @@
-const Teacher = require('../models/Teacher');
+const User = require('../models/User'); // Changed from Teacher to User
 const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
@@ -16,7 +16,7 @@ const createSendToken = (teacher, statusCode, req, res) => {
     id: teacher._id,
     email: teacher.email,
     role: 'teacher',
-  loginTime: Date.now()  // 👈 this must be here
+    loginTime: Date.now()
   });
 
   const cookieOptions = {
@@ -37,7 +37,6 @@ const createSendToken = (teacher, statusCode, req, res) => {
     }
   });
 };
-
 
 // @desc    Create new teacher
 // @route   POST /api/teachers
@@ -64,22 +63,20 @@ const createTeacher = async (req, res) => {
       qualification,
       bio,
       availability,
-      password // Add password field
+      password
     } = req.body;
 
-    // Check if teacher with email already exists
-    const existingTeacher = await Teacher.findOne({ email });
-    if (existingTeacher) {
+    // Check if user with email already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'Teacher with this email already exists'
+        message: 'User with this email already exists'
       });
     }
 
-    // Create new teacher object
-    const teacherData = {
-      name,
-      email,
+    // Create teacher profile object
+    const teacherProfile = {
       phone,
       department,
       subject,
@@ -89,15 +86,24 @@ const createTeacher = async (req, res) => {
       availability: availability || []
     };
 
+    // Create new teacher user object
+    const userData = {
+      name,
+      email,
+      role: 'teacher',
+      teacherProfile,
+      approvalStatus: 'pending' // Teachers need approval by default
+    };
+
     // If password is provided, set it and mark account as active
     if (password) {
-      teacherData.password = password;
-      teacherData.hasAccount = true;
-      teacherData.lastLogin = new Date();
+      userData.password = password;
+      userData.hasAccount = true;
+      userData.lastLogin = new Date();
     }
 
-    // Create new teacher
-    const teacher = new Teacher(teacherData);
+    // Create new teacher user
+    const teacher = new User(userData);
     const savedTeacher = await teacher.save();
 
     // Remove password from response
@@ -159,7 +165,7 @@ const updateTeacher = async (req, res) => {
     const updateData = req.body;
 
     // Check if teacher exists
-    const existingTeacher = await Teacher.findById(teacherId);
+    const existingTeacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!existingTeacher) {
       return res.status(404).json({
         success: false,
@@ -169,7 +175,7 @@ const updateTeacher = async (req, res) => {
 
     // If email is being updated, check for duplicates
     if (updateData.email && updateData.email !== existingTeacher.email) {
-      const emailExists = await Teacher.findOne({ 
+      const emailExists = await User.findOne({ 
         email: updateData.email, 
         _id: { $ne: teacherId } 
       });
@@ -177,15 +183,34 @@ const updateTeacher = async (req, res) => {
       if (emailExists) {
         return res.status(400).json({
           success: false,
-          message: 'Teacher with this email already exists'
+          message: 'User with this email already exists'
         });
       }
     }
 
+    // Prepare update data for teacher profile fields
+    const teacherProfileFields = ['phone', 'department', 'subject', 'experience', 'qualification', 'bio', 'availability'];
+    const generalFields = ['name', 'email'];
+    
+    const finalUpdateData = { updatedAt: new Date() };
+    const teacherProfileUpdates = {};
+
+    // Separate general fields from teacher profile fields
+    Object.keys(updateData).forEach(key => {
+      if (generalFields.includes(key)) {
+        finalUpdateData[key] = updateData[key];
+      } else if (teacherProfileFields.includes(key)) {
+        teacherProfileUpdates[`teacherProfile.${key}`] = updateData[key];
+      }
+    });
+
+    // Merge teacher profile updates
+    Object.assign(finalUpdateData, teacherProfileUpdates);
+
     // Update teacher
-    const updatedTeacher = await Teacher.findByIdAndUpdate(
+    const updatedTeacher = await User.findByIdAndUpdate(
       teacherId,
-      { ...updateData, updatedAt: new Date() },
+      finalUpdateData,
       { 
         new: true, 
         runValidators: true 
@@ -243,23 +268,27 @@ const getAllTeachers = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // Build filter object
-    const filter = { isActive: true };
+    // Build filter object - only get users with teacher role
+    const filter = { 
+      role: 'teacher', 
+      isActive: true,
+      approvalStatus: 'approved' // Only show approved teachers
+    };
     
     if (department) {
-      filter.department = department;
+      filter['teacherProfile.department'] = department;
     }
     
     if (subject) {
-      filter.subject = subject;
+      filter['teacherProfile.subject'] = subject;
     }
     
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
-        { subject: { $regex: search, $options: 'i' } },
-        { department: { $regex: search, $options: 'i' } }
+        { 'teacherProfile.subject': { $regex: search, $options: 'i' } },
+        { 'teacherProfile.department': { $regex: search, $options: 'i' } }
       ];
     }
 
@@ -270,13 +299,13 @@ const getAllTeachers = async (req, res) => {
     // Execute query with pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    const teachers = await Teacher.find(filter)
+    const teachers = await User.find(filter)
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit))
-      .select('-__v');
+      .select('-__v -password');
 
-    const totalTeachers = await Teacher.countDocuments(filter);
+    const totalTeachers = await User.countDocuments(filter);
     const totalPages = Math.ceil(totalTeachers / parseInt(limit));
 
     res.status(200).json({
@@ -305,7 +334,10 @@ const getAllTeachers = async (req, res) => {
 // @access  Public
 const getTeacherById = async (req, res) => {
   try {
-    const teacher = await Teacher.findById(req.params.id).select('-__v');
+    const teacher = await User.findOne({ 
+      _id: req.params.id, 
+      role: 'teacher' 
+    }).select('-__v -password');
     
     if (!teacher) {
       return res.status(404).json({
@@ -318,6 +350,13 @@ const getTeacherById = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Teacher is not active'
+      });
+    }
+
+    if (teacher.approvalStatus !== 'approved') {
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher is not approved'
       });
     }
 
@@ -350,7 +389,7 @@ const deleteTeacher = async (req, res) => {
   try {
     const teacherId = req.params.id;
 
-    const teacher = await Teacher.findById(teacherId);
+    const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!teacher) {
       return res.status(404).json({
         success: false,
@@ -359,7 +398,7 @@ const deleteTeacher = async (req, res) => {
     }
 
     // Soft delete - set isActive to false
-    await Teacher.findByIdAndUpdate(teacherId, { 
+    await User.findByIdAndUpdate(teacherId, { 
       isActive: false, 
       updatedAt: new Date() 
     });
@@ -393,7 +432,7 @@ const permanentDeleteTeacher = async (req, res) => {
   try {
     const teacherId = req.params.id;
 
-    const teacher = await Teacher.findById(teacherId);
+    const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!teacher) {
       return res.status(404).json({
         success: false,
@@ -401,7 +440,7 @@ const permanentDeleteTeacher = async (req, res) => {
       });
     }
 
-    await Teacher.findByIdAndDelete(teacherId);
+    await User.findByIdAndDelete(teacherId);
 
     res.status(200).json({
       success: true,
@@ -432,7 +471,8 @@ const getTeachersByDepartment = async (req, res) => {
   try {
     const { department } = req.params;
     
-    const teachers = await Teacher.getByDepartment(department);
+    // Use the static method from User model
+    const teachers = await User.findTeachersByDepartment(department);
     
     res.status(200).json({
       success: true,
@@ -454,17 +494,44 @@ const getTeachersByDepartment = async (req, res) => {
 // @access  Private/Admin
 const getTeacherStats = async (req, res) => {
   try {
-    const totalTeachers = await Teacher.countDocuments({ isActive: true });
-    const departmentStats = await Teacher.aggregate([
-      { $match: { isActive: true } },
-      { $group: { _id: '$department', count: { $sum: 1 } } },
+    const totalTeachers = await User.countDocuments({ 
+      role: 'teacher', 
+      isActive: true,
+      approvalStatus: 'approved' 
+    });
+    
+    const departmentStats = await User.aggregate([
+      { 
+        $match: { 
+          role: 'teacher', 
+          isActive: true,
+          approvalStatus: 'approved' 
+        } 
+      },
+      { 
+        $group: { 
+          _id: '$teacherProfile.department', 
+          count: { $sum: 1 } 
+        } 
+      },
       { $sort: { count: -1 } }
     ]);
 
-    const availabilityStats = await Teacher.aggregate([
-      { $match: { isActive: true } },
-      { $unwind: '$availability' },
-      { $group: { _id: '$availability', count: { $sum: 1 } } },
+    const availabilityStats = await User.aggregate([
+      { 
+        $match: { 
+          role: 'teacher', 
+          isActive: true,
+          approvalStatus: 'approved' 
+        } 
+      },
+      { $unwind: '$teacherProfile.availability' },
+      { 
+        $group: { 
+          _id: '$teacherProfile.availability', 
+          count: { $sum: 1 } 
+        } 
+      },
       { $sort: { count: -1 } }
     ]);
 
@@ -490,18 +557,39 @@ const teacherLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const teacher = await Teacher.findOne({ email, isActive: true }).select('+password');
+    const teacher = await User.findOne({ 
+      email, 
+      role: 'teacher',
+      isActive: true 
+    }).select('+password');
+    
     if (!teacher) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials or teacher not found' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials or teacher not found' 
+      });
     }
 
     if (!teacher.hasAccount || !teacher.password) {
-      return res.status(401).json({ success: false, message: 'Account not set up. Contact admin.' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Account not set up. Contact admin.' 
+      });
     }
 
-    const isPasswordCorrect = await teacher.correctPassword(password, teacher.password);
+    if (teacher.approvalStatus !== 'approved') {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Account not approved. Contact admin.' 
+      });
+    }
+
+    const isPasswordCorrect = await teacher.correctPassword(password);
     if (!isPasswordCorrect) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
     }
 
     teacher.lastLogin = new Date();
@@ -537,7 +625,7 @@ const sendAccountSetupLink = async (req, res) => {
   try {
     const { teacherId } = req.body;
 
-    const teacher = await Teacher.findById(teacherId);
+    const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!teacher) {
       return res.status(404).json({
         success: false,
@@ -557,7 +645,6 @@ const sendAccountSetupLink = async (req, res) => {
     await teacher.save({ validateBeforeSave: false });
 
     // In a real app, you'd send an email here
-    // For now, we'll just return the setup link
     const setupURL = `${req.protocol}://${req.get('host')}/api/teachers/setup-account/${setupToken}`;
 
     res.status(200).json({
@@ -601,7 +688,8 @@ const setupTeacherAccount = async (req, res) => {
       .digest('hex');
 
     // Find teacher with valid token
-    const teacher = await Teacher.findOne({
+    const teacher = await User.findOne({
+      role: 'teacher',
       accountSetupToken: hashedToken,
       accountSetupExpires: { $gt: Date.now() }
     });
@@ -639,7 +727,10 @@ const setupTeacherAccount = async (req, res) => {
 // @access  Private/Teacher
 const getTeacherProfile = async (req, res) => {
   try {
-    const teacher = await Teacher.findById(req.user.id);
+    const teacher = await User.findOne({ 
+      _id: req.user.id, 
+      role: 'teacher' 
+    });
     
     if (!teacher) {
       return res.status(404).json({

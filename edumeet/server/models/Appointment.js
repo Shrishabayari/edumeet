@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
 
 const appointmentSchema = new mongoose.Schema({
-  // Reference User model for teachers
+  // Reference User model for teachers - FIXED
   teacherId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Teacher',
+    ref: 'User', // ✅ Fixed: Changed from 'Teacher' to 'User'
     required: [true, 'Teacher ID is required'],
     validate: {
       validator: function(v) {

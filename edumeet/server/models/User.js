@@ -6,158 +6,225 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Name is required'],
     trim: true,
-    minlength: [2, 'Name must be at least 2 characters long'],
-    maxlength: [50, 'Name cannot exceed 50 characters']
+    minlength: [2, 'Name must be at least 2 characters'],
+    maxlength: [100, 'Name cannot exceed 100 characters']
   },
   email: {
     type: String,
     required: [true, 'Email is required'],
     unique: true,
     lowercase: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
+    trim: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
   },
   password: {
     type: String,
-    required: [true, 'Password is required'],
-    minlength: [6, 'Password must be at least 6 characters long'],
+    required: function() {
+      return this.role !== 'student'; // Only teachers/admins need passwords initially
+    },
+    minlength: [6, 'Password must be at least 6 characters'],
     select: false
   },
   role: {
     type: String,
-    enum: {
-      values: ['student', 'teacher', 'admin'],
-      message: 'Role must be student, teacher, or admin'
-    },
+    enum: ['student', 'teacher', 'admin'],
     default: 'student',
-    index: true
+    required: true
   },
-  profile: {
+  
+  // Teacher-specific fields (only populated when role === 'teacher')
+  teacherProfile: {
     phone: {
       type: String,
-      match: [/^\d{10}$/, 'Please enter a valid 10-digit phone number']
-    },
-    avatar: {
-      type: String,
-      default: ''
-    },
-    grade: {
-      type: String,
-      required: function() {
-        return this.role === 'student';
-      }
-    },
-    studentId: {
-      type: String,
-      unique: true,
-      sparse: true
-    },
-    // Teacher specific fields
-    subject: {
-      type: String,
-      required: function() {
-        return this.role === 'teacher';
-      }
+      required: function() { return this.role === 'teacher'; },
+      trim: true,
+      match: [/^[\+]?[1-9][\d]{0,15}$/, 'Please provide a valid phone number']
     },
     department: {
       type: String,
-      required: function() {
-        return this.role === 'teacher';
-      }
+      required: function() { return this.role === 'teacher'; },
+      enum: [
+        'Computer Science',
+        'Mathematics', 
+        'Physics',
+        'Chemistry',
+        'Biology',
+        'English',
+        'History',
+        'Economics',
+        'Business Administration',
+        'Psychology'
+      ]
+    },
+    subject: {
+      type: String,
+      required: function() { return this.role === 'teacher'; },
+      trim: true,
+      maxlength: [50, 'Subject cannot exceed 50 characters']
+    },
+    experience: {
+      type: String,
+      required: function() { return this.role === 'teacher'; },
+      trim: true,
+      maxlength: [50, 'Experience cannot exceed 50 characters']
+    },
+    qualification: {
+      type: String,
+      required: function() { return this.role === 'teacher'; },
+      trim: true,
+      maxlength: [100, 'Qualification cannot exceed 100 characters']
+    },
+    bio: {
+      type: String,
+      trim: true,
+      maxlength: [500, 'Bio cannot exceed 500 characters']
+    },
+    availability: [{
+      type: String,
+      enum: [
+        '9:00 AM - 10:00 AM',
+        '10:00 AM - 11:00 AM', 
+        '11:00 AM - 12:00 PM',
+        '12:00 PM - 1:00 PM',
+        '2:00 PM - 3:00 PM',
+        '3:00 PM - 4:00 PM',
+        '4:00 PM - 5:00 PM',
+        '5:00 PM - 6:00 PM'
+      ]
+    }]
+  },
+  
+  // Common fields
+  approvalStatus: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: function() {
+      return this.role === 'student' ? 'approved' : 'pending';
     }
   },
   isActive: {
     type: Boolean,
-    default: true
+    default: true,
+    select: false
   },
-  isEmailVerified: {
+  hasAccount: {
     type: Boolean,
-    default: false
+    default: function() {
+      return this.role === 'student';
+    }
   },
-  // Admin approval system
-  approvalStatus: {
+  
+  // Authentication tokens
+  accountSetupToken: {
     type: String,
-    enum: ['pending', 'approved', 'rejected'],
-    default: 'pending'
+    select: false
   },
-  approvedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+  accountSetupExpires: {
+    type: Date,
+    select: false
   },
-  approvedAt: {
+  passwordResetToken: {
+    type: String,
+    select: false
+  },
+  passwordResetExpires: {
+    type: Date,
+    select: false
+  },
+  lastLogin: {
     type: Date
   },
-  rejectedAt: {
-    type: Date
+  
+  createdAt: {
+    type: Date,
+    default: Date.now
   },
-  rejectionReason: {
-    type: String
-  },
-  lastLogin: Date,
-  passwordResetToken: String,
-  passwordResetExpires: Date
-}, {
-  timestamps: true
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
 });
+
+// Indexes
+userSchema.index({ email: 1, role: 1 });
+userSchema.index({ role: 1, isActive: 1 });
+userSchema.index({ 'teacherProfile.department': 1 });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 12);
-  next();
-});
-
-// Auto-generate student ID for students
-userSchema.pre('save', async function(next) {
-  if (this.role === 'student' && !this.profile.studentId) {
-    const year = new Date().getFullYear();
-    const random = Math.floor(1000 + Math.random() * 9000);
-    this.profile.studentId = `STU${year}${random}`;
+  if (!this.isModified('password')) {
+    this.updatedAt = Date.now();
+    return next();
   }
+  
+  if (this.password) {
+    this.password = await bcrypt.hash(this.password, 12);
+  }
+  
+  this.updatedAt = Date.now();
   next();
 });
 
-// Compare password method
-userSchema.methods.comparePassword = async function(candidatePassword) {
-  return bcrypt.compare(candidatePassword, this.password);
+// Instance methods
+userSchema.methods.correctPassword = async function(candidatePassword) {
+  return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Remove sensitive fields from JSON output
-userSchema.methods.toJSON = function() {
-  const obj = this.toObject();
-  delete obj.password;
-  delete obj.passwordResetToken;
-  delete obj.passwordResetExpires;
-  return obj;
+userSchema.methods.createAccountSetupToken = function() {
+  const crypto = require('crypto');
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  
+  this.accountSetupToken = crypto
+    .createHash('sha256')
+    .update(resetToken)  
+    .digest('hex');
+  
+  this.accountSetupExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+  
+  return resetToken;
 };
 
-// Find user by email with password
-userSchema.statics.findByEmail = function(email) {
-  return this.findOne({ email }).select('+password');
+// Static methods
+userSchema.statics.findTeachers = function(filters = {}) {
+  return this.find({ 
+    role: 'teacher', 
+    isActive: true,
+    approvalStatus: 'approved',
+    ...filters 
+  }).select('-password -__v');
 };
 
-// Check if user can login (approved and active)
-userSchema.methods.canLogin = function() {
-  return this.isActive && this.approvalStatus === 'approved';
+userSchema.statics.findTeachersByDepartment = function(department) {
+  return this.find({
+    role: 'teacher',
+    'teacherProfile.department': department,
+    isActive: true,
+    approvalStatus: 'approved'
+  }).select('-password -__v');
 };
 
-// Approve user method
-userSchema.methods.approve = function(adminId) {
-  this.approvalStatus = 'approved';
-  this.approvedBy = adminId;
-  this.approvedAt = new Date();
-  this.rejectedAt = undefined;
-  this.rejectionReason = undefined;
-  return this.save();
-};
+// Virtual for teacher's available slots
+userSchema.virtual('availableSlots').get(function() {
+  return this.role === 'teacher' ? this.teacherProfile?.availability || [] : [];
+});
 
-// Reject user method
-userSchema.methods.reject = function(adminId, reason) {
-  this.approvalStatus = 'rejected';
-  this.rejectedAt = new Date();
-  this.rejectionReason = reason;
-  this.approvedBy = undefined;
-  this.approvedAt = undefined;
-  return this.save();
-};
+// Ensure virtuals are included in JSON
+userSchema.set('toJSON', { 
+  virtuals: true,
+  transform: function(doc, ret) {
+    delete ret.__v;
+    delete ret.password;
+    delete ret.accountSetupToken;
+    delete ret.accountSetupExpires; 
+    delete ret.passwordResetToken;
+    delete ret.passwordResetExpires;
+    // Flatten teacher profile for easier access
+    if (ret.role === 'teacher' && ret.teacherProfile) {
+      Object.assign(ret, ret.teacherProfile);
+      delete ret.teacherProfile;
+    }
+    return ret;
+  }
+});
 
 module.exports = mongoose.model('User', userSchema);
