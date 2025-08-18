@@ -12,7 +12,7 @@ const api = axios.create({
   },
 });
 
-// ✅ ENHANCED: Safe storage utility with guaranteed localStorage for teacher tokens
+// ✅ ENHANCED: Safe storage utility that handles localStorage, sessionStorage, and memory fallback
 const createSafeStorage = () => {
   // Check if localStorage is available
   const isLocalStorageAvailable = (() => {
@@ -54,67 +54,6 @@ const createSafeStorage = () => {
   }
 
   const storage = {
-    // ✅ FIXED: Specific method for teacher tokens that ALWAYS tries localStorage first
-    setTeacherToken: (token, persistent = true) => {
-      try {
-        // Update memory storage first as backup
-        memoryStorage.teacherToken = token;
-
-        // For teacher tokens, ALWAYS try localStorage first if available
-        if (isLocalStorageAvailable) {
-          localStorage.setItem('teacherToken', token);
-          console.log('✅ Teacher token stored in localStorage');
-          return { success: true, storageType: 'localStorage' };
-        }
-        
-        // Fallback to sessionStorage only if localStorage fails
-        if (isSessionStorageAvailable) {
-          sessionStorage.setItem('teacherToken', token);
-          console.log('⚠️ Teacher token stored in sessionStorage (localStorage not available)');
-          return { success: true, storageType: 'sessionStorage' };
-        }
-        
-        // Memory storage as final fallback
-        console.log('⚠️ Teacher token stored in memory only (browser storage not available)');
-        return { success: true, storageType: 'memory' };
-      } catch (error) {
-        console.error('❌ Error storing teacher token:', error);
-        // Ensure memory storage is updated even if other storage fails
-        memoryStorage.teacherToken = token;
-        return { success: false, storageType: 'memory', error: error.message };
-      }
-    },
-
-    // ✅ FIXED: Specific method for teacher data that ALWAYS tries localStorage first
-    setTeacherData: (data, persistent = true) => {
-      try {
-        const dataString = JSON.stringify(data);
-        // Update memory storage first as backup
-        memoryStorage.teacherData = dataString;
-
-        // For teacher data, ALWAYS try localStorage first if available
-        if (isLocalStorageAvailable) {
-          localStorage.setItem('teacherData', dataString);
-          console.log('✅ Teacher data stored in localStorage');
-          return { success: true, storageType: 'localStorage' };
-        }
-        
-        // Fallback to sessionStorage only if localStorage fails
-        if (isSessionStorageAvailable) {
-          sessionStorage.setItem('teacherData', dataString);
-          console.log('⚠️ Teacher data stored in sessionStorage (localStorage not available)');
-          return { success: true, storageType: 'sessionStorage' };
-        }
-        
-        // Memory storage as final fallback
-        console.log('⚠️ Teacher data stored in memory only (browser storage not available)');
-        return { success: true, storageType: 'memory' };
-      } catch (error) {
-        console.error('❌ Error storing teacher data:', error);
-        return { success: false, storageType: 'memory', error: error.message };
-      }
-    },
-
     // Get item with fallback chain: localStorage -> sessionStorage -> memory
     getItem: (key) => {
       try {
@@ -135,7 +74,7 @@ const createSafeStorage = () => {
       }
     },
 
-    // Set item with primary storage preference (for non-teacher items)
+    // Set item with primary storage preference
     setItem: (key, value, persistent = true) => {
       try {
         // Update memory storage first
@@ -441,7 +380,7 @@ export const endpoints = {
   }
 };
 
-// ✅ ENHANCED: Token manager with guaranteed localStorage for teacher tokens
+// ✅ ENHANCED: Token manager with proper localStorage integration
 export const tokenManager = {
   // ✅ User token methods
   setUserToken: (token, persistent = true) => {
@@ -476,7 +415,7 @@ export const tokenManager = {
     console.log('✅ User token and data cleared');
   },
   
-  // ✅ FIXED: Enhanced teacher token methods with GUARANTEED localStorage
+  // ✅ FIXED: Enhanced teacher token methods with localStorage
   setTeacherToken: (token, persistent = true) => {
     console.log('🔧 setTeacherToken called with:', { 
       hasToken: !!token, 
@@ -488,38 +427,22 @@ export const tokenManager = {
     
     if (!token || typeof token !== 'string' || token.trim() === '') {
       console.error('❌ Invalid token provided to setTeacherToken');
-      return { success: false, error: 'Invalid token format' };
+      return false;
     }
     
-    // ✅ Use the dedicated teacher token storage method that prioritizes localStorage
-    const result = safeStorage.setTeacherToken(token.trim(), persistent);
+    const result = safeStorage.setItem('teacherToken', token.trim(), persistent);
     
-    if (result.success) {
-      console.log(`✅ Teacher token stored successfully in ${result.storageType}`);
+    if (result) {
+      console.log('✅ Teacher token stored successfully');
       // Verify storage immediately
       const stored = safeStorage.getItem('teacherToken');
       if (stored) {
         console.log('✅ Token verified in storage:', stored.substring(0, 20) + '...');
-        
-        // Extra verification for localStorage specifically
-        if (result.storageType === 'localStorage') {
-          try {
-            const directCheck = localStorage.getItem('teacherToken');
-            if (directCheck) {
-              console.log('✅ Direct localStorage verification passed');
-            } else {
-              console.warn('⚠️ Direct localStorage verification failed');
-            }
-          } catch (e) {
-            console.warn('⚠️ Could not verify localStorage directly:', e);
-          }
-        }
-        
       } else {
         console.error('❌ Token not found immediately after storage');
       }
     } else {
-      console.error('❌ Failed to store teacher token:', result.error);
+      console.error('❌ Failed to store teacher token');
     }
     
     return result;
@@ -529,19 +452,6 @@ export const tokenManager = {
     const token = safeStorage.getItem('teacherToken');
     if (process.env.NODE_ENV === 'development' && token) {
       console.log('🔍 Retrieved teacher token:', token.substring(0, 20) + '...');
-      
-      // Extra check to see where it's coming from
-      try {
-        const fromLocalStorage = localStorage.getItem('teacherToken');
-        const fromSessionStorage = sessionStorage.getItem('teacherToken');
-        console.log('🔍 Token source check:', {
-          localStorage: !!fromLocalStorage,
-          sessionStorage: !!fromSessionStorage,
-          memory: !!window.memoryStorage?.teacherToken
-        });
-      } catch (e) {
-        console.log('🔍 Could not check token sources:', e);
-      }
     }
     return token;
   },
@@ -553,25 +463,30 @@ export const tokenManager = {
     console.log('✅ Teacher token and data cleared');
   },
 
-  // ✅ FIXED: Enhanced teacher data management with guaranteed localStorage
+  // ✅ FIXED: Enhanced teacher data management with localStorage
   setTeacherData: (teacherData, persistent = true) => {
     console.log('💾 setTeacherData called with:', teacherData);
     
     if (!teacherData || typeof teacherData !== 'object') {
       console.error('❌ Invalid teacher data provided to setTeacherData');
-      return { success: false, error: 'Invalid data format' };
+      return false;
     }
     
-    // ✅ Use the dedicated teacher data storage method that prioritizes localStorage
-    const result = safeStorage.setTeacherData(teacherData, persistent);
-    
-    if (result.success) {
-      console.log(`✅ Teacher data stored successfully in ${result.storageType}`);
-    } else {
-      console.error('❌ Failed to store teacher data:', result.error);
+    try {
+      const teacherDataString = JSON.stringify(teacherData);
+      const result = safeStorage.setItem('teacherData', teacherDataString, persistent);
+      
+      if (result) {
+        console.log('✅ Teacher data stored successfully');
+      } else {
+        console.error('❌ Failed to store teacher data');
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('❌ Error serializing teacher data:', error);
+      return false;
     }
-    
-    return result;
   },
 
   getTeacherData: () => {
@@ -717,19 +632,7 @@ export const tokenManager = {
         hasTeacherData: !!(safeStorage.getItem('teacherData')),
         userRole: safeStorage.getItem('userRole'),
         teacherTokenLength: safeStorage.getItem('teacherToken')?.length || 0,
-        storageInfo: safeStorage.getStorageInfo(),
-        // ✅ NEW: Direct storage checks
-        directStorageCheck: {
-          teacherTokenInLocalStorage: (() => {
-            try { return !!localStorage.getItem('teacherToken'); } catch { return false; }
-          })(),
-          teacherTokenInSessionStorage: (() => {
-            try { return !!sessionStorage.getItem('teacherToken'); } catch { return false; }
-          })(),
-          teacherDataInLocalStorage: (() => {
-            try { return !!localStorage.getItem('teacherData'); } catch { return false; }
-          })()
-        }
+        storageInfo: safeStorage.getStorageInfo()
       };
       console.log('🔍 Current storage state:', state);
       return state;
@@ -756,7 +659,7 @@ export const tokenManager = {
     return { valid: true, error: null };
   },
 
-  // ✅ ENHANCED: Method to safely store token with validation and guaranteed localStorage
+  // Method to safely store token with validation
   safeSetTeacherToken: (token, persistent = true) => {
     const validation = tokenManager.validateTokenFormat(token);
     if (!validation.valid) {
@@ -765,37 +668,10 @@ export const tokenManager = {
     }
     
     const result = tokenManager.setTeacherToken(token, persistent);
-    return result; // This now returns the full result object with success, storageType, etc.
-  },
-
-  // ✅ NEW: Force localStorage for teacher tokens (use this if you want to guarantee localStorage)
-  forceTeacherTokenToLocalStorage: (token) => {
-    console.log('🔧 Forcing teacher token to localStorage...');
-    
-    const validation = tokenManager.validateTokenFormat(token);
-    if (!validation.valid) {
-      console.error('❌ Token validation failed:', validation.error);
-      return { success: false, error: validation.error };
-    }
-
-    try {
-      // Direct localStorage storage
-      localStorage.setItem('teacherToken', token.trim());
-      console.log('✅ Teacher token forced to localStorage');
-      
-      // Verify it was stored
-      const stored = localStorage.getItem('teacherToken');
-      if (stored) {
-        console.log('✅ localStorage verification passed');
-        return { success: true, storageType: 'localStorage' };
-      } else {
-        console.error('❌ localStorage verification failed');
-        return { success: false, error: 'Failed to verify localStorage storage' };
-      }
-    } catch (error) {
-      console.error('❌ Failed to force token to localStorage:', error);
-      return { success: false, error: error.message };
-    }
+    return { 
+      success: result, 
+      error: result ? null : 'Failed to store token in storage' 
+    };
   }
 };
 
