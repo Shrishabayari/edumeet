@@ -1,11 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Mail, Lock, AlertCircle, CheckCircle,
   Eye, EyeOff, User, BookOpen
 } from 'lucide-react';
 import { useNavigate, Link } from "react-router-dom";
 import TeacherNavbar from "../../components/teacherNavbar";
-// Import the centralized API service instead of creating a custom one
+// Import the enhanced API service
 import { apiMethods, tokenManager } from "../../services/api";
 
 const TeacherLogin = () => {
@@ -15,7 +15,26 @@ const TeacherLogin = () => {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true); // Add remember me option
   const navigate = useNavigate();
+
+  // Check if user is already logged in
+  useEffect(() => {
+    const checkExistingLogin = () => {
+      if (tokenManager.isTeacherLoggedIn()) {
+        const teacherData = tokenManager.getTeacherData();
+        if (teacherData) {
+          console.log('✅ Teacher already logged in:', teacherData.name);
+          setMessage('Already logged in! Redirecting to dashboard...');
+          setTimeout(() => {
+            navigate("/teacher/dashboard");
+          }, 1000);
+        }
+      }
+    };
+
+    checkExistingLogin();
+  }, [navigate]);
 
   // Client-side form validation
   const validateForm = () => {
@@ -51,80 +70,85 @@ const TeacherLogin = () => {
         return;
       }
 
-      // Use the centralized API service for teacher login
-      console.log("🔄 Attempting teacher login...");
+      console.log('🔄 Starting teacher login process...');
+      console.log('📧 Email:', email);
+      console.log('💾 Remember me:', rememberMe);
+      console.log('🔍 Storage info:', tokenManager.getStorageState());
+
+      // Use the enhanced API service for teacher login
       const response = await apiMethods.teacherLogin({
         email,
         password,
       });
 
-      console.log("✅ Login Response:", response.data);
+      console.log('✅ Login API Response:', response.data);
 
-      // ✅ FIX 1: Check the correct response structure
+      // Extract token and teacher data from response
       const { token, data } = response.data;
       const teacherData = data?.teacher;
 
       if (!token) {
-        console.error("❌ No token received in response");
+        console.error('❌ No token received in response');
         setError("Login successful, but authentication token not received. Please try again.");
         setLoading(false);
         return;
       }
 
       if (!teacherData) {
-        console.error("❌ No teacher data received in response");
+        console.error('❌ No teacher data received in response');
         setError("Login successful, but teacher profile could not be loaded. Please try again.");
         setLoading(false);
         return;
       }
 
-      // ✅ FIX 2: Use the safe token storage method with validation
-      console.log("💾 Storing teacher token...");
-      const tokenResult = tokenManager.safeSetTeacherToken(token);
+      console.log('💾 Storing teacher token and data...');
+      
+      // ✅ FIXED: Use the enhanced token storage with persistence option
+      const tokenResult = tokenManager.safeSetTeacherToken(token, rememberMe);
       
       if (!tokenResult.success) {
-        console.error("❌ Token storage failed:", tokenResult.error);
+        console.error('❌ Token storage failed:', tokenResult.error);
         setError(`Authentication failed: ${tokenResult.error}`);
         setLoading(false);
         return;
       }
 
-      // ✅ FIX 3: Store teacher data correctly
-      console.log("💾 Storing teacher profile data...");
-      const dataResult = tokenManager.setTeacherData(teacherData);
+      // ✅ Store teacher data with same persistence setting
+      const dataResult = tokenManager.setTeacherData(teacherData, rememberMe);
       
       if (!dataResult) {
-        console.error("❌ Teacher data storage failed");
+        console.error('❌ Teacher data storage failed');
         setError("Teacher profile could not be saved. Please try again.");
         setLoading(false);
         return;
       }
 
-      // ✅ FIX 4: Verify storage worked
+      // ✅ Verify storage worked by retrieving the data
       const storedToken = tokenManager.getTeacherToken();
       const storedTeacher = tokenManager.getTeacherData();
       
       if (!storedToken) {
-        console.error("❌ Token verification failed after storage");
+        console.error('❌ Token verification failed after storage');
         setError("Authentication storage failed. Please try again.");
         setLoading(false);
         return;
       }
 
       if (!storedTeacher) {
-        console.error("❌ Teacher data verification failed after storage");
+        console.error('❌ Teacher data verification failed after storage');
         setError("Teacher profile storage failed. Please try again.");
         setLoading(false);
         return;
       }
 
-      console.log("✅ Token stored successfully:", storedToken.substring(0, 20) + "...");
-      console.log("✅ Teacher data stored successfully:", storedTeacher.name);
+      console.log('✅ Token stored successfully:', storedToken.substring(0, 20) + "...");
+      console.log('✅ Teacher data stored successfully:', storedTeacher.name);
       
-      // ✅ FIX 5: Debug the current storage state
-      tokenManager.getStorageState();
+      // ✅ Debug the current storage state
+      const finalStorageState = tokenManager.getStorageState();
+      console.log('🔍 Final storage state:', finalStorageState);
       
-      setMessage("Login successful! Redirecting...");
+      setMessage("Login successful! Redirecting to dashboard...");
       
       // Small delay to show success message
       setTimeout(() => {
@@ -132,7 +156,7 @@ const TeacherLogin = () => {
       }, 1500);
 
     } catch (err) {
-      console.error("❌ Teacher login error:", err);
+      console.error('❌ Teacher login error:', err);
 
       // Enhanced error handling
       let displayMessage = 'Login failed. Please try again.';
@@ -173,6 +197,13 @@ const TeacherLogin = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Handle logout (for testing purposes)
+  const handleTestLogout = () => {
+    tokenManager.removeTeacherToken();
+    setMessage('Logged out successfully');
+    setTimeout(() => setMessage(''), 3000);
   };
 
   return (
@@ -288,6 +319,20 @@ const TeacherLogin = () => {
                     </div>
                   </div>
 
+                  {/* Remember Me Checkbox */}
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="rememberMe"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor="rememberMe" className="ml-2 block text-sm text-gray-200">
+                      Keep me logged in (uses localStorage)
+                    </label>
+                  </div>
+
                   <button
                     type="submit"
                     disabled={loading}
@@ -307,22 +352,37 @@ const TeacherLogin = () => {
                 {/* Debug Info (remove in production) */}
                 {process.env.NODE_ENV === 'development' && (
                   <div className="mt-4 p-3 bg-gray-800 bg-opacity-50 rounded text-xs text-gray-300">
+                    <div className="mb-2 font-semibold">Debug Information:</div>
                     <div>Token Status: {tokenManager.getTeacherToken() ? '✅ Stored' : '❌ Not Found'}</div>
                     <div>Teacher Data: {tokenManager.getTeacherData() ? '✅ Stored' : '❌ Not Found'}</div>
                     <div>Auth Status: {tokenManager.isTeacherLoggedIn() ? '✅ Logged In' : '❌ Not Logged In'}</div>
                     {tokenManager.getTeacherData() && (
                       <div>Teacher Name: {tokenManager.getTeacherData().name}</div>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        console.log('🔍 Current Storage State:', tokenManager.getStorageState());
-                        console.log('🔍 Memory Storage:', window.memoryStorage);
-                      }}
-                      className="mt-2 px-2 py-1 bg-blue-600 rounded text-white text-xs"
-                    >
-                      Debug Storage
-                    </button>
+                    <div>Storage Type: {tokenManager.getStorageState()?.storageInfo?.localStorageAvailable ? 'localStorage' : tokenManager.getStorageState()?.storageInfo?.sessionStorageAvailable ? 'sessionStorage' : 'memory'}</div>
+                    
+                    <div className="flex space-x-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          console.log('🔍 Current Storage State:', tokenManager.getStorageState());
+                          console.log('🔍 Authentication Status:', tokenManager.getAuthenticationStatus());
+                        }}
+                        className="px-2 py-1 bg-blue-600 rounded text-white text-xs"
+                      >
+                        Debug Storage
+                      </button>
+                      
+                      {tokenManager.isTeacherLoggedIn() && (
+                        <button
+                          type="button"
+                          onClick={handleTestLogout}
+                          className="px-2 py-1 bg-red-600 rounded text-white text-xs"
+                        >
+                          Test Logout
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

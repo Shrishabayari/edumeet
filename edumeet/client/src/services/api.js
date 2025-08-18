@@ -12,27 +12,205 @@ const api = axios.create({
   },
 });
 
-// ✅ FIXED: Enhanced memory storage with proper initialization
-let memoryStorage = {
-  userToken: null,
-  teacherToken: null,
-  adminToken: null,
-  user: null,
-  teacher: null,
-  userRole: null
+// ✅ FIXED: Enhanced storage utility that prioritizes localStorage
+const createSafeStorage = () => {
+  // Check if localStorage is available
+  const isLocalStorageAvailable = (() => {
+    try {
+      const testKey = '__localStorage_test__';
+      localStorage.setItem(testKey, 'test');
+      localStorage.removeItem(testKey);
+      return true;
+    } catch (e) {
+      console.warn('localStorage not available:', e);
+      return false;
+    }
+  })();
+
+  // Check if sessionStorage is available
+  const isSessionStorageAvailable = (() => {
+    try {
+      const testKey = '__sessionStorage_test__';
+      sessionStorage.setItem(testKey, 'test');
+      sessionStorage.removeItem(testKey);
+      return true;
+    } catch (e) {
+      console.warn('sessionStorage not available:', e);
+      return false;
+    }
+  })();
+
+  // Memory fallback ONLY for extreme cases where both storage APIs fail
+  let memoryStorage = {};
+
+  // Make memory storage globally accessible for debugging
+  if (typeof window !== 'undefined') {
+    window.memoryStorage = memoryStorage;
+  }
+
+  const storage = {
+    // Get item with preference: localStorage -> sessionStorage -> memory
+    getItem: (key) => {
+      try {
+        // Always try localStorage first
+        if (isLocalStorageAvailable) {
+          const item = localStorage.getItem(key);
+          if (item !== null) {
+            console.log(`🔍 Found ${key} in localStorage`);
+            return item;
+          }
+        }
+        
+        // Then sessionStorage
+        if (isSessionStorageAvailable) {
+          const item = sessionStorage.getItem(key);
+          if (item !== null) {
+            console.log(`🔍 Found ${key} in sessionStorage`);
+            return item;
+          }
+        }
+        
+        // Finally memory (only if both storage APIs failed)
+        const memoryItem = memoryStorage[key];
+        if (memoryItem !== undefined && memoryItem !== null) {
+          console.log(`🔍 Found ${key} in memory storage (fallback)`);
+          return memoryItem;
+        }
+        
+        return null;
+      } catch (error) {
+        console.error(`Error getting item ${key}:`, error);
+        return memoryStorage[key] || null;
+      }
+    },
+
+    // Set item with localStorage preference
+    setItem: (key, value, persistent = true) => {
+      let success = false;
+      
+      try {
+        // Always update memory storage as backup
+        memoryStorage[key] = value;
+
+        // For persistent storage (remember me), use localStorage if available
+        if (persistent && isLocalStorageAvailable) {
+          localStorage.setItem(key, value);
+          console.log(`✅ Stored ${key} in localStorage (persistent)`);
+          success = true;
+        }
+        // For non-persistent or if localStorage fails, use sessionStorage
+        else if (!persistent && isSessionStorageAvailable) {
+          sessionStorage.setItem(key, value);
+          console.log(`✅ Stored ${key} in sessionStorage (session only)`);
+          success = true;
+        }
+        // If localStorage not available but persistent requested, try sessionStorage
+        else if (persistent && !isLocalStorageAvailable && isSessionStorageAvailable) {
+          sessionStorage.setItem(key, value);
+          console.warn(`⚠️ localStorage not available, stored ${key} in sessionStorage instead`);
+          success = true;
+        }
+        
+        // If no browser storage is available, memory is the only option
+        if (!success && !isLocalStorageAvailable && !isSessionStorageAvailable) {
+          console.warn(`⚠️ No browser storage available, stored ${key} in memory only`);
+          success = true; // Memory storage always "succeeds"
+        }
+        
+        return success;
+      } catch (error) {
+        console.error(`Error setting item ${key}:`, error);
+        // Ensure memory storage is updated even if other storage fails
+        memoryStorage[key] = value;
+        return false;
+      }
+    },
+
+    // Remove item from all storage locations
+    removeItem: (key) => {
+      try {
+        // Clear from memory
+        delete memoryStorage[key];
+
+        // Clear from localStorage
+        if (isLocalStorageAvailable) {
+          localStorage.removeItem(key);
+          console.log(`🗑️ Removed ${key} from localStorage`);
+        }
+        
+        // Clear from sessionStorage
+        if (isSessionStorageAvailable) {
+          sessionStorage.removeItem(key);
+          console.log(`🗑️ Removed ${key} from sessionStorage`);
+        }
+        
+      } catch (error) {
+        console.error(`Error removing item ${key}:`, error);
+        delete memoryStorage[key];
+      }
+    },
+
+    // Clear all auth-related storage
+    clear: () => {
+      try {
+        // Clear memory storage
+        memoryStorage = {};
+
+        // Clear auth-related keys from localStorage
+        if (isLocalStorageAvailable) {
+          const authKeys = [
+            'userToken', 'teacherToken', 'adminToken', 
+            'userData', 'teacherData', 'userRole'
+          ];
+          authKeys.forEach(key => {
+            localStorage.removeItem(key);
+            console.log(`🧹 Cleared ${key} from localStorage`);
+          });
+        }
+
+        // Clear auth-related keys from sessionStorage
+        if (isSessionStorageAvailable) {
+          const authKeys = [
+            'userToken', 'teacherToken', 'adminToken', 
+            'userData', 'teacherData', 'userRole'
+          ];
+          authKeys.forEach(key => {
+            sessionStorage.removeItem(key);
+            console.log(`🧹 Cleared ${key} from sessionStorage`);
+          });
+        }
+
+        console.log('✅ All auth storage cleared');
+      } catch (error) {
+        console.error('Error clearing storage:', error);
+        memoryStorage = {};
+      }
+    },
+
+    // Get storage info for debugging
+    getStorageInfo: () => {
+      return {
+        localStorageAvailable: isLocalStorageAvailable,
+        sessionStorageAvailable: isSessionStorageAvailable,
+        memoryFallbackActive: !isLocalStorageAvailable && !isSessionStorageAvailable,
+        preferredStorage: isLocalStorageAvailable ? 'localStorage' : isSessionStorageAvailable ? 'sessionStorage' : 'memory',
+        currentMemoryStorage: { ...memoryStorage }
+      };
+    }
+  };
+
+  return storage;
 };
 
-// ✅ CRITICAL: Make memoryStorage globally accessible for debugging
-if (typeof window !== 'undefined') {
-  window.memoryStorage = memoryStorage;
-}
+// Initialize safe storage
+const safeStorage = createSafeStorage();
 
-// Helper function to get token from memory storage
+// Helper function to get token from storage with proper key mapping
 const getTokenFromStorage = (tokenType = 'userToken') => {
-  const token = memoryStorage[tokenType];
+  const token = safeStorage.getItem(tokenType);
   
   if (process.env.NODE_ENV === 'development' && token) {
-    console.log(`🔍 Found ${tokenType} in memory storage`);
+    console.log(`🔍 Found ${tokenType}: ${token.substring(0, 20)}...`);
   }
   
   return token;
@@ -158,7 +336,7 @@ api.interceptors.response.use(
   }
 );
 
-// CORRECTED: API endpoints with proper paths
+// API endpoints (keeping existing structure)
 export const endpoints = {
   // Auth endpoints (for regular users)
   auth: {
@@ -228,421 +406,16 @@ export const endpoints = {
   }
 };
 
-// API methods with comprehensive error handling
-export const apiMethods = {
-  // Auth Operations
-  register: (userData) => api.post(endpoints.auth.register, userData),
-  login: (credentials) => api.post(endpoints.auth.login, credentials),
-  logout: () => api.post(endpoints.auth.logout),
-  getProfile: () => api.get(endpoints.auth.profile),
-  updateProfile: (data) => api.put(endpoints.auth.profile, data),
-  verifyToken: () => api.get(endpoints.auth.verifyToken),
-
-  // Teacher Operations
-  getAllTeachers: (params = {}) => api.get(endpoints.teachers.getAll, { params }),
-  getTeacherById: (id) => api.get(endpoints.teachers.getById(id)),
-  createTeacher: (teacherData) => api.post(endpoints.teachers.create, teacherData),
-  updateTeacher: (id, teacherData) => api.put(endpoints.teachers.update(id), teacherData),
-  deleteTeacher: (id) => api.delete(endpoints.teachers.delete(id)),
-  permanentDeleteTeacher: (id) => api.delete(endpoints.teachers.permanentDelete(id)),
-  getTeachersByDepartment: (department) => api.get(endpoints.teachers.getByDepartment(department)),
-  getTeacherStats: () => api.get(endpoints.teachers.getStats),
-
-  // Teacher Auth Operations
-  teacherLogin: (credentials) => api.post(endpoints.teachers.login, credentials),
-  sendTeacherSetupLink: (data) => api.post(endpoints.teachers.sendSetupLink, data),
-  setupTeacherAccount: (token, data) => api.post(endpoints.teachers.setupAccount(token), data),
-  getTeacherProfile: () => api.get(endpoints.teachers.profile),
-  teacherLogout: () => api.post(endpoints.teachers.logout),
-
-  // Appointment Operations (keeping existing methods for compatibility)
-  requestAppointment: async (appointmentData) => {
-    try {
-      console.log('🔄 Student requesting appointment:', appointmentData);
-      const response = await api.post(endpoints.appointments.request, appointmentData);
-      console.log('✅ Appointment requested successfully:', response.data);
-      return response;
-    } catch (error) {
-      console.error('❌ Error requesting appointment:', error);
-      throw error;
-    }
-  },
-
-  teacherBookAppointment: async (appointmentData) => {
-    try {
-      console.log('🔄 Teacher booking appointment directly:', appointmentData);
-      const response = await api.post(endpoints.appointments.book, appointmentData);
-      console.log('✅ Teacher appointment booked successfully:', response.data);
-      return response;
-    } catch (error) {
-      console.error('❌ Error booking teacher appointment:', error);
-      throw error;
-    }
-  },
-
-  // Enhanced acceptAppointmentRequest with comprehensive error handling
-  acceptAppointmentRequest: async (id, responseMessage = '') => {
-    try {
-      console.log('\n🎯 FRONTEND: Starting appointment acceptance process');
-      console.log('   Appointment ID:', id);
-      console.log('   Response Message:', responseMessage);
-      
-      if (!id) {
-        throw new Error('Appointment ID is required');
-      }
-      
-      if (typeof id !== 'string' || id.length !== 24) {
-        console.error('❌ Invalid ID format:', { id, type: typeof id, length: id?.length });
-        throw new Error('Invalid appointment ID format');
-      }
-      
-      const teacherToken = tokenManager.getTeacherToken();
-      if (!teacherToken) {
-        console.error('❌ No teacher token found');
-        throw new Error('Authentication required. Please log in as a teacher.');
-      }
-      
-      console.log('✅ Authentication token found');
-      console.log('🔄 Making API request to:', endpoints.appointments.accept(id));
-      
-      const requestPayload = { 
-        responseMessage: responseMessage?.trim() || '' 
-      };
-      
-      console.log('📤 Request payload:', requestPayload);
-      
-      const response = await api.put(endpoints.appointments.accept(id), requestPayload);
-      
-      console.log('✅ FRONTEND: Appointment accepted successfully');
-      console.log('📥 Response data:', response.data);
-      
-      return response;
-      
-    } catch (error) {
-      console.error('\n❌ FRONTEND: Error accepting appointment');
-      console.error('   Error type:', error.constructor.name);
-      console.error('   Error message:', error.message);
-      
-      if (error.response) {
-        const { status, data } = error.response;
-        console.error(`   HTTP Status: ${status}`);
-        console.error('   Response data:', data);
-        
-        switch (status) {
-          case 400:
-            if (data.message?.includes('ID format')) {
-              throw new Error('Invalid appointment ID. Please refresh the page and try again.');
-            } else if (data.message?.includes('status')) {
-              throw new Error('This appointment cannot be accepted. It may have already been processed.');
-            } else {
-              throw new Error(data.message || 'Invalid request. Please check the appointment details.');
-            }
-            
-          case 401:
-            tokenManager.removeTeacherToken();
-            throw new Error('Your session has expired. Please log in again.');
-            
-          case 403:
-            throw new Error('You do not have permission to accept this appointment.');
-            
-          case 404:
-            throw new Error('Appointment not found. It may have already been processed or deleted.');
-            
-          case 409:
-            throw new Error('This appointment has already been processed by another action.');
-            
-          case 429:
-            throw new Error('Too many requests. Please wait a moment and try again.');
-            
-          case 500:
-            throw new Error('Server error. Please try again in a few moments.');
-            
-          default:
-            throw new Error(data.message || `Server error (${status}). Please try again.`);
-        }
-      } else if (error.request) {
-        console.error('   Network error - no response received');
-        throw new Error('Unable to connect to server. Please check your internet connection and try again.');
-      } else {
-        console.error('   Request setup error:', error.message);
-        throw new Error(error.message || 'An unexpected error occurred. Please try again.');
-      }
-    }
-  },
-
-  // Enhanced rejectAppointmentRequest
-  rejectAppointmentRequest: async (id, responseMessage = '') => {
-    try {
-      console.log('\n🎯 FRONTEND: Starting appointment rejection process');
-      console.log('   Appointment ID:', id);
-      console.log('   Response Message:', responseMessage);
-      
-      if (!id) {
-        throw new Error('Appointment ID is required');
-      }
-      
-      if (typeof id !== 'string' || id.length !== 24) {
-        console.error('❌ Invalid ID format:', { id, type: typeof id, length: id?.length });
-        throw new Error('Invalid appointment ID format');
-      }
-      
-      const teacherToken = tokenManager.getTeacherToken();
-      if (!teacherToken) {
-        console.error('❌ No teacher token found');
-        throw new Error('Authentication required. Please log in as a teacher.');
-      }
-      
-      console.log('✅ Authentication token found');
-      console.log('🔄 Making API request to:', endpoints.appointments.reject(id));
-      
-      const requestPayload = { 
-        responseMessage: responseMessage?.trim() || 'Request rejected by teacher' 
-      };
-      
-      console.log('📤 Request payload:', requestPayload);
-      
-      const response = await api.put(endpoints.appointments.reject(id), requestPayload);
-      
-      console.log('✅ FRONTEND: Appointment rejected successfully');
-      console.log('📥 Response data:', response.data);
-      
-      return response;
-      
-    } catch (error) {
-      console.error('\n❌ FRONTEND: Error rejecting appointment');
-      console.error('   Error type:', error.constructor.name);
-      console.error('   Error message:', error.message);
-      
-      if (error.response) {
-        const { status, data } = error.response;
-        console.error(`   HTTP Status: ${status}`);
-        console.error('   Response data:', data);
-        
-        // Provide user-friendly error messages
-        switch (status) {
-          case 400:
-            if (data.message?.includes('ID format')) {
-              throw new Error('Invalid appointment ID. Please refresh the page and try again.');
-            } else if (data.message?.includes('status')) {
-              throw new Error('This appointment cannot be rejected. It may have already been processed.');
-            } else {
-              throw new Error(data.message || 'Invalid request. Please check the appointment details.');
-            }
-            
-          case 401:
-            tokenManager.removeTeacherToken();
-            throw new Error('Your session has expired. Please log in again.');
-            
-          case 403:
-            throw new Error('You do not have permission to reject this appointment.');
-            
-          case 404:
-            throw new Error('Appointment not found. It may have already been processed or deleted.');
-            
-          case 409:
-            throw new Error('This appointment has already been processed by another action.');
-            
-          case 429:
-            throw new Error('Too many requests. Please wait a moment and try again.');
-            
-          case 500:
-            throw new Error('Server error. Please try again in a few moments.');
-            
-          default:
-            throw new Error(data.message || `Server error (${status}). Please try again.`);
-        }
-      } else if (error.request) {
-        console.error('   Network error - no response received');
-        throw new Error('Unable to connect to server. Please check your internet connection and try again.');
-      } else {
-        console.error('   Request setup error:', error.message);
-        throw new Error(error.message || 'An unexpected error occurred. Please try again.');
-      }
-    }
-  },
-
-  completeAppointment: async (id) => {
-    try {
-      console.log(`🔄 Completing appointment: ${id}`);
-      const response = await api.put(endpoints.appointments.complete(id));
-      console.log('✅ Appointment completed successfully:', response.data);
-      return response;
-    } catch (error) {
-      console.error('❌ Error completing appointment:', error);
-      throw error;
-    }
-  },
-
-  getAllAppointments: (params = {}) => api.get(endpoints.appointments.getAll, { params }),
-  getAppointmentById: (id) => api.get(endpoints.appointments.getById(id)),
-  updateAppointment: (id, data) => api.put(endpoints.appointments.update(id), data),
-  cancelAppointment: (id, reason = '') => api.put(endpoints.appointments.cancel(id), { reason }),
-  getAppointmentStats: () => api.get(endpoints.appointments.getStats),
-
-  // Teacher appointment methods
-  getTeacherAppointments: async (teacherId, params = {}) => {
-    try {
-      console.log(`🔄 Fetching appointments for teacher: ${teacherId}`);
-      const response = await api.get(endpoints.appointments.getByTeacher(teacherId), { params });
-      console.log(`✅ Found ${response.data?.data?.length || 0} appointments for teacher`);
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching teacher appointments:', error);
-      throw error;
-    }
-  },
-
-  getTeacherPendingRequests: async (teacherId) => {
-    try {
-      console.log(`🔄 Fetching pending requests for teacher: ${teacherId}`);
-      const response = await api.get(endpoints.appointments.getTeacherPending(teacherId));
-      console.log(`✅ Found ${response.data?.data?.length || 0} pending requests for teacher`);
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching teacher pending requests:', error);
-      throw error;
-    }
-  },
-
-  getConfirmedAppointments: (params = {}) => {
-    return api.get(endpoints.appointments.getAll, { 
-      params: { ...params, status: 'confirmed' } 
-    });
-  },
-
-  getDirectBookings: (params = {}) => {
-    return api.get(endpoints.appointments.getAll, { 
-      params: { ...params, status: 'booked', createdBy: 'teacher' } 
-    });
-  },
-
-  getPendingRequests: (params = {}) => {
-    return api.get(endpoints.appointments.getAll, { 
-      params: { ...params, status: 'pending', createdBy: 'student' } 
-    });
-  },
-
-  // Admin Operations
-  adminRegister: (adminData) => api.post(endpoints.admin.register, adminData),
-  adminLogin: (credentials) => api.post(endpoints.admin.login, credentials),
-  getAdminProfile: () => api.get(endpoints.admin.profile),
-  updateAdminProfile: (data) => api.put(endpoints.admin.updateProfile, data),
-  getDashboardStats: () => api.get(endpoints.admin.dashboardStats),
-  getUsers: (params = {}) => api.get(endpoints.admin.getUsers, { params }),
-  deleteUser: (userId) => api.delete(endpoints.admin.deleteUser(userId)),
-  getAdminAppointments: (params = {}) => api.get(endpoints.admin.getAllAppointments, { params }),
-  updateTeacherStatus: (teacherId, statusData) => api.patch(endpoints.admin.updateTeacherStatus(teacherId), statusData),
-
-  getPendingRegistrations: () => api.get(endpoints.admin.getPendingRegistrations),
-  getAllUsersForAdmin: (params = {}) => api.get(endpoints.admin.getAllUsers, { params }),
-  approveUser: (id) => api.put(endpoints.admin.approveUser(id)),
-  rejectUser: (id, reason) => api.put(endpoints.admin.rejectUser(id), { reason }),
-
-  // Enhanced appointment booking with retry logic
-  requestAppointmentWithRetry: async (appointmentData, maxRetries = 3) => {
-    let lastError = null;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`🔄 Requesting appointment (attempt ${attempt}/${maxRetries})`);
-        const response = await api.post(endpoints.appointments.request, appointmentData);
-        console.log(`✅ Appointment requested successfully on attempt ${attempt}`);
-        return response;
-      } catch (error) {
-        lastError = error;
-        console.log(`❌ Attempt ${attempt} failed:`, error.message);
-        
-        // Don't retry on client errors (400-499)
-        if (error.response?.status >= 400 && error.response?.status < 500) {
-          throw error;
-        }
-        
-        // Wait before retrying (exponential backoff)
-        if (attempt < maxRetries) {
-          const delay = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
-          console.log(`⏳ Waiting ${delay}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-    }
-
-    throw lastError || new Error('All appointment request attempts failed');
-  },
-
-  // Bulk operations
-  bulkUpdateAppointments: async (updates) => {
-    const results = [];
-    for (const update of updates) {
-      try {
-        const result = await apiMethods.updateAppointment(update.id, update.data);
-        results.push({ success: true, id: update.id, data: result.data });
-      } catch (error) {
-        results.push({ success: false, id: update.id, error: error.message });
-      }
-    }
-    return results;
-  },
-
-  // Search operations
-  searchAppointments: (query, filters = {}) => {
-    const params = { search: query, ...filters };
-    return api.get(endpoints.appointments.getAll, { params });
-  },
-
-  searchTeachers: (query, filters = {}) => {
-    const params = { search: query, ...filters };
-    return api.get(endpoints.teachers.getAll, { params });
-  },
-
-  // Validation helper
-  validateAppointmentData: (appointmentData, isTeacherBooking = false) => {
-    const errors = [];
-    
-    if (!appointmentData.day) {
-      errors.push('Day is required');
-    }
-    
-    if (!appointmentData.time) {
-      errors.push('Time is required');
-    }
-    
-    if (!appointmentData.date) {
-      errors.push('Date is required');
-    } else {
-      const appointmentDate = new Date(appointmentData.date);
-      if (appointmentDate < new Date()) {
-        errors.push('Appointment date must be in the future');
-      }
-    }
-    
-    if (!appointmentData.student?.name) {
-      errors.push('Student name is required');
-    }
-    
-    if (!appointmentData.student?.email) {
-      errors.push('Student email is required');
-    }
-    
-    if (!isTeacherBooking && !appointmentData.teacherId) {
-      errors.push('Teacher ID is required');
-    }
-    
-    return {
-      isValid: errors.length === 0,
-      errors
-    };
-  }
-};
-
-// ✅ FIXED: Enhanced token manager with proper memory storage and validation
+// ✅ FIXED: Token manager with localStorage priority
 export const tokenManager = {
-  // ✅ FIXED: User token methods with enhanced error handling and validation
-  setUserToken: (token, persistent = false) => {
+  // ✅ User token methods
+  setUserToken: (token, persistent = true) => {
     console.log('🔧 setUserToken called with:', { 
       hasToken: !!token, 
       tokenLength: token?.length,
       persistent,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      storageInfo: safeStorage.getStorageInfo()
     });
     
     if (!token || typeof token !== 'string' || token.trim() === '') {
@@ -650,13 +423,11 @@ export const tokenManager = {
       return false;
     }
     
-    memoryStorage.userToken = token.trim();
-    console.log('✅ User token stored in memory successfully');
-    return true;
+    return safeStorage.setItem('userToken', token.trim(), persistent);
   },
   
   getUserToken: () => {
-    const token = memoryStorage.userToken;
+    const token = safeStorage.getItem('userToken');
     if (process.env.NODE_ENV === 'development' && token) {
       console.log('🔍 Retrieved user token:', token.substring(0, 20) + '...');
     }
@@ -664,20 +435,21 @@ export const tokenManager = {
   },
   
   removeUserToken: () => {
-    console.log('🗑️ Removing user token from memory');
-    memoryStorage.userToken = null;
-    memoryStorage.user = null;
-    memoryStorage.userRole = null;
-    console.log('✅ User token and data cleared from memory');
+    console.log('🗑️ Removing user token');
+    safeStorage.removeItem('userToken');
+    safeStorage.removeItem('userData');
+    safeStorage.removeItem('userRole');
+    console.log('✅ User token and data cleared');
   },
   
-  // ✅ FIXED: Enhanced teacher token methods with proper validation
-  setTeacherToken: (token, persistent = false) => {
+  // ✅ FIXED: Teacher token methods with localStorage priority
+  setTeacherToken: (token, persistent = true) => {
     console.log('🔧 setTeacherToken called with:', { 
       hasToken: !!token, 
       tokenLength: token?.length,
       persistent,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      storageInfo: safeStorage.getStorageInfo()
     });
     
     if (!token || typeof token !== 'string' || token.trim() === '') {
@@ -685,13 +457,26 @@ export const tokenManager = {
       return false;
     }
     
-    memoryStorage.teacherToken = token.trim();
-    console.log('✅ Teacher token stored in memory successfully');
-    return true;
+    const result = safeStorage.setItem('teacherToken', token.trim(), persistent);
+    
+    if (result) {
+      console.log('✅ Teacher token stored successfully');
+      // Verify storage immediately
+      const stored = safeStorage.getItem('teacherToken');
+      if (stored) {
+        console.log('✅ Token verified in storage:', stored.substring(0, 20) + '...');
+      } else {
+        console.error('❌ Token not found immediately after storage');
+      }
+    } else {
+      console.error('❌ Failed to store teacher token');
+    }
+    
+    return result;
   },
   
   getTeacherToken: () => {
-    const token = memoryStorage.teacherToken;
+    const token = safeStorage.getItem('teacherToken');
     if (process.env.NODE_ENV === 'development' && token) {
       console.log('🔍 Retrieved teacher token:', token.substring(0, 20) + '...');
     }
@@ -699,14 +484,14 @@ export const tokenManager = {
   },
   
   removeTeacherToken: () => {
-    console.log('🗑️ Removing teacher token from memory');
-    memoryStorage.teacherToken = null;
-    memoryStorage.teacher = null;
-    console.log('✅ Teacher token and data cleared from memory');
+    console.log('🗑️ Removing teacher token');
+    safeStorage.removeItem('teacherToken');
+    safeStorage.removeItem('teacherData');
+    console.log('✅ Teacher token and data cleared');
   },
 
-  // ✅ FIXED: Enhanced teacher data management with validation
-  setTeacherData: (teacherData) => {
+  // ✅ FIXED: Teacher data management with localStorage priority
+  setTeacherData: (teacherData, persistent = true) => {
     console.log('💾 setTeacherData called with:', teacherData);
     
     if (!teacherData || typeof teacherData !== 'object') {
@@ -716,9 +501,15 @@ export const tokenManager = {
     
     try {
       const teacherDataString = JSON.stringify(teacherData);
-      memoryStorage.teacher = teacherDataString;
-      console.log('✅ Teacher data stored in memory successfully');
-      return true;
+      const result = safeStorage.setItem('teacherData', teacherDataString, persistent);
+      
+      if (result) {
+        console.log('✅ Teacher data stored successfully in localStorage');
+      } else {
+        console.error('❌ Failed to store teacher data');
+      }
+      
+      return result;
     } catch (error) {
       console.error('❌ Error serializing teacher data:', error);
       return false;
@@ -727,9 +518,9 @@ export const tokenManager = {
 
   getTeacherData: () => {
     try {
-      const teacherData = memoryStorage.teacher;
-      if (teacherData && typeof teacherData === 'string') {
-        const parsed = JSON.parse(teacherData);
+      const teacherDataString = safeStorage.getItem('teacherData');
+      if (teacherDataString && typeof teacherDataString === 'string') {
+        const parsed = JSON.parse(teacherDataString);
         if (process.env.NODE_ENV === 'development') {
           console.log('🔍 Retrieved teacher data:', parsed);
         }
@@ -737,13 +528,31 @@ export const tokenManager = {
       }
     } catch (error) {
       console.error('❌ Error parsing teacher data:', error);
-      memoryStorage.teacher = null;
+      safeStorage.removeItem('teacherData');
     }
     return null;
   },
+
+  // ✅ FIXED: Get teacher ID from token payload (JWT decode)
+  getTeacherId: () => {
+    try {
+      const token = tokenManager.getTeacherToken();
+      if (!token) return null;
+
+      // Decode JWT payload (basic decode without verification)
+      const payload = token.split('.')[1];
+      if (!payload) return null;
+
+      const decoded = JSON.parse(atob(payload));
+      return decoded.teacherId || decoded.id || decoded.sub || null;
+    } catch (error) {
+      console.error('❌ Error decoding teacher token:', error);
+      return null;
+    }
+  },
   
   // Admin token methods
-  setAdminToken: (token, persistent = false) => {
+  setAdminToken: (token, persistent = true) => {
     console.log('🔧 setAdminToken called with:', { 
       hasToken: !!token, 
       tokenLength: token?.length,
@@ -756,13 +565,11 @@ export const tokenManager = {
       return false;
     }
     
-    memoryStorage.adminToken = token.trim();
-    console.log('✅ Admin token stored in memory successfully');
-    return true;
+    return safeStorage.setItem('adminToken', token.trim(), persistent);
   },
   
   getAdminToken: () => {
-    const token = memoryStorage.adminToken;
+    const token = safeStorage.getItem('adminToken');
     if (process.env.NODE_ENV === 'development' && token) {
       console.log('🔍 Retrieved admin token:', token.substring(0, 20) + '...');
     }
@@ -770,31 +577,21 @@ export const tokenManager = {
   },
   
   removeAdminToken: () => {
-    console.log('🗑️ Removing admin token from memory');
-    memoryStorage.adminToken = null;
-    console.log('✅ Admin token cleared from memory');
+    console.log('🗑️ Removing admin token');
+    safeStorage.removeItem('adminToken');
+    console.log('✅ Admin token cleared');
   },
   
   clearAllTokens: () => {
     console.log('🧹 Clearing all tokens and user data');
-    memoryStorage = {
-      userToken: null,
-      teacherToken: null,
-      adminToken: null,
-      user: null,
-      teacher: null,
-      userRole: null
-    };
-    // Update the global reference
-    if (typeof window !== 'undefined') {
-      window.memoryStorage = memoryStorage;
-    }
-    console.log('✅ All tokens and data cleared from memory');
+    safeStorage.clear();
+    console.log('✅ All tokens and data cleared');
   },
 
-  // ✅ FIXED: Helper methods for user state management with proper validation
+  // ✅ Helper methods for user state management
   isUserLoggedIn: () => {
-    const hasToken = !!(memoryStorage.userToken && memoryStorage.userToken.trim());
+    const token = safeStorage.getItem('userToken');
+    const hasToken = !!(token && token.trim());
     if (process.env.NODE_ENV === 'development') {
       console.log('🔍 User login status:', hasToken);
     }
@@ -802,7 +599,8 @@ export const tokenManager = {
   },
 
   isTeacherLoggedIn: () => {
-    const hasToken = !!(memoryStorage.teacherToken && memoryStorage.teacherToken.trim());
+    const token = safeStorage.getItem('teacherToken');
+    const hasToken = !!(token && token.trim());
     if (process.env.NODE_ENV === 'development') {
       console.log('🔍 Teacher login status:', hasToken);
     }
@@ -810,7 +608,8 @@ export const tokenManager = {
   },
 
   isAdminLoggedIn: () => {
-    const hasToken = !!(memoryStorage.adminToken && memoryStorage.adminToken.trim());
+    const token = safeStorage.getItem('adminToken');
+    const hasToken = !!(token && token.trim());
     if (process.env.NODE_ENV === 'development') {
       console.log('🔍 Admin login status:', hasToken);
     }
@@ -819,7 +618,8 @@ export const tokenManager = {
 
   getCurrentUser: () => {
     try {
-      return memoryStorage.user ? JSON.parse(memoryStorage.user) : null;
+      const userData = safeStorage.getItem('userData');
+      return userData ? JSON.parse(userData) : null;
     } catch (error) {
       console.error('Error parsing user data:', error);
       return null;
@@ -828,7 +628,8 @@ export const tokenManager = {
 
   getCurrentTeacher: () => {
     try {
-      return memoryStorage.teacher ? JSON.parse(memoryStorage.teacher) : null;
+      const teacherData = safeStorage.getItem('teacherData');
+      return teacherData ? JSON.parse(teacherData) : null;
     } catch (error) {
       console.error('Error parsing teacher data:', error);
       return null;
@@ -836,7 +637,7 @@ export const tokenManager = {
   },
 
   getCurrentUserRole: () => {
-    return memoryStorage.userRole;
+    return safeStorage.getItem('userRole');
   },
 
   // Method to get current authenticated user info
@@ -860,23 +661,23 @@ export const tokenManager = {
       isUserLoggedIn: tokenManager.isUserLoggedIn(),
       isAdminLoggedIn: tokenManager.isAdminLoggedIn(),
       hasAnyAuth: tokenManager.isTeacherLoggedIn() || tokenManager.isUserLoggedIn() || tokenManager.isAdminLoggedIn(),
-      currentUser: tokenManager.getCurrentAuthenticatedUser()
+      currentUser: tokenManager.getCurrentAuthenticatedUser(),
+      storageInfo: safeStorage.getStorageInfo()
     };
   },
 
-  // ✅ FIXED: Enhanced debug method to check storage state
+  // ✅ Enhanced debug method to check storage state
   getStorageState: () => {
     if (process.env.NODE_ENV === 'development') {
       const state = {
-        hasUserToken: !!(memoryStorage.userToken && memoryStorage.userToken.trim()),
-        hasTeacherToken: !!(memoryStorage.teacherToken && memoryStorage.teacherToken.trim()),
-        hasAdminToken: !!(memoryStorage.adminToken && memoryStorage.adminToken.trim()),
-        hasUserData: !!memoryStorage.user,
-        hasTeacherData: !!memoryStorage.teacher,
-        userRole: memoryStorage.userRole,
-        teacherTokenLength: memoryStorage.teacherToken ? memoryStorage.teacherToken.length : 0,
-        teacherDataKeys: memoryStorage.teacher ? Object.keys(JSON.parse(memoryStorage.teacher) || {}).length : 0,
-        memoryStorageKeys: Object.keys(memoryStorage)
+        hasUserToken: !!(safeStorage.getItem('userToken')),
+        hasTeacherToken: !!(safeStorage.getItem('teacherToken')),
+        hasAdminToken: !!(safeStorage.getItem('adminToken')),
+        hasUserData: !!(safeStorage.getItem('userData')),
+        hasTeacherData: !!(safeStorage.getItem('teacherData')),
+        userRole: safeStorage.getItem('userRole'),
+        teacherTokenLength: safeStorage.getItem('teacherToken')?.length || 0,
+        storageInfo: safeStorage.getStorageInfo()
       };
       console.log('🔍 Current storage state:', state);
       return state;
@@ -884,7 +685,35 @@ export const tokenManager = {
     return null;
   },
 
-  // ✅ NEW: Method to validate token format
+  // Enhanced debug method specifically for tokens
+  debugTokenState: () => {
+    if (process.env.NODE_ENV === 'development') {
+      console.group('🔍 Token Debug Information');
+      
+      const teacherToken = safeStorage.getItem('teacherToken');
+      const userData = safeStorage.getItem('teacherData');
+      
+      console.log('Teacher Token:', teacherToken ? `${teacherToken.substring(0, 30)}...` : 'Not found');
+      console.log('Teacher Data:', userData ? JSON.parse(userData) : 'Not found');
+      console.log('Storage Info:', safeStorage.getStorageInfo());
+      
+      if (teacherToken) {
+        try {
+          const payload = JSON.parse(atob(teacherToken.split('.')[1]));
+          console.log('Token Payload:', payload);
+          console.log('Token Expiry:', new Date(payload.exp * 1000));
+          console.log('Current Time:', new Date());
+          console.log('Token Valid:', payload.exp * 1000 > Date.now());
+        } catch (e) {
+          console.error('Error decoding token:', e);
+        }
+      }
+      
+      console.groupEnd();
+    }
+  },
+
+  // Method to validate token format
   validateTokenFormat: (token) => {
     if (!token || typeof token !== 'string') {
       return { valid: false, error: 'Token must be a non-empty string' };
@@ -903,8 +732,8 @@ export const tokenManager = {
     return { valid: true, error: null };
   },
 
-  // ✅ NEW: Method to safely store token with validation
-  safeSetTeacherToken: (token, persistent = false) => {
+  // Method to safely store token with validation
+  safeSetTeacherToken: (token, persistent = true) => {
     const validation = tokenManager.validateTokenFormat(token);
     if (!validation.valid) {
       console.error('❌ Token validation failed:', validation.error);
@@ -914,131 +743,224 @@ export const tokenManager = {
     const result = tokenManager.setTeacherToken(token, persistent);
     return { 
       success: result, 
-      error: result ? null : 'Failed to store token in memory storage' 
+      error: result ? null : 'Failed to store token in localStorage' 
     };
   }
 };
 
-// Constants (keeping existing for compatibility)
-export const constants = {
-  DEPARTMENTS: [
-    'Computer Science',
-    'Mathematics',
-    'Physics',
-    'Chemistry',
-    'Biology',
-    'English',
-    'History',
-    'Economics',
-    'Business Administration',
-    'Psychology'
-  ],
-  
-  AVAILABILITY_SLOTS: [
-    '9:00 AM - 10:00 AM',
-    '10:00 AM - 11:00 AM',
-    '11:00 AM - 12:00 PM',
-    '12:00 PM - 1:00 PM',
-    '2:00 PM - 3:00 PM',
-    '3:00 PM - 4:00 PM',
-    '4:00 PM - 5:00 PM',
-    '5:00 PM - 6:00 PM'
-  ],
-  
-  APPOINTMENT_STATUSES: [
-    'pending',    
-    'confirmed',  
-    'rejected',   
-    'cancelled',  
-    'completed',  
-    'booked'      
-  ],
-
-  APPOINTMENT_TYPES: {
-    STUDENT_REQUEST: 'student_request',  
-    TEACHER_BOOKING: 'teacher_booking'   
-  }
-};
-
-// ✅ FIXED: Create API client function for backward compatibility
-export const createApiClient = () => {
-  const handleErrors = async (response) => {
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(JSON.stringify({
-        status: response.status,
-        message: data.message || `Request failed with status ${response.status}`,
-        errors: data.errors || undefined,
-        data,
-      }));
-    }
-    return data;
-  };
-
-  const request = async (method, endpoint, body = null) => {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-
-    // Get token from memory storage instead of localStorage
-    const token = tokenManager.getTeacherToken();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const config = {
-      method,
-      headers,
-    };
-
-    if (body) {
-      config.body = JSON.stringify(body);
-    }
-
+// ✅ Enhanced API methods with complete teacher endpoints
+export const apiMethods = {
+  // Enhanced teacherLogin with proper token storage
+  teacherLogin: async (credentials) => {
     try {
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`🔄 API Request: ${method} ${API_BASE_URL}${endpoint}`);
-        if (token) {
-          console.log(`   Token Used: ${token.substring(0, 20)}...`);
-        } else {
-          console.log('   No token sent for this request.');
-        }
-      }
-
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-      const result = await handleErrors(response);
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`✅ API Response: ${response.status} ${endpoint}`);
-        console.log('Response data:', result);
-      }
-      return result;
+      console.log('🔄 Attempting teacher login...');
+      const response = await api.post(endpoints.teachers.login, credentials);
+      console.log('✅ Login Response:', response.data);
+      return response;
     } catch (error) {
-      console.error('❌ API Error:', error);
-
-      let parsedError = {};
-      try {
-        parsedError = JSON.parse(error.message);
-      } catch {
-        parsedError = { message: error.message || 'An unknown error occurred.' };
-      }
-
-      if (parsedError.status === 401) {
-        console.warn('Unauthorized: Token expired or invalid. Clearing tokens and redirecting to login.');
-        tokenManager.removeTeacherToken();
-        window.location.href = '/teacher/login';
-      }
-      
-      throw parsedError; 
+      console.error('❌ Teacher login error:', error);
+      throw error;
     }
-  };
+  },
 
-  return {
-    post: (endpoint, body) => request('POST', endpoint, body),
-    get: (endpoint) => request('GET', endpoint),
-    put: (endpoint, body) => request('PUT', endpoint, body),
-    delete: (endpoint) => request('DELETE', endpoint),
-  };
+  // Teacher logout
+  teacherLogout: async () => {
+    try {
+      console.log('🔄 Attempting teacher logout...');
+      const response = await api.post(endpoints.teachers.logout);
+      console.log('✅ Logout Response:', response.data);
+      return response;
+    } catch (error) {
+      console.error('❌ Teacher logout error:', error);
+      throw error;
+    }
+  },
+
+  // Get teacher profile
+  getTeacherProfile: async () => {
+    try {
+      console.log('🔄 Fetching teacher profile...');
+      const response = await api.get(endpoints.teachers.profile);
+      console.log('✅ Profile Response:', response.data);
+      return response;
+    } catch (error) {
+      console.error('❌ Get teacher profile error:', error);
+      throw error;
+    }
+  },
+
+  // Update teacher profile
+  updateTeacherProfile: async (profileData) => {
+    try {
+      console.log('🔄 Updating teacher profile...');
+      const response = await api.put(endpoints.teachers.profile, profileData);
+      console.log('✅ Profile Update Response:', response.data);
+      return response;
+    } catch (error) {
+      console.error('❌ Update teacher profile error:', error);
+      throw error;
+    }
+  },
+
+  // Get all teachers
+  getAllTeachers: async () => {
+    try {
+      const response = await api.get(endpoints.teachers.getAll);
+      return response;
+    } catch (error) {
+      console.error('❌ Get all teachers error:', error);
+      throw error;
+    }
+  },
+
+  // User authentication methods
+  userLogin: async (credentials) => {
+    try {
+      const response = await api.post(endpoints.auth.login, credentials);
+      return response;
+    } catch (error) {
+      console.error('❌ User login error:', error);
+      throw error;
+    }
+  },
+
+  userLogout: async () => {
+    try {
+      const response = await api.post(endpoints.auth.logout);
+      return response;
+    } catch (error) {
+      console.error('❌ User logout error:', error);
+      throw error;
+    }
+  },
+
+  // Admin authentication methods
+  adminLogin: async (credentials) => {
+    try {
+      const response = await api.post(endpoints.admin.login, credentials);
+      return response;
+    } catch (error) {
+      console.error('❌ Admin login error:', error);
+      throw error;
+    }
+  },
+
+  // Appointment methods
+  getAppointments: async () => {
+    try {
+      const response = await api.get(endpoints.appointments.getAll);
+      return response;
+    } catch (error) {
+      console.error('❌ Get appointments error:', error);
+      throw error;
+    }
+  },
+
+  createAppointment: async (appointmentData) => {
+    try {
+      const response = await api.post(endpoints.appointments.request, appointmentData);
+      return response;
+    } catch (error) {
+      console.error('❌ Create appointment error:', error);
+      throw error;
+    }
+  },
+
+  // Book appointment (teacher creates available slot)
+  bookAppointment: async (appointmentData) => {
+    try {
+      const response = await api.post(endpoints.appointments.book, appointmentData);
+      return response;
+    } catch (error) {
+      console.error('❌ Book appointment error:', error);
+      throw error;
+    }
+  },
+
+  // Accept appointment request
+  acceptAppointment: async (appointmentId) => {
+    try {
+      const response = await api.put(endpoints.appointments.accept(appointmentId));
+      return response;
+    } catch (error) {
+      console.error('❌ Accept appointment error:', error);
+      throw error;
+    }
+  },
+
+  // Reject appointment request
+  rejectAppointment: async (appointmentId, reason = '') => {
+    try {
+      const response = await api.put(endpoints.appointments.reject(appointmentId), { reason });
+      return response;
+    } catch (error) {
+      console.error('❌ Reject appointment error:', error);
+      throw error;
+    }
+  },
+
+  // Cancel appointment
+  cancelAppointment: async (appointmentId, reason = '') => {
+    try {
+      const response = await api.put(endpoints.appointments.cancel(appointmentId), { reason });
+      return response;
+    } catch (error) {
+      console.error('❌ Cancel appointment error:', error);
+      throw error;
+    }
+  },
+
+  // Complete appointment
+  completeAppointment: async (appointmentId, notes = '') => {
+    try {
+      const response = await api.put(endpoints.appointments.complete(appointmentId), { notes });
+      return response;
+    } catch (error) {
+      console.error('❌ Complete appointment error:', error);
+      throw error;
+    }
+  },
+
+  // Get appointments by teacher
+  getAppointmentsByTeacher: async (teacherId) => {
+    try {
+      const response = await api.get(endpoints.appointments.getByTeacher(teacherId));
+      return response;
+    } catch (error) {
+      console.error('❌ Get teacher appointments error:', error);
+      throw error;
+    }
+  },
+
+  // Get pending appointments for teacher
+  getPendingAppointments: async (teacherId) => {
+    try {
+      const response = await api.get(endpoints.appointments.getTeacherPending(teacherId));
+      return response;
+    } catch (error) {
+      console.error('❌ Get pending appointments error:', error);
+      throw error;
+    }
+  },
+
+  // Message methods
+  getMessages: async (roomId) => {
+    try {
+      const response = await api.get(endpoints.messages.getByRoom(roomId));
+      return response;
+    } catch (error) {
+      console.error('❌ Get messages error:', error);
+      throw error;
+    }
+  },
+
+  deleteMessage: async (messageId) => {
+    try {
+      const response = await api.delete(endpoints.messages.delete(messageId));
+      return response;
+    } catch (error) {
+      console.error('❌ Delete message error:', error);
+      throw error;
+    }
+  }
 };
-
-export default api;
