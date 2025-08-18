@@ -15,7 +15,7 @@ const TeacherLogin = () => {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true); // Add remember me option
+  const [rememberMe, setRememberMe] = useState(true); // Default to true for localStorage
   const navigate = useNavigate();
 
   // Check if user is already logged in
@@ -72,8 +72,8 @@ const TeacherLogin = () => {
 
       console.log('🔄 Starting teacher login process...');
       console.log('📧 Email:', email);
-      console.log('💾 Remember me:', rememberMe);
-      console.log('🔍 Storage info:', tokenManager.getStorageState());
+      console.log('💾 Remember me (use localStorage):', rememberMe);
+      console.log('🔍 Storage info before login:', tokenManager.getStorageState());
 
       // Use the enhanced API service for teacher login
       const response = await apiMethods.teacherLogin({
@@ -101,11 +101,33 @@ const TeacherLogin = () => {
         return;
       }
 
-      console.log('💾 Storing teacher token and data...');
+      console.log('💾 Storing teacher token and data with enhanced localStorage support...');
       
-      // ✅ FIXED: Use the enhanced token storage with persistence option
-      const tokenResult = tokenManager.safeSetTeacherToken(token, rememberMe);
+      // ✅ ENHANCED: Use the new localStorage-guaranteed methods
+      let tokenResult;
+      let dataResult;
       
+      if (rememberMe) {
+        // Force localStorage usage for persistent storage
+        console.log('🔧 Using forceTeacherTokenToLocalStorage for guaranteed localStorage storage...');
+        tokenResult = tokenManager.forceTeacherTokenToLocalStorage(token);
+        
+        // Also force teacher data to localStorage
+        try {
+          localStorage.setItem('teacherData', JSON.stringify(teacherData));
+          dataResult = { success: true, storageType: 'localStorage' };
+          console.log('✅ Teacher data forced to localStorage');
+        } catch (error) {
+          console.error('❌ Failed to force teacher data to localStorage:', error);
+          dataResult = { success: false, error: error.message };
+        }
+      } else {
+        // Use normal storage methods (will try localStorage first anyway)
+        tokenResult = tokenManager.safeSetTeacherToken(token, rememberMe);
+        dataResult = tokenManager.setTeacherData(teacherData, rememberMe);
+      }
+      
+      // Check token storage result
       if (!tokenResult.success) {
         console.error('❌ Token storage failed:', tokenResult.error);
         setError(`Authentication failed: ${tokenResult.error}`);
@@ -113,15 +135,17 @@ const TeacherLogin = () => {
         return;
       }
 
-      // ✅ Store teacher data with same persistence setting
-      const dataResult = tokenManager.setTeacherData(teacherData, rememberMe);
-      
-      if (!dataResult) {
-        console.error('❌ Teacher data storage failed');
+      // Check data storage result
+      if (!dataResult.success) {
+        console.error('❌ Teacher data storage failed:', dataResult.error);
         setError("Teacher profile could not be saved. Please try again.");
         setLoading(false);
         return;
       }
+
+      // Log where the data was actually stored
+      console.log(`✅ Token stored successfully in: ${tokenResult.storageType}`);
+      console.log(`✅ Data stored successfully in: ${dataResult.storageType}`);
 
       // ✅ Verify storage worked by retrieving the data
       const storedToken = tokenManager.getTeacherToken();
@@ -141,14 +165,25 @@ const TeacherLogin = () => {
         return;
       }
 
-      console.log('✅ Token stored successfully:', storedToken.substring(0, 20) + "...");
-      console.log('✅ Teacher data stored successfully:', storedTeacher.name);
+      console.log('✅ Token retrieved successfully:', storedToken.substring(0, 20) + "...");
+      console.log('✅ Teacher data retrieved successfully:', storedTeacher.name);
       
       // ✅ Debug the current storage state
       const finalStorageState = tokenManager.getStorageState();
       console.log('🔍 Final storage state:', finalStorageState);
       
-      setMessage("Login successful! Redirecting to dashboard...");
+      // ✅ Verify localStorage specifically if we intended to use it
+      if (rememberMe && finalStorageState?.directStorageCheck) {
+        if (finalStorageState.directStorageCheck.teacherTokenInLocalStorage) {
+          console.log('✅ Confirmed: Teacher token is in localStorage');
+          setMessage(`Login successful! Token stored in localStorage. Redirecting to dashboard...`);
+        } else {
+          console.warn('⚠️ Warning: Token not found in localStorage despite rememberMe being true');
+          setMessage(`Login successful! Token stored in ${tokenResult.storageType}. Redirecting to dashboard...`);
+        }
+      } else {
+        setMessage(`Login successful! Token stored in ${tokenResult.storageType}. Redirecting to dashboard...`);
+      }
       
       // Small delay to show success message
       setTimeout(() => {
@@ -204,6 +239,32 @@ const TeacherLogin = () => {
     tokenManager.removeTeacherToken();
     setMessage('Logged out successfully');
     setTimeout(() => setMessage(''), 3000);
+  };
+
+  // ✅ NEW: Test localStorage directly
+  const handleTestLocalStorage = () => {
+    try {
+      // Test if localStorage is working
+      localStorage.setItem('test', 'working');
+      const test = localStorage.getItem('test');
+      localStorage.removeItem('test');
+      
+      if (test === 'working') {
+        setMessage('✅ localStorage is working properly!');
+        console.log('✅ localStorage test passed');
+      } else {
+        setError('❌ localStorage test failed');
+        console.error('❌ localStorage test failed');
+      }
+    } catch (error) {
+      setError(`❌ localStorage error: ${error.message}`);
+      console.error('❌ localStorage error:', error);
+    }
+    
+    setTimeout(() => {
+      setMessage('');
+      setError('');
+    }, 3000);
   };
 
   return (
@@ -329,7 +390,7 @@ const TeacherLogin = () => {
                       className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                     />
                     <label htmlFor="rememberMe" className="ml-2 block text-sm text-gray-200">
-                      Keep me logged in (uses localStorage)
+                      Keep me logged in (forces localStorage storage)
                     </label>
                   </div>
 
@@ -359,9 +420,12 @@ const TeacherLogin = () => {
                     {tokenManager.getTeacherData() && (
                       <div>Teacher Name: {tokenManager.getTeacherData().name}</div>
                     )}
-                    <div>Storage Type: {tokenManager.getStorageState()?.storageInfo?.localStorageAvailable ? 'localStorage' : tokenManager.getStorageState()?.storageInfo?.sessionStorageAvailable ? 'sessionStorage' : 'memory'}</div>
+                    <div>Storage Available: {tokenManager.getStorageState()?.storageInfo?.localStorageAvailable ? '✅ localStorage' : '❌ localStorage'} | {tokenManager.getStorageState()?.storageInfo?.sessionStorageAvailable ? '✅ sessionStorage' : '❌ sessionStorage'}</div>
+                    {tokenManager.getStorageState()?.directStorageCheck && (
+                      <div>Direct Check: Token in localStorage: {tokenManager.getStorageState().directStorageCheck.teacherTokenInLocalStorage ? '✅' : '❌'}</div>
+                    )}
                     
-                    <div className="flex space-x-2 mt-2">
+                    <div className="flex flex-wrap gap-2 mt-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -371,6 +435,14 @@ const TeacherLogin = () => {
                         className="px-2 py-1 bg-blue-600 rounded text-white text-xs"
                       >
                         Debug Storage
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={handleTestLocalStorage}
+                        className="px-2 py-1 bg-purple-600 rounded text-white text-xs"
+                      >
+                        Test localStorage
                       </button>
                       
                       {tokenManager.isTeacherLoggedIn() && (
