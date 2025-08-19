@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Calendar, Clock, User, Mail, Phone, BookOpen, CheckCircle, XCircle, AlertCircle, Plus } from 'lucide-react';
-import { apiMethods } from '../../services/api';
+import { apiMethods, tokenManager } from '../../services/api';
 import TeacherNavbar from "../../components/teacherNavbar";
 
 const TeacherSchedule = () => {
@@ -22,7 +22,10 @@ const TeacherSchedule = () => {
   const [error, setError] = useState('');
   const [teacherAvailability, setTeacherAvailability] = useState(null);
 
-  const VALID_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  // Move VALID_DAYS to useMemo to make it stable across renders
+  const VALID_DAYS = useMemo(() => [
+    'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
+  ], []);
 
   // Get next date for a given day
   const getNextDateForDay = useCallback((dayName) => {
@@ -52,7 +55,7 @@ const TeacherSchedule = () => {
     targetDate.setDate(today.getDate() + daysUntilTarget);
     
     return targetDate.toISOString().split('T')[0];
-  }, []);
+  }, [VALID_DAYS]);
 
   const formatDateForDisplay = useCallback((dateString) => {
     try {
@@ -140,6 +143,73 @@ const TeacherSchedule = () => {
     return getDefaultAvailability();
   }, [getDefaultAvailability]);
 
+  // FIXED: Check authentication and load teacher data properly
+  const checkAuth = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      // First check if we have a valid teacher token
+      if (!tokenManager.isTeacherLoggedIn()) {
+        console.log('❌ No teacher token found');
+        setError('Please log in as a teacher to access this page');
+        return;
+      }
+
+      // Try to get teacher data from localStorage first
+      let teacher = tokenManager.getCurrentTeacher();
+      
+      if (teacher && teacher._id) {
+        console.log('✅ Teacher data loaded from localStorage:', teacher);
+        setCurrentTeacher(teacher);
+        
+        // Process availability
+        const availability = processTeacherAvailability(teacher);
+        setTeacherAvailability(availability);
+        return;
+      }
+
+      // If no local data, try to fetch from API
+      console.log('🔄 Fetching teacher profile from API...');
+      const response = await apiMethods.getTeacherProfile();
+      
+      if (response.data && response.data.success) {
+        teacher = response.data.data || response.data.teacher;
+        console.log('✅ Teacher profile fetched from API:', teacher);
+        
+        // Store in localStorage for future use
+        localStorage.setItem('teacher', JSON.stringify(teacher));
+        setCurrentTeacher(teacher);
+        
+        // Process availability
+        const availability = processTeacherAvailability(teacher);
+        setTeacherAvailability(availability);
+      } else {
+        throw new Error('Invalid response format from server');
+      }
+
+    } catch (error) {
+      console.error('❌ Failed to load teacher profile:', error);
+      
+      let errorMessage = 'Failed to load teacher information';
+      
+      if (error.response?.status === 401) {
+        errorMessage = 'Your session has expired. Please log in again.';
+        tokenManager.removeTeacherToken();
+        setTimeout(() => {
+          window.location.href = '/teacher/login';
+        }, 2000);
+      } else if (error.response?.status === 400) {
+        errorMessage = 'Invalid teacher data. Please contact support.';
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, [processTeacherAvailability]);
+
   // Fetch teacher appointments
   const fetchTeacherAppointments = useCallback(async () => {
     if (!currentTeacher?.id && !currentTeacher?._id) {
@@ -175,27 +245,10 @@ const TeacherSchedule = () => {
     }
   }, [currentTeacher]);
 
-  // Load teacher from localStorage
+  // FIXED: Initial authentication check
   useEffect(() => {
-    const teacherData = localStorage.getItem('teacher');
-    if (teacherData) {
-      try {
-        const teacher = JSON.parse(teacherData);
-        console.log('Loaded teacher from localStorage:', teacher);
-        setCurrentTeacher(teacher);
-        
-        // Process availability immediately
-        const availability = processTeacherAvailability(teacher);
-        setTeacherAvailability(availability);
-        
-      } catch (error) {
-        console.error('Error parsing teacher data:', error);
-        setError('Unable to load teacher information');
-      }
-    } else {
-      setError('Please log in to access your schedule');
-    }
-  }, [processTeacherAvailability]);
+    checkAuth();
+  }, [checkAuth]);
 
   // Fetch appointments when teacher is loaded
   useEffect(() => {
@@ -232,7 +285,7 @@ const TeacherSchedule = () => {
   }, [resetForm]);
 
   // Create appointment - FIXED
-  const handleCreateAppointment = async () => {
+  const handleCreateAppointment = useCallback(async () => {
     if (!currentTeacher) {
       setError('Teacher information not loaded');
       return;
@@ -296,10 +349,10 @@ const TeacherSchedule = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentTeacher, selectedDay, selectedTime, studentInfo, getNextDateForDay, fetchTeacherAppointments, resetForm]);
 
   // Cancel appointment - FIXED
-  const cancelAppointment = async (appointmentId) => {
+  const cancelAppointment = useCallback(async (appointmentId) => {
     if (!appointmentId) {
       setError('Invalid appointment ID');
       return;
@@ -322,12 +375,44 @@ const TeacherSchedule = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const handleInputChange = useCallback((e) => {
     const { name, value } = e.target;
     setStudentInfo(prev => ({ ...prev, [name]: value }));
   }, []);
+
+  // Show loading screen while checking authentication
+  if (loading && !currentTeacher) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center max-w-md w-full">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mb-4 mx-auto"></div>
+          <h2 className="text-xl font-semibold text-gray-800 mb-2">Loading...</h2>
+          <p className="text-gray-600">Please wait while we verify your authentication.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error screen if authentication fails
+  if (error && !currentTeacher) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center max-w-md w-full">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-800 mb-2">Authentication Error</h2>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <button
+            onClick={() => window.location.href = '/teacher/login'}
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentTeacher) {
     return (
