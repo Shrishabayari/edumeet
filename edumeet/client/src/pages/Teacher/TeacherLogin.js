@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Mail, Lock, AlertCircle, CheckCircle,
   Eye, EyeOff, User, BookOpen
 } from 'lucide-react';
 import { useNavigate, Link } from "react-router-dom";
 import TeacherNavbar from "../../components/teacherNavbar";
-// Import the enhanced API service
 import { apiMethods, tokenManager } from "../../services/api";
 
 const TeacherLogin = () => {
@@ -15,26 +14,7 @@ const TeacherLogin = () => {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true); // Default to true for localStorage
   const navigate = useNavigate();
-
-  // Check if user is already logged in
-  useEffect(() => {
-    const checkExistingLogin = () => {
-      if (tokenManager.isTeacherLoggedIn()) {
-        const teacherData = tokenManager.getTeacherData();
-        if (teacherData) {
-          console.log('✅ Teacher already logged in:', teacherData.name);
-          setMessage('Already logged in! Redirecting to dashboard...');
-          setTimeout(() => {
-            navigate("/teacher/dashboard");
-          }, 1000);
-        }
-      }
-    };
-
-    checkExistingLogin();
-  }, [navigate]);
 
   // Client-side form validation
   const validateForm = () => {
@@ -70,141 +50,60 @@ const TeacherLogin = () => {
         return;
       }
 
-      console.log('🔄 Starting teacher login process...');
-      console.log('📧 Email:', email);
-      console.log('💾 Remember me (use localStorage):', rememberMe);
-      console.log('🔍 Storage info before login:', tokenManager.getStorageState());
-
-      // Use the enhanced API service for teacher login
+      console.log("🔄 Attempting teacher login...");
       const response = await apiMethods.teacherLogin({
         email,
         password,
       });
 
-      console.log('✅ Login API Response:', response.data);
+      console.log("✅ Login Response:", response.data);
 
-      // Extract token and teacher data from response
-      const { token, data } = response.data;
-      const teacherData = data?.teacher;
-
-      if (!token) {
-        console.error('❌ No token received in response');
-        setError("Login successful, but authentication token not received. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      if (!teacherData) {
-        console.error('❌ No teacher data received in response');
-        setError("Login successful, but teacher profile could not be loaded. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      console.log('💾 Storing teacher token and data with enhanced localStorage support...');
-      
-      // ✅ ENHANCED: Use the new localStorage-guaranteed methods
-      let tokenResult;
-      let dataResult;
-      
-      if (rememberMe) {
-        // Force localStorage usage for persistent storage
-        console.log('🔧 Using forceTeacherTokenToLocalStorage for guaranteed localStorage storage...');
-        tokenResult = tokenManager.forceTeacherTokenToLocalStorage(token);
-        
-        // Also force teacher data to localStorage
-        try {
-          localStorage.setItem('teacherData', JSON.stringify(teacherData));
-          dataResult = { success: true, storageType: 'localStorage' };
-          console.log('✅ Teacher data forced to localStorage');
-        } catch (error) {
-          console.error('❌ Failed to force teacher data to localStorage:', error);
-          dataResult = { success: false, error: error.message };
-        }
+      // Store the authentication token using the centralized token manager
+      if (response.data.token) {
+        tokenManager.setTeacherToken(response.data.token, true); // true for persistent storage
+        console.log("✅ Teacher token stored successfully");
       } else {
-        // Use normal storage methods (will try localStorage first anyway)
-        tokenResult = tokenManager.safeSetTeacherToken(token, rememberMe);
-        dataResult = tokenManager.setTeacherData(teacherData, rememberMe);
-      }
-      
-      // Check token storage result
-      if (!tokenResult.success) {
-        console.error('❌ Token storage failed:', tokenResult.error);
-        setError(`Authentication failed: ${tokenResult.error}`);
+        console.warn("No token received in login response");
+        setError("Login failed: No authentication token received");
         setLoading(false);
         return;
       }
 
-      // Check data storage result
-      if (!dataResult.success) {
-        console.error('❌ Teacher data storage failed:', dataResult.error);
-        setError("Teacher profile could not be saved. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      // Log where the data was actually stored
-      console.log(`✅ Token stored successfully in: ${tokenResult.storageType}`);
-      console.log(`✅ Data stored successfully in: ${dataResult.storageType}`);
-
-      // ✅ Verify storage worked by retrieving the data
-      const storedToken = tokenManager.getTeacherToken();
-      const storedTeacher = tokenManager.getTeacherData();
-      
-      if (!storedToken) {
-        console.error('❌ Token verification failed after storage');
-        setError("Authentication storage failed. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      if (!storedTeacher) {
-        console.error('❌ Teacher data verification failed after storage');
-        setError("Teacher profile storage failed. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      console.log('✅ Token retrieved successfully:', storedToken.substring(0, 20) + "...");
-      console.log('✅ Teacher data retrieved successfully:', storedTeacher.name);
-      
-      // ✅ Debug the current storage state
-      const finalStorageState = tokenManager.getStorageState();
-      console.log('🔍 Final storage state:', finalStorageState);
-      
-      // ✅ Verify localStorage specifically if we intended to use it
-      if (rememberMe && finalStorageState?.directStorageCheck) {
-        if (finalStorageState.directStorageCheck.teacherTokenInLocalStorage) {
-          console.log('✅ Confirmed: Teacher token is in localStorage');
-          setMessage(`Login successful! Token stored in localStorage. Redirecting to dashboard...`);
-        } else {
-          console.warn('⚠️ Warning: Token not found in localStorage despite rememberMe being true');
-          setMessage(`Login successful! Token stored in ${tokenResult.storageType}. Redirecting to dashboard...`);
-        }
+      // Store teacher data in localStorage
+      if (response.data.data && response.data.data.teacher) {
+        localStorage.setItem("teacher", JSON.stringify(response.data.data.teacher));
+        console.log("✅ Teacher data stored successfully");
+      } else if (response.data.teacher) {
+        localStorage.setItem("teacher", JSON.stringify(response.data.teacher));
+        console.log("✅ Teacher data stored successfully (fallback structure)");
       } else {
-        setMessage(`Login successful! Token stored in ${tokenResult.storageType}. Redirecting to dashboard...`);
+        console.warn("Teacher data not found in login response:", response.data);
+        setError("Login successful, but teacher data could not be loaded. Please try again.");
+        setLoading(false);
+        return;
       }
+
+      setMessage("Login successful! Redirecting...");
       
-      // Small delay to show success message
+      // Small delay to show success message before redirect
       setTimeout(() => {
         navigate("/teacher/dashboard");
       }, 1500);
 
     } catch (err) {
-      console.error('❌ Teacher login error:', err);
+      console.error("❌ Teacher login error:", err);
 
-      // Enhanced error handling
+      // Enhanced error handling for different error types
       let displayMessage = 'Login failed. Please try again.';
       
-      if (err.message) {
-        displayMessage = err.message;
-      } else if (err.response) {
+      if (err.response) {
+        // HTTP error response
         const { status, data } = err.response;
-        console.error(`HTTP Error ${status}:`, data);
+        console.error(`HTTP ${status} Error:`, data);
         
         switch (status) {
           case 400:
-            displayMessage = data.message || 'Invalid login credentials format.';
+            displayMessage = data.message || 'Invalid login credentials format';
             break;
           case 401:
             displayMessage = 'Invalid email or password. Please check your credentials.';
@@ -222,49 +121,21 @@ const TeacherLogin = () => {
             displayMessage = 'Server error. Please try again in a few moments.';
             break;
           default:
-            displayMessage = data.message || `Login failed with error ${status}.`;
+            displayMessage = data.message || `Server error (${status}). Please try again.`;
         }
       } else if (err.request) {
+        // Network error
+        console.error("Network error - no response received");
         displayMessage = 'Network error. Please check your internet connection and try again.';
+      } else {
+        // Other errors (validation, etc.)
+        displayMessage = err.message || 'An unexpected error occurred. Please try again.';
       }
       
       setError(displayMessage);
     } finally {
       setLoading(false);
     }
-  };
-
-  // Handle logout (for testing purposes)
-  const handleTestLogout = () => {
-    tokenManager.removeTeacherToken();
-    setMessage('Logged out successfully');
-    setTimeout(() => setMessage(''), 3000);
-  };
-
-  // ✅ NEW: Test localStorage directly
-  const handleTestLocalStorage = () => {
-    try {
-      // Test if localStorage is working
-      localStorage.setItem('test', 'working');
-      const test = localStorage.getItem('test');
-      localStorage.removeItem('test');
-      
-      if (test === 'working') {
-        setMessage('✅ localStorage is working properly!');
-        console.log('✅ localStorage test passed');
-      } else {
-        setError('❌ localStorage test failed');
-        console.error('❌ localStorage test failed');
-      }
-    } catch (error) {
-      setError(`❌ localStorage error: ${error.message}`);
-      console.error('❌ localStorage error:', error);
-    }
-    
-    setTimeout(() => {
-      setMessage('');
-      setError('');
-    }, 3000);
   };
 
   return (
@@ -380,20 +251,6 @@ const TeacherLogin = () => {
                     </div>
                   </div>
 
-                  {/* Remember Me Checkbox */}
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id="rememberMe"
-                      checked={rememberMe}
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <label htmlFor="rememberMe" className="ml-2 block text-sm text-gray-200">
-                      Keep me logged in (forces localStorage storage)
-                    </label>
-                  </div>
-
                   <button
                     type="submit"
                     disabled={loading}
@@ -409,54 +266,6 @@ const TeacherLogin = () => {
                     )}
                   </button>
                 </form>
-
-                {/* Debug Info (remove in production) */}
-                {process.env.NODE_ENV === 'development' && (
-                  <div className="mt-4 p-3 bg-gray-800 bg-opacity-50 rounded text-xs text-gray-300">
-                    <div className="mb-2 font-semibold">Debug Information:</div>
-                    <div>Token Status: {tokenManager.getTeacherToken() ? '✅ Stored' : '❌ Not Found'}</div>
-                    <div>Teacher Data: {tokenManager.getTeacherData() ? '✅ Stored' : '❌ Not Found'}</div>
-                    <div>Auth Status: {tokenManager.isTeacherLoggedIn() ? '✅ Logged In' : '❌ Not Logged In'}</div>
-                    {tokenManager.getTeacherData() && (
-                      <div>Teacher Name: {tokenManager.getTeacherData().name}</div>
-                    )}
-                    <div>Storage Available: {tokenManager.getStorageState()?.storageInfo?.localStorageAvailable ? '✅ localStorage' : '❌ localStorage'} | {tokenManager.getStorageState()?.storageInfo?.sessionStorageAvailable ? '✅ sessionStorage' : '❌ sessionStorage'}</div>
-                    {tokenManager.getStorageState()?.directStorageCheck && (
-                      <div>Direct Check: Token in localStorage: {tokenManager.getStorageState().directStorageCheck.teacherTokenInLocalStorage ? '✅' : '❌'}</div>
-                    )}
-                    
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          console.log('🔍 Current Storage State:', tokenManager.getStorageState());
-                          console.log('🔍 Authentication Status:', tokenManager.getAuthenticationStatus());
-                        }}
-                        className="px-2 py-1 bg-blue-600 rounded text-white text-xs"
-                      >
-                        Debug Storage
-                      </button>
-                      
-                      <button
-                        type="button"
-                        onClick={handleTestLocalStorage}
-                        className="px-2 py-1 bg-purple-600 rounded text-white text-xs"
-                      >
-                        Test localStorage
-                      </button>
-                      
-                      {tokenManager.isTeacherLoggedIn() && (
-                        <button
-                          type="button"
-                          onClick={handleTestLogout}
-                          className="px-2 py-1 bg-red-600 rounded text-white text-xs"
-                        >
-                          Test Logout
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>
