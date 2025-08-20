@@ -192,38 +192,62 @@ const TeacherSchedule = () => {
       // Add a small delay to ensure token is properly set
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      const response = await apiMethods.getTeacherProfile();
-      console.log('📡 API Response received:', { 
-        status: response.status,
-        hasData: !!response.data,
-        success: response.data?.success
-      });
-      
-      if (response.data && response.data.success) {
-        teacher = response.data.data || response.data.teacher;
-        
-        if (!teacher || !teacher._id) {
-          console.log('❌ Invalid teacher data structure from API');
-          throw new Error('INVALID_TEACHER_DATA');
-        }
-        
-        console.log('✅ Teacher profile fetched from API:', { 
-          id: teacher._id, 
-          name: teacher.name,
-          email: teacher.email 
+      try {
+        const response = await apiMethods.getTeacherProfile();
+        console.log('📡 API Response received:', { 
+          status: response.status,
+          hasData: !!response.data,
+          success: response.data?.success
         });
         
-        // Store in localStorage for future use
-        localStorage.setItem('teacher', JSON.stringify(teacher));
-        setCurrentTeacher(teacher);
+        if (response.data && response.data.success !== false) {
+          // Handle different response structures
+          teacher = response.data.data || response.data.teacher || response.data;
+          
+          if (!teacher || (!teacher._id && !teacher.id)) {
+            console.log('❌ Invalid teacher data structure from API');
+            throw new Error('INVALID_TEACHER_DATA');
+          }
+          
+          console.log('✅ Teacher profile fetched from API:', { 
+            id: teacher._id || teacher.id, 
+            name: teacher.name,
+            email: teacher.email 
+          });
+          
+          // Store in localStorage for future use
+          localStorage.setItem('teacher', JSON.stringify(teacher));
+          setCurrentTeacher(teacher);
+          
+          // Process availability
+          const availability = processTeacherAvailability(teacher);
+          setTeacherAvailability(availability);
+          
+        } else {
+          console.log('❌ API response indicates failure');
+          throw new Error('API_RESPONSE_ERROR');
+        }
+      } catch (apiError) {
+        console.error('API Error details:', {
+          message: apiError.message,
+          status: apiError.response?.status,
+          data: apiError.response?.data
+        });
         
-        // Process availability
-        const availability = processTeacherAvailability(teacher);
-        setTeacherAvailability(availability);
+        // Handle specific API errors
+        if (apiError.response?.status === 400) {
+          // For 400 errors, try to use cached data if available
+          const cachedTeacher = tokenManager.getCurrentTeacher();
+          if (cachedTeacher && (cachedTeacher._id || cachedTeacher.id)) {
+            console.log('⚠️ Using cached teacher data due to API error');
+            setCurrentTeacher(cachedTeacher);
+            const availability = processTeacherAvailability(cachedTeacher);
+            setTeacherAvailability(availability);
+            return;
+          }
+        }
         
-      } else {
-        console.log('❌ API response indicates failure');
-        throw new Error('API_RESPONSE_ERROR');
+        throw apiError; // Re-throw if we can't handle it
       }
 
     } catch (error) {
@@ -248,9 +272,19 @@ const TeacherSchedule = () => {
         tokenManager.removeTeacherToken();
         shouldRedirect = true;
       } else if (error.response?.status === 400) {
-        errorMessage = 'Authentication error. Please log in again.';
-        tokenManager.removeTeacherToken();
-        shouldRedirect = true;
+        // For 400 errors, check if we have cached data
+        const cachedTeacher = tokenManager.getCurrentTeacher();
+        if (cachedTeacher && (cachedTeacher._id || cachedTeacher.id)) {
+          console.log('⚠️ Using cached teacher data despite 400 error');
+          setCurrentTeacher(cachedTeacher);
+          const availability = processTeacherAvailability(cachedTeacher);
+          setTeacherAvailability(availability);
+          return; // Don't show error, continue with cached data
+        } else {
+          errorMessage = 'Authentication error. Please log in again.';
+          tokenManager.removeTeacherToken();
+          shouldRedirect = true;
+        }
       } else if (error.response?.status === 403) {
         errorMessage = 'Access denied. Please ensure you have teacher privileges.';
         shouldRedirect = true;

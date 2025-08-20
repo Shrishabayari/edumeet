@@ -1,19 +1,20 @@
-const User = require('../models/User'); // Changed from Teacher to User
+const User = require('../models/User');
 const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 
-// ✅ First define helper function
+// Helper function to sign JWT token
 const signToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_SECRET, {
     expiresIn: '90d'
   });
 };
 
-// ✅ Then define this one (uses signToken)
+// Helper function to create and send token response
 const createSendToken = (teacher, statusCode, req, res) => {
   const token = signToken({
-    id: teacher._id,
+    id: teacher._id.toString(), // Ensure ID is string
     email: teacher.email,
     role: 'teacher',
     loginTime: Date.now()
@@ -27,6 +28,7 @@ const createSendToken = (teacher, statusCode, req, res) => {
 
   res.cookie('jwt', token, cookieOptions);
 
+  // Remove password from response
   teacher.password = undefined;
 
   res.status(statusCode).json({
@@ -36,6 +38,177 @@ const createSendToken = (teacher, statusCode, req, res) => {
       teacher
     }
   });
+};
+
+// @desc    Teacher login
+// @route   POST /api/teachers/login
+// @access  Public
+const teacherLogin = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { email, password } = req.body;
+
+    // Find teacher by email with password field included
+    const teacher = await User.findOne({ 
+      email: email.toLowerCase().trim(), 
+      role: 'teacher',
+      isActive: true 
+    }).select('+password');
+    
+    if (!teacher) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials or teacher not found' 
+      });
+    }
+
+    // Check if account is set up
+    if (!teacher.hasAccount || !teacher.password) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Account not set up. Please contact admin for setup link.' 
+      });
+    }
+
+    // Check approval status
+    if (teacher.approvalStatus !== 'approved') {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Account not approved. Please contact admin.' 
+      });
+    }
+
+    // Verify password
+    const isPasswordCorrect = await teacher.correctPassword(password, teacher.password);
+    if (!isPasswordCorrect) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
+    }
+
+    // Update last login
+    teacher.lastLogin = new Date();
+    await teacher.save({ validateBeforeSave: false });
+
+    // Create token with string ID
+    const token = jwt.sign(
+      { 
+        id: teacher._id.toString(), // Convert ObjectId to string
+        email: teacher.email, 
+        role: 'teacher', 
+        loginTime: Date.now() 
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '90d' }
+    );
+
+    // Remove password from response
+    const teacherResponse = teacher.toObject();
+    delete teacherResponse.password;
+
+    console.log('✅ Teacher login successful:', {
+      teacherId: teacher._id.toString(),
+      teacherEmail: teacher.email,
+      tokenCreated: !!token
+    });
+
+    res.status(200).json({
+      success: true,
+      token,
+      data: { 
+        teacher: teacherResponse 
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Teacher login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during login',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get teacher profile
+// @route   GET /api/teachers/profile
+// @access  Private/Teacher
+const getTeacherProfile = async (req, res) => {
+  try {
+    console.log('🔍 Getting teacher profile for user:', {
+      userId: req.user?.id,
+      userRole: req.user?.role,
+      userObject: req.user
+    });
+
+    // Validate teacher ID from JWT
+    if (!req.user?.id) {
+      return res.status(400).json({
+        success: false,
+        message: 'No user ID found in token'
+      });
+    }
+
+    // Validate MongoDB ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.user.id)) {
+      console.error('❌ Invalid teacher ID format:', req.user.id);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
+    }
+
+    // Find teacher by ID
+    const teacher = await User.findOne({ 
+      _id: req.user.id, 
+      role: 'teacher',
+      isActive: true 
+    }).select('-password -__v');
+    
+    if (!teacher) {
+      console.error('❌ Teacher not found with ID:', req.user.id);
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
+    }
+
+    console.log('✅ Teacher profile found:', {
+      teacherId: teacher._id.toString(),
+      teacherName: teacher.name,
+      teacherEmail: teacher.email
+    });
+
+    res.status(200).json({
+      success: true,
+      data: teacher
+    });
+
+  } catch (error) {
+    console.error('❌ Profile fetch error:', error);
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching profile',
+      error: error.message
+    });
+  }
 };
 
 // @desc    Create new teacher
@@ -67,7 +240,7 @@ const createTeacher = async (req, res) => {
     } = req.body;
 
     // Check if user with email already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -89,10 +262,11 @@ const createTeacher = async (req, res) => {
     // Create new teacher user object
     const userData = {
       name,
-      email,
+      email: email.toLowerCase().trim(),
       role: 'teacher',
       teacherProfile,
-      approvalStatus: 'pending' // Teachers need approval by default
+      approvalStatus: 'pending', // Teachers need approval by default
+      isActive: true
     };
 
     // If password is provided, set it and mark account as active
@@ -110,13 +284,18 @@ const createTeacher = async (req, res) => {
     const responseData = savedTeacher.toObject();
     delete responseData.password;
 
+    console.log('✅ Teacher created successfully:', {
+      teacherId: savedTeacher._id.toString(),
+      teacherEmail: savedTeacher.email
+    });
+
     res.status(201).json({
       success: true,
       message: 'Teacher created successfully',
       data: responseData
     });
   } catch (error) {
-    console.error('Error creating teacher:', error);
+    console.error('❌ Error creating teacher:', error);
     
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => ({
@@ -164,6 +343,14 @@ const updateTeacher = async (req, res) => {
     const teacherId = req.params.id;
     const updateData = req.body;
 
+    // Validate MongoDB ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
+    }
+
     // Check if teacher exists
     const existingTeacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!existingTeacher) {
@@ -176,7 +363,7 @@ const updateTeacher = async (req, res) => {
     // If email is being updated, check for duplicates
     if (updateData.email && updateData.email !== existingTeacher.email) {
       const emailExists = await User.findOne({ 
-        email: updateData.email, 
+        email: updateData.email.toLowerCase().trim(), 
         _id: { $ne: teacherId } 
       });
       
@@ -198,7 +385,11 @@ const updateTeacher = async (req, res) => {
     // Separate general fields from teacher profile fields
     Object.keys(updateData).forEach(key => {
       if (generalFields.includes(key)) {
-        finalUpdateData[key] = updateData[key];
+        if (key === 'email') {
+          finalUpdateData[key] = updateData[key].toLowerCase().trim();
+        } else {
+          finalUpdateData[key] = updateData[key];
+        }
       } else if (teacherProfileFields.includes(key)) {
         teacherProfileUpdates[`teacherProfile.${key}`] = updateData[key];
       }
@@ -215,7 +406,12 @@ const updateTeacher = async (req, res) => {
         new: true, 
         runValidators: true 
       }
-    ).select('-__v');
+    ).select('-__v -password');
+
+    console.log('✅ Teacher updated successfully:', {
+      teacherId: updatedTeacher._id.toString(),
+      teacherEmail: updatedTeacher.email
+    });
 
     res.status(200).json({
       success: true,
@@ -223,7 +419,7 @@ const updateTeacher = async (req, res) => {
       data: updatedTeacher
     });
   } catch (error) {
-    console.error('Error updating teacher:', error);
+    console.error('❌ Error updating teacher:', error);
     
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => ({
@@ -320,7 +516,7 @@ const getAllTeachers = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error fetching teachers:', error);
+    console.error('❌ Error fetching teachers:', error);
     res.status(500).json({
       success: false,
       message: 'Server error while fetching teachers',
@@ -334,8 +530,18 @@ const getAllTeachers = async (req, res) => {
 // @access  Public
 const getTeacherById = async (req, res) => {
   try {
+    const teacherId = req.params.id;
+
+    // Validate MongoDB ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
+    }
+
     const teacher = await User.findOne({ 
-      _id: req.params.id, 
+      _id: teacherId, 
       role: 'teacher' 
     }).select('-__v -password');
     
@@ -365,7 +571,7 @@ const getTeacherById = async (req, res) => {
       data: teacher
     });
   } catch (error) {
-    console.error('Error fetching teacher:', error);
+    console.error('❌ Error fetching teacher:', error);
     
     if (error.name === 'CastError') {
       return res.status(400).json({
@@ -389,6 +595,14 @@ const deleteTeacher = async (req, res) => {
   try {
     const teacherId = req.params.id;
 
+    // Validate MongoDB ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
+    }
+
     const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!teacher) {
       return res.status(404).json({
@@ -408,7 +622,7 @@ const deleteTeacher = async (req, res) => {
       message: 'Teacher deleted successfully'
     });
   } catch (error) {
-    console.error('Error deleting teacher:', error);
+    console.error('❌ Error deleting teacher:', error);
     
     if (error.name === 'CastError') {
       return res.status(400).json({
@@ -432,6 +646,14 @@ const permanentDeleteTeacher = async (req, res) => {
   try {
     const teacherId = req.params.id;
 
+    // Validate MongoDB ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
+    }
+
     const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!teacher) {
       return res.status(404).json({
@@ -447,7 +669,7 @@ const permanentDeleteTeacher = async (req, res) => {
       message: 'Teacher permanently deleted'
     });
   } catch (error) {
-    console.error('Error permanently deleting teacher:', error);
+    console.error('❌ Error permanently deleting teacher:', error);
     
     if (error.name === 'CastError') {
       return res.status(400).json({
@@ -471,8 +693,12 @@ const getTeachersByDepartment = async (req, res) => {
   try {
     const { department } = req.params;
     
-    // Use the static method from User model
-    const teachers = await User.findTeachersByDepartment(department);
+    const teachers = await User.find({
+      role: 'teacher',
+      'teacherProfile.department': department,
+      isActive: true,
+      approvalStatus: 'approved'
+    }).select('-__v -password');
     
     res.status(200).json({
       success: true,
@@ -480,7 +706,7 @@ const getTeachersByDepartment = async (req, res) => {
       count: teachers.length
     });
   } catch (error) {
-    console.error('Error fetching teachers by department:', error);
+    console.error('❌ Error fetching teachers by department:', error);
     res.status(500).json({
       success: false,
       message: 'Server error while fetching teachers by department',
@@ -544,75 +770,10 @@ const getTeacherStats = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error fetching teacher stats:', error);
+    console.error('❌ Error fetching teacher stats:', error);
     res.status(500).json({
       success: false,
       message: 'Server error while fetching teacher statistics',
-      error: error.message
-    });
-  }
-};
-
-const teacherLogin = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    const teacher = await User.findOne({ 
-      email, 
-      role: 'teacher',
-      isActive: true 
-    }).select('+password');
-    
-    if (!teacher) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials or teacher not found' 
-      });
-    }
-
-    if (!teacher.hasAccount || !teacher.password) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Account not set up. Contact admin.' 
-      });
-    }
-
-    if (teacher.approvalStatus !== 'approved') {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Account not approved. Contact admin.' 
-      });
-    }
-
-    const isPasswordCorrect = await teacher.correctPassword(password);
-    if (!isPasswordCorrect) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials' 
-      });
-    }
-
-    teacher.lastLogin = new Date();
-    await teacher.save({ validateBeforeSave: false });
-
-    const token = jwt.sign(
-      { id: teacher._id, email: teacher.email, role: 'teacher', loginTime: Date.now() },
-      process.env.JWT_SECRET,
-      { expiresIn: '90d' }
-    );
-
-    teacher.password = undefined;
-
-    res.status(200).json({
-      success: true,
-      token,
-      data: { teacher }
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error during login',
       error: error.message
     });
   }
@@ -624,6 +785,14 @@ const teacherLogin = async (req, res) => {
 const sendAccountSetupLink = async (req, res) => {
   try {
     const { teacherId } = req.body;
+
+    // Validate MongoDB ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
+    }
 
     const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!teacher) {
@@ -658,7 +827,7 @@ const sendAccountSetupLink = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Setup link error:', error);
+    console.error('❌ Setup link error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error while generating setup link',
@@ -713,41 +882,10 @@ const setupTeacherAccount = async (req, res) => {
     // Send token
     createSendToken(teacher, 200, req, res);
   } catch (error) {
-    console.error('Account setup error:', error);
+    console.error('❌ Account setup error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error during account setup',
-      error: error.message
-    });
-  }
-};
-
-// @desc    Get teacher profile
-// @route   GET /api/teachers/profile
-// @access  Private/Teacher
-const getTeacherProfile = async (req, res) => {
-  try {
-    const teacher = await User.findOne({ 
-      _id: req.user.id, 
-      role: 'teacher' 
-    });
-    
-    if (!teacher) {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher not found'
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: teacher
-    });
-  } catch (error) {
-    console.error('Profile fetch error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching profile',
       error: error.message
     });
   }
