@@ -5,7 +5,6 @@ import TeacherNavbar from "../../components/teacherNavbar";
 
 const TeacherSchedule = () => {
   const [currentTeacher, setCurrentTeacher] = useState(null); 
-  const [appointments, setAppointments] = useState([]);
   const [selectedDay, setSelectedDay] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
   const [studentInfo, setStudentInfo] = useState({
@@ -17,7 +16,6 @@ const TeacherSchedule = () => {
   });
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
-  const [activeTab, setActiveTab] = useState('create');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [teacherAvailability, setTeacherAvailability] = useState(null);
@@ -143,23 +141,43 @@ const TeacherSchedule = () => {
     return getDefaultAvailability();
   }, [getDefaultAvailability]);
 
-  // FIXED: Check authentication and load teacher data properly
+  // Enhanced authentication check with better error handling
   const checkAuth = useCallback(async () => {
+    console.log('🔍 Starting authentication check...');
+    
     try {
       setLoading(true);
+      setError(''); // Clear previous errors
       
-      // First check if we have a valid teacher token
-      if (!tokenManager.isTeacherLoggedIn()) {
+      // First verify we have a teacher token
+      const teacherToken = tokenManager.getTeacherToken();
+      console.log('🔑 Teacher token check:', { 
+        hasToken: !!teacherToken, 
+        tokenLength: teacherToken?.length || 0 
+      });
+      
+      if (!teacherToken) {
         console.log('❌ No teacher token found');
-        setError('Please log in as a teacher to access this page');
-        return;
+        throw new Error('AUTHENTICATION_REQUIRED');
+      }
+
+      // Validate token format
+      const tokenValidation = tokenManager.validateTokenFormat(teacherToken);
+      if (!tokenValidation.valid) {
+        console.log('❌ Invalid token format:', tokenValidation.error);
+        tokenManager.removeTeacherToken();
+        throw new Error('INVALID_TOKEN_FORMAT');
       }
 
       // Try to get teacher data from localStorage first
       let teacher = tokenManager.getCurrentTeacher();
       
-      if (teacher && teacher._id) {
-        console.log('✅ Teacher data loaded from localStorage:', teacher);
+      if (teacher && teacher._id && teacher.name) {
+        console.log('✅ Teacher data loaded from localStorage:', { 
+          id: teacher._id, 
+          name: teacher.name,
+          email: teacher.email 
+        });
         setCurrentTeacher(teacher);
         
         // Process availability
@@ -170,11 +188,30 @@ const TeacherSchedule = () => {
 
       // If no local data, try to fetch from API
       console.log('🔄 Fetching teacher profile from API...');
+      
+      // Add a small delay to ensure token is properly set
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       const response = await apiMethods.getTeacherProfile();
+      console.log('📡 API Response received:', { 
+        status: response.status,
+        hasData: !!response.data,
+        success: response.data?.success
+      });
       
       if (response.data && response.data.success) {
         teacher = response.data.data || response.data.teacher;
-        console.log('✅ Teacher profile fetched from API:', teacher);
+        
+        if (!teacher || !teacher._id) {
+          console.log('❌ Invalid teacher data structure from API');
+          throw new Error('INVALID_TEACHER_DATA');
+        }
+        
+        console.log('✅ Teacher profile fetched from API:', { 
+          id: teacher._id, 
+          name: teacher.name,
+          email: teacher.email 
+        });
         
         // Store in localStorage for future use
         localStorage.setItem('teacher', JSON.stringify(teacher));
@@ -183,79 +220,65 @@ const TeacherSchedule = () => {
         // Process availability
         const availability = processTeacherAvailability(teacher);
         setTeacherAvailability(availability);
+        
       } else {
-        throw new Error('Invalid response format from server');
+        console.log('❌ API response indicates failure');
+        throw new Error('API_RESPONSE_ERROR');
       }
 
     } catch (error) {
-      console.error('❌ Failed to load teacher profile:', error);
+      console.error('❌ Authentication check failed:', {
+        name: error.name,
+        message: error.message,
+        status: error.response?.status
+      });
       
       let errorMessage = 'Failed to load teacher information';
+      let shouldRedirect = false;
       
-      if (error.response?.status === 401) {
+      // Handle specific error types
+      if (error.message === 'AUTHENTICATION_REQUIRED') {
+        errorMessage = 'Please log in as a teacher to access this page';
+        shouldRedirect = true;
+      } else if (error.message === 'INVALID_TOKEN_FORMAT') {
+        errorMessage = 'Invalid authentication token. Please log in again.';
+        shouldRedirect = true;
+      } else if (error.response?.status === 401) {
         errorMessage = 'Your session has expired. Please log in again.';
         tokenManager.removeTeacherToken();
-        setTimeout(() => {
-          window.location.href = '/teacher/login';
-        }, 2000);
+        shouldRedirect = true;
       } else if (error.response?.status === 400) {
-        errorMessage = 'Invalid teacher data. Please contact support.';
+        errorMessage = 'Authentication error. Please log in again.';
+        tokenManager.removeTeacherToken();
+        shouldRedirect = true;
+      } else if (error.response?.status === 403) {
+        errorMessage = 'Access denied. Please ensure you have teacher privileges.';
+        shouldRedirect = true;
       } else if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
+      } else if (error.message && !['API_RESPONSE_ERROR', 'INVALID_TEACHER_DATA'].includes(error.message)) {
+        errorMessage = error.message;
       }
       
       setError(errorMessage);
+      
+      // Redirect to login if needed
+      if (shouldRedirect) {
+        setTimeout(() => {
+          window.location.href = '/teacher/login';
+        }, 2000);
+      }
+      
     } finally {
       setLoading(false);
     }
   }, [processTeacherAvailability]);
 
-  // Fetch teacher appointments
-  const fetchTeacherAppointments = useCallback(async () => {
-    if (!currentTeacher?.id && !currentTeacher?._id) {
-      console.warn("No teacher ID available");
-      setAppointments([]);
-      return;
-    }
-    
-    try {
-      setLoading(true);
-      const teacherId = currentTeacher.id || currentTeacher._id;
-      console.log('Fetching appointments for teacher:', teacherId);
-      
-      const response = await apiMethods.getTeacherAppointments(teacherId);
-      console.log('Appointments response:', response);
-      
-      let appointmentsData = [];
-      if (response?.data?.success && Array.isArray(response.data.data)) {
-        appointmentsData = response.data.data;
-      } else if (Array.isArray(response?.data)) {
-        appointmentsData = response.data;
-      }
-      
-      console.log('Setting appointments:', appointmentsData);
-      setAppointments(appointmentsData);
-      
-    } catch (error) {
-      console.error('Error fetching appointments:', error);
-      setError('Failed to load appointments');
-      setAppointments([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentTeacher]);
-
-  // FIXED: Initial authentication check
+  // Initial authentication check
   useEffect(() => {
+    console.log('🚀 Component mounted, starting auth check...');
     checkAuth();
   }, [checkAuth]);
-
-  // Fetch appointments when teacher is loaded
-  useEffect(() => {
-    if (currentTeacher) {
-      fetchTeacherAppointments();
-    }
-  }, [currentTeacher, fetchTeacherAppointments]);
 
   const resetForm = useCallback(() => {
     setSelectedDay('');
@@ -284,7 +307,7 @@ const TeacherSchedule = () => {
     resetForm();
   }, [resetForm]);
 
-  // Create appointment - FIXED
+  // Create appointment with enhanced error handling
   const handleCreateAppointment = useCallback(async () => {
     if (!currentTeacher) {
       setError('Teacher information not loaded');
@@ -323,9 +346,6 @@ const TeacherSchedule = () => {
 
       const response = await apiMethods.teacherBookAppointment(appointmentData);
       console.log('Appointment creation response:', response);
-
-      // Refresh appointments list
-      await fetchTeacherAppointments();
       
       setShowBookingModal(false);
       setShowConfirmation(true);
@@ -349,33 +369,7 @@ const TeacherSchedule = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentTeacher, selectedDay, selectedTime, studentInfo, getNextDateForDay, fetchTeacherAppointments, resetForm]);
-
-  // Cancel appointment - FIXED
-  const cancelAppointment = useCallback(async (appointmentId) => {
-    if (!appointmentId) {
-      setError('Invalid appointment ID');
-      return;
-    }
-    
-    try {
-      setLoading(true);
-      setError('');
-
-      await apiMethods.cancelAppointment(appointmentId, 'Cancelled by teacher');
-      
-      // Remove from local state
-      setAppointments(prev => 
-        prev.filter(apt => (apt.id || apt._id) !== appointmentId)
-      );
-
-    } catch (error) {
-      console.error('Error canceling appointment:', error);
-      setError('Failed to cancel appointment');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  }, [currentTeacher, selectedDay, selectedTime, studentInfo, getNextDateForDay, resetForm]);
 
   const handleInputChange = useCallback((e) => {
     const { name, value } = e.target;
@@ -403,12 +397,23 @@ const TeacherSchedule = () => {
           <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-800 mb-2">Authentication Error</h2>
           <p className="text-gray-600 mb-4">{error}</p>
-          <button
-            onClick={() => window.location.href = '/teacher/login'}
-            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Go to Login
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => window.location.href = '/teacher/login'}
+              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Go to Login
+            </button>
+            <button
+              onClick={() => {
+                tokenManager.clearAllTokens();
+                checkAuth();
+              }}
+              className="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition-colors text-sm"
+            >
+              Clear Cache & Retry
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -432,7 +437,6 @@ const TeacherSchedule = () => {
     );
   }
 
-  const safeAppointments = Array.isArray(appointments) ? appointments : [];
   const availabilityToShow = teacherAvailability || getDefaultAvailability();
 
   return (
@@ -447,7 +451,7 @@ const TeacherSchedule = () => {
                 <h1 className="text-4xl font-bold text-gray-800 mb-2">
                   Welcome, {currentTeacher.name}
                 </h1>
-                <p className="text-gray-600">Manage your appointments and schedule efficiently.</p>
+                <p className="text-gray-600">Create new appointments for your students.</p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-gray-500">Subject: {currentTeacher.subject || 'Not Specified'}</p>
@@ -484,158 +488,39 @@ const TeacherSchedule = () => {
             </div>
           )}
 
-          {/* Tabs */}
-          <div className="bg-white rounded-2xl shadow-xl mb-6 overflow-hidden">
-            <div className="flex border-b border-gray-200">
+          {/* Schedule Appointment Section */}
+          <div className="bg-white rounded-2xl shadow-xl p-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4 sm:mb-0">Create New Appointment</h2>
               <button
-                onClick={() => setActiveTab('create')}
-                className={`flex-1 py-4 px-6 text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
-                  activeTab === 'create' 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-white text-gray-600 hover:bg-gray-50'
-                }`}
+                onClick={openBookingModal}
+                className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-3 rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-semibold shadow-md flex items-center justify-center"
               >
-                <Plus className="w-5 h-5" />
-                Create Appointment
+                <Plus className="w-5 h-5 inline mr-2" />
+                Schedule New Appointment
               </button>
-              <button
-                onClick={() => setActiveTab('appointments')}
-                className={`flex-1 py-4 px-6 text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
-                  activeTab === 'appointments' 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-white text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                <BookOpen className="w-5 h-5" />
-                My Appointments ({safeAppointments.length})
-              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
+                <Calendar className="w-12 h-12 text-blue-600 mb-4" />
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">Quick Schedule</h3>
+                <p className="text-gray-600 text-sm">Create appointments for students quickly and efficiently.</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
+                <Clock className="w-12 h-12 text-green-600 mb-4" />
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">Flexible Timing</h3>
+                <p className="text-gray-600 text-sm">Choose from your available time slots to fit student needs.</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-6 border border-purple-200">
+                <User className="w-12 h-12 text-purple-600 mb-4" />
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">Student Details</h3>
+                <p className="text-gray-600 text-sm">Collect necessary student information for personalized sessions.</p>
+              </div>
             </div>
           </div>
-
-          {/* Create Tab */}
-          {activeTab === 'create' && (
-            <div className="bg-white rounded-2xl shadow-xl p-6">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-800 mb-4 sm:mb-0">Create New Appointment</h2>
-                <button
-                  onClick={openBookingModal}
-                  className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-6 py-3 rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-semibold shadow-md flex items-center justify-center"
-                >
-                  <Plus className="w-5 h-5 inline mr-2" />
-                  Schedule New Appointment
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
-                  <Calendar className="w-12 h-12 text-blue-600 mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-800 mb-2">Quick Schedule</h3>
-                  <p className="text-gray-600 text-sm">Create appointments for students quickly and efficiently.</p>
-                </div>
-                
-                <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
-                  <Clock className="w-12 h-12 text-green-600 mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-800 mb-2">Flexible Timing</h3>
-                  <p className="text-gray-600 text-sm">Choose from your available time slots to fit student needs.</p>
-                </div>
-                
-                <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-6 border border-purple-200">
-                  <User className="w-12 h-12 text-purple-600 mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-800 mb-2">Student Details</h3>
-                  <p className="text-gray-600 text-sm">Collect necessary student information for personalized sessions.</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Appointments Tab */}
-          {activeTab === 'appointments' && (
-            <div className="space-y-4">
-              {safeAppointments.length === 0 ? (
-                <div className="bg-white rounded-2xl shadow-xl p-12 text-center">
-                  <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold text-gray-600 mb-2">No appointments yet!</h3>
-                  <p className="text-gray-500">Create your first appointment to get started.</p>
-                  <button
-                    onClick={() => setActiveTab('create')}
-                    className="mt-6 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <Plus className="w-5 h-5 inline mr-2" />
-                    Schedule Your First Appointment
-                  </button>
-                </div>
-              ) : (
-                safeAppointments
-                  .sort((a, b) => new Date(a.date || a.appointmentDate) - new Date(b.date || b.appointmentDate))
-                  .map(appointment => (
-                    <div key={appointment.id || appointment._id} className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
-                        <div className="flex items-center space-x-4 mb-4 sm:mb-0">
-                          <div className="bg-gradient-to-r from-green-400 to-blue-500 p-3 rounded-full">
-                            <User className="w-6 h-6 text-white" />
-                          </div>
-                          <div>
-                            <h3 className="text-xl font-semibold text-gray-800">{appointment.student?.name || 'Unknown Student'}</h3>
-                            <p className="text-gray-600 flex items-center text-sm mt-1">
-                              <Mail className="w-4 h-4 mr-1 text-gray-500"/>
-                              {appointment.student?.email || 'N/A'}
-                            </p>
-                            {appointment.student?.phone && (
-                              <p className="text-gray-600 flex items-center text-sm">
-                                <Phone className="w-4 h-4 mr-1 text-gray-500"/>
-                                {appointment.student.phone}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-start sm:items-end space-y-2">
-                          <p className="text-gray-700 flex items-center font-medium">
-                            <Calendar className="w-4 h-4 mr-1 text-blue-500" />
-                            {formatDateForDisplay(appointment.date || appointment.appointmentDate)}
-                          </p>
-                          <p className="text-gray-700 flex items-center font-medium">
-                            <Clock className="w-4 h-4 mr-1 text-indigo-500" />
-                            {appointment.day} at {appointment.time}
-                          </p>
-                          <div className={`flex items-center px-3 py-1 rounded-full text-xs font-medium border ${
-                            appointment.status === 'booked' || appointment.status === 'confirmed' 
-                              ? 'text-green-600 bg-green-50 border-green-200'
-                              : appointment.status === 'pending'
-                              ? 'text-yellow-600 bg-yellow-50 border-yellow-200'
-                              : appointment.status === 'cancelled'
-                              ? 'text-red-600 bg-red-50 border-red-200'
-                              : 'text-gray-600 bg-gray-50 border-gray-200'
-                          }`}>
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            <span className="capitalize">{appointment.status || 'Scheduled'}</span>
-                          </div>
-                          <button
-                            onClick={() => cancelAppointment(appointment.id || appointment._id)}
-                            className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors text-sm shadow-md"
-                          >
-                            Cancel Appointment
-                          </button>
-                        </div>
-                      </div>
-                      {(appointment.student?.subject || appointment.student?.message) && (
-                        <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                          {appointment.student?.subject && (
-                            <p className="text-sm text-gray-700 mb-1">
-                              <strong>Subject:</strong> {appointment.student.subject}
-                            </p>
-                          )}
-                          {appointment.student?.message && (
-                            <p className="text-sm text-gray-700">
-                              <strong>Message:</strong> {appointment.student.message}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))
-              )}
-            </div>
-          )}
 
           {/* Booking Modal */}
           {showBookingModal && (

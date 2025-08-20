@@ -18,7 +18,7 @@ import AppointmentList from './pages/Teacher/AppointmentList';
 import MessageBoard from './pages/Message';
 import ViewTeachers from './pages/Admin/ViewTeacher';
 import AddTeacher from './pages/Admin/AddTeacher';
-
+import BookAppointment from './pages/User/BookAppointment';
 function App() {
   return (
     <AuthProvider>
@@ -42,6 +42,7 @@ function App() {
               <Route path="/user/login" element={<LoginPage />} />
               <Route path="/user/dashboard" element={<UserDashboard />} />
               <Route path="/user/appointments" element={<SheduleApppointment/>} />
+              <Route path="/user/appointment" element={<BookAppointment/>} />
               <Route path="/user/appointment-list" element={<AppointmentList />} />
               
               {/* Teacher Routes */}
