@@ -17,6 +17,13 @@ const teacherRoutes = require('./routes/teacherRoutes');
 const appointmentRoutes = require('./routes/appointmentRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 
+// Import utilities
+const { 
+  globalErrorHandler, 
+  notFoundHandler, 
+  sendResponse 
+} = require('./utils/responceHandler');
+
 // Import database connection
 const connectDB = require('./config/db');
 
@@ -136,13 +143,22 @@ app.use(cors({
   preflightContinue: false
 }));
 
+// Request ID middleware for better debugging
+app.use((req, res, next) => {
+  req.id = Math.random().toString(36).substr(2, 9);
+  res.setHeader('X-Request-Id', req.id);
+  res.locals.requestId = req.id;
+  next();
+});
+
 // Request logging middleware
 app.use((req, res, next) => {
   if (process.env.NODE_ENV === 'development') {
     const timestamp = new Date().toISOString();
     console.log(`[${timestamp}] ${req.method} ${req.originalUrl}`, {
       origin: req.headers.origin || 'No Origin',
-      userAgent: req.headers['user-agent']?.substring(0, 50) + '...' || 'No User Agent'
+      userAgent: req.headers['user-agent']?.substring(0, 50) + '...' || 'No User Agent',
+      requestId: req.id
     });
   }
   next();
@@ -155,11 +171,9 @@ app.use(express.json({
     try {
       JSON.parse(buf);
     } catch (e) {
-      res.status(400).json({
-        success: false,
-        message: 'Invalid JSON format'
-      });
-      throw new Error('Invalid JSON');
+      const error = new Error('Invalid JSON format');
+      error.statusCode = 400;
+      throw error;
     }
   }
 }));
@@ -177,7 +191,7 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('combined'));
 }
 
-// Socket.io authentication middleware - FIXED
+// Socket.io authentication middleware - Using consolidated auth approach
 io.use(async (socket, next) => {
   try {
     let token = socket.handshake.auth.token || socket.handshake.headers.authorization;
@@ -196,8 +210,8 @@ io.use(async (socket, next) => {
       return next(new Error('Invalid or expired token'));
     }
     
-    const userId = decoded.id || decoded._id;
-    if (!userId) {
+    const userId = decoded.id;
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return next(new Error('Invalid token structure'));
     }
     
@@ -231,7 +245,7 @@ io.use(async (socket, next) => {
   }
 });
 
-// Enhanced Socket.io connection handling - FIXED
+// Enhanced Socket.io connection handling
 io.on('connection', (socket) => {
   console.log(`👤 User connected: ${socket.userName} (${socket.userRole}) - Socket ID: ${socket.id}`);
   
@@ -244,7 +258,7 @@ io.on('connection', (socket) => {
     });
   });
   
-  // Enhanced room management - FIXED
+  // Enhanced room management
   socket.on('join-room', (data) => {
     try {
       const { roomId, roomType = 'general' } = data;
@@ -285,7 +299,7 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Enhanced message handling - FIXED
+  // Enhanced message handling
   socket.on('send-message', async (data) => {
     try {
       // Comprehensive input validation
@@ -357,7 +371,7 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Enhanced typing indicators - FIXED
+  // Enhanced typing indicators
   let typingTimeout;
   socket.on('typing-start', (data) => {
     try {
@@ -427,13 +441,6 @@ io.on('connection', (socket) => {
 // Make io available to routes
 app.set('io', io);
 
-// Request ID middleware for better debugging
-app.use((req, res, next) => {
-  req.id = Math.random().toString(36).substr(2, 9);
-  res.setHeader('X-Request-Id', req.id);
-  next();
-});
-
 // Mount routes with proper error handling
 app.use('/api/auth', (req, res, next) => {
   console.log(`🔐 Auth route accessed: ${req.method} ${req.originalUrl}`);
@@ -500,110 +507,19 @@ app.get('/api/health', async (req, res) => {
       jwtConfigured,
       corsOrigins: allowedOrigins.length
     },
-    stats
+    stats,
+    requestId: req.id
   };
 
   const statusCode = dbState === 1 ? 200 : 503;
   res.status(statusCode).json(healthData);
 });
 
-// Enhanced 404 handler
-app.all('*', (req, res) => {
-  console.log(`❌ Route not found: ${req.method} ${req.path}`);
-  
-  const suggestions = [];
-  const path = req.path.toLowerCase();
-  
-  if (path.includes('appointment')) {
-    suggestions.push('Did you mean /api/appointments?');
-  }
-  if (path.includes('teacher')) {
-    suggestions.push('Did you mean /api/teachers?');
-  }
-  if (path.includes('auth')) {
-    suggestions.push('Did you mean /api/auth?');
-  }
-  if (path.includes('admin')) {
-    suggestions.push('Did you mean /api/admin?');
-  }
-  
-  res.status(404).json({
-    success: false,
-    message: `Route ${req.path} not found`,
-    method: req.method,
-    timestamp: new Date().toISOString(),
-    requestId: req.id,
-    suggestions: suggestions.length > 0 ? suggestions : ['Check /api/docs for available endpoints'],
-    availableEndpoints: [
-      'GET /api/health - Server health check',
-      'POST /api/auth/login - User authentication',
-      'GET /api/appointments - List appointments',
-      'GET /api/teachers - List teachers'
-    ]
-  });
-});
+// 404 handler for routes not found - Using centralized handler
+app.all('*', notFoundHandler);
 
-// Enhanced global error handler
-app.use((err, req, res, next) => {
-  console.error('[Global Error Handler]', {
-    message: err.message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
-    url: req.originalUrl,
-    method: req.method,
-    requestId: req.id,
-    timestamp: new Date().toISOString()
-  });
-
-  let error = { ...err };
-  error.message = err.message;
-
-  // Mongoose CastError
-  if (err.name === 'CastError') {
-    error = { 
-      message: `Invalid ${err.path}: ${err.value}`, 
-      statusCode: 400 
-    };
-  }
-
-  // Mongoose duplicate key error
-  if (err.code === 11000) {
-    const field = Object.keys(err.keyValue || {})[0] || 'field';
-    const value = err.keyValue ? err.keyValue[field] : 'unknown';
-    error = { 
-      message: `Duplicate ${field}: ${value} already exists`, 
-      statusCode: 400 
-    };
-  }
-
-  // Mongoose validation error
-  if (err.name === 'ValidationError') {
-    const message = Object.values(err.errors || {}).map(val => val.message).join(', ');
-    error = { message: message || 'Validation failed', statusCode: 400 };
-  }
-
-  // JWT errors
-  if (err.name === 'JsonWebTokenError') {
-    error = { message: 'Invalid authentication token', statusCode: 401 };
-  }
-
-  if (err.name === 'TokenExpiredError') {
-    error = { message: 'Authentication token expired', statusCode: 401 };
-  }
-
-  const statusCode = error.statusCode || 500;
-  const isDevelopment = process.env.NODE_ENV === 'development';
-
-  res.status(statusCode).json({
-    success: false,
-    message: error.message || 'Internal Server Error',
-    requestId: req.id,
-    timestamp: new Date().toISOString(),
-    ...(isDevelopment && { 
-      stack: err.stack,
-      originalError: err.name
-    })
-  });
-});
+// Global error handler - Using centralized handler
+app.use(globalErrorHandler);
 
 // Server startup
 const PORT = process.env.PORT || 5000;

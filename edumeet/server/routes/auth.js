@@ -1,4 +1,4 @@
-// routes/authRoutes.js - UPDATED with proper admin authentication
+// routes/authRoutes.js - UPDATED with consolidated authentication
 const express = require('express');
 const { body } = require('express-validator');
 const {
@@ -10,9 +10,10 @@ const {
   getPendingRegistrations,
   approveUser,
   rejectUser,
-  getAllUsers
+  getAllUsers,
+  getUserStats
 } = require('../controllers/authController');
-const { protect, restrictTo, authenticateAdmin } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -124,24 +125,20 @@ router.post('/login', loginValidation, login);
 router.post('/logout', logout);
 
 // Protected routes for regular users (require valid JWT token)
-router.get('/profile', protect, getProfile);
-router.put('/profile', protect, updateProfileValidation, updateProfile);
+router.get('/profile', authenticate({ required: true }), getProfile);
+router.put('/profile', authenticate({ required: true }), updateProfileValidation, updateProfile);
 
 // Token verification endpoint
-router.get('/verify-token', protect, (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Token is valid',
-    data: {
-      user: req.user
-    }
-  });
+router.get('/verify-token', authenticate({ required: true }), (req, res) => {
+  const { sendResponse } = require('../middleware/auth');
+  sendResponse(res, 200, true, 'Token is valid', { user: req.user });
 });
 
-// ADMIN-ONLY ROUTES - Updated to use authenticateAdmin middleware
-router.get('/admin/pending', authenticateAdmin, getPendingRegistrations);
-router.get('/admin/users', authenticateAdmin, getAllUsers);
-router.put('/admin/approve/:id', authenticateAdmin, approveUser);
-router.put('/admin/reject/:id', authenticateAdmin, rejectValidation, rejectUser);
+// ADMIN-ONLY ROUTES - Updated to use consolidated authentication
+router.get('/admin/pending', authenticate({ roles: ['admin'], required: true }), getPendingRegistrations);
+router.get('/admin/users', authenticate({ roles: ['admin'], required: true }), getAllUsers);
+router.get('/admin/stats', authenticate({ roles: ['admin'], required: true }), getUserStats);
+router.put('/admin/approve/:id', authenticate({ roles: ['admin'], required: true }), approveUser);
+router.put('/admin/reject/:id', authenticate({ roles: ['admin'], required: true }), rejectValidation, rejectUser);
 
 module.exports = router;

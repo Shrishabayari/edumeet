@@ -3,6 +3,7 @@ const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
+const { sendResponse } = require('../middleware/auth');
 
 // Helper function to sign JWT token
 const signToken = (payload) => {
@@ -11,33 +12,16 @@ const signToken = (payload) => {
   });
 };
 
-// Helper function to create and send token response
-const createSendToken = (teacher, statusCode, req, res) => {
-  const token = signToken({
-    id: teacher._id.toString(), // Ensure ID is string
-    email: teacher.email,
-    role: 'teacher',
-    loginTime: Date.now()
-  });
-
-  const cookieOptions = {
-    expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
-    httpOnly: true,
-    secure: req.secure || req.headers['x-forwarded-proto'] === 'https'
-  };
-
-  res.cookie('jwt', token, cookieOptions);
-
-  // Remove password from response
-  teacher.password = undefined;
-
-  res.status(statusCode).json({
-    success: true,
-    token,
-    data: {
-      teacher
-    }
-  });
+// Helper function to handle validation errors
+const handleValidationErrors = (req) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return {
+      hasErrors: true,
+      errors: errors.array()
+    };
+  }
+  return { hasErrors: false };
 };
 
 // @desc    Teacher login
@@ -45,13 +29,9 @@ const createSendToken = (teacher, statusCode, req, res) => {
 // @access  Public
 const teacherLogin = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+    const validation = handleValidationErrors(req);
+    if (validation.hasErrors) {
+      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
     }
 
     const { email, password } = req.body;
@@ -64,35 +44,23 @@ const teacherLogin = async (req, res) => {
     }).select('+password');
     
     if (!teacher) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials or teacher not found' 
-      });
+      return sendResponse(res, 401, false, 'Invalid credentials or teacher not found');
     }
 
     // Check if account is set up
     if (!teacher.hasAccount || !teacher.password) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Account not set up. Please contact admin for setup link.' 
-      });
+      return sendResponse(res, 401, false, 'Account not set up. Please contact admin for setup link.');
     }
 
     // Check approval status
     if (teacher.approvalStatus !== 'approved') {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Account not approved. Please contact admin.' 
-      });
+      return sendResponse(res, 401, false, 'Account not approved. Please contact admin.');
     }
 
     // Verify password
     const isPasswordCorrect = await teacher.correctPassword(password, teacher.password);
     if (!isPasswordCorrect) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials' 
-      });
+      return sendResponse(res, 401, false, 'Invalid credentials');
     }
 
     // Update last login
@@ -102,7 +70,7 @@ const teacherLogin = async (req, res) => {
     // Create token with string ID
     const token = jwt.sign(
       { 
-        id: teacher._id.toString(), // Convert ObjectId to string
+        id: teacher._id.toString(),
         email: teacher.email, 
         role: 'teacher', 
         loginTime: Date.now() 
@@ -121,21 +89,14 @@ const teacherLogin = async (req, res) => {
       tokenCreated: !!token
     });
 
-    res.status(200).json({
-      success: true,
-      token,
-      data: { 
-        teacher: teacherResponse 
-      }
+    return sendResponse(res, 200, true, 'Login successful', { 
+      teacher: teacherResponse,
+      token
     });
 
   } catch (error) {
     console.error('❌ Teacher login error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error during login',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error during login', null, [{ message: error.message }]);
   }
 };
 
@@ -146,25 +107,18 @@ const getTeacherProfile = async (req, res) => {
   try {
     console.log('🔍 Getting teacher profile for user:', {
       userId: req.user?.id,
-      userRole: req.user?.role,
-      userObject: req.user
+      userRole: req.user?.role
     });
 
     // Validate teacher ID from JWT
     if (!req.user?.id) {
-      return res.status(400).json({
-        success: false,
-        message: 'No user ID found in token'
-      });
+      return sendResponse(res, 400, false, 'No user ID found in token');
     }
 
     // Validate MongoDB ObjectId format
     if (!mongoose.Types.ObjectId.isValid(req.user.id)) {
       console.error('❌ Invalid teacher ID format:', req.user.id);
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
     // Find teacher by ID
@@ -176,10 +130,7 @@ const getTeacherProfile = async (req, res) => {
     
     if (!teacher) {
       console.error('❌ Teacher not found with ID:', req.user.id);
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher not found'
-      });
+      return sendResponse(res, 404, false, 'Teacher not found');
     }
 
     console.log('✅ Teacher profile found:', {
@@ -188,26 +139,16 @@ const getTeacherProfile = async (req, res) => {
       teacherEmail: teacher.email
     });
 
-    res.status(200).json({
-      success: true,
-      data: teacher
-    });
+    return sendResponse(res, 200, true, 'Profile retrieved successfully', teacher);
 
   } catch (error) {
     console.error('❌ Profile fetch error:', error);
     
     if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching profile',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error while fetching profile', null, [{ message: error.message }]);
   }
 };
 
@@ -216,14 +157,9 @@ const getTeacherProfile = async (req, res) => {
 // @access  Private/Admin
 const createTeacher = async (req, res) => {
   try {
-    // Check for validation errors
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+    const validation = handleValidationErrors(req);
+    if (validation.hasErrors) {
+      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
     }
 
     const {
@@ -242,10 +178,7 @@ const createTeacher = async (req, res) => {
     // Check if user with email already exists
     const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
     if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: 'User with this email already exists'
-      });
+      return sendResponse(res, 400, false, 'User with this email already exists');
     }
 
     // Create teacher profile object
@@ -265,7 +198,7 @@ const createTeacher = async (req, res) => {
       email: email.toLowerCase().trim(),
       role: 'teacher',
       teacherProfile,
-      approvalStatus: 'pending', // Teachers need approval by default
+      approvalStatus: 'pending',
       isActive: true
     };
 
@@ -289,11 +222,8 @@ const createTeacher = async (req, res) => {
       teacherEmail: savedTeacher.email
     });
 
-    res.status(201).json({
-      success: true,
-      message: 'Teacher created successfully',
-      data: responseData
-    });
+    return sendResponse(res, 201, true, 'Teacher created successfully', responseData);
+    
   } catch (error) {
     console.error('❌ Error creating teacher:', error);
     
@@ -303,25 +233,14 @@ const createTeacher = async (req, res) => {
         message: err.message
       }));
       
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: validationErrors
-      });
+      return sendResponse(res, 400, false, 'Validation failed', null, validationErrors);
     }
 
     if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: 'Teacher with this email already exists'
-      });
+      return sendResponse(res, 400, false, 'Teacher with this email already exists');
     }
 
-    res.status(500).json({
-      success: false,
-      message: 'Server error while creating teacher',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error while creating teacher', null, [{ message: error.message }]);
   }
 };
 
@@ -330,14 +249,9 @@ const createTeacher = async (req, res) => {
 // @access  Private/Admin
 const updateTeacher = async (req, res) => {
   try {
-    // Check for validation errors
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+    const validation = handleValidationErrors(req);
+    if (validation.hasErrors) {
+      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
     }
 
     const teacherId = req.params.id;
@@ -345,19 +259,13 @@ const updateTeacher = async (req, res) => {
 
     // Validate MongoDB ObjectId format
     if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
     // Check if teacher exists
     const existingTeacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!existingTeacher) {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher not found'
-      });
+      return sendResponse(res, 404, false, 'Teacher not found');
     }
 
     // If email is being updated, check for duplicates
@@ -368,10 +276,7 @@ const updateTeacher = async (req, res) => {
       });
       
       if (emailExists) {
-        return res.status(400).json({
-          success: false,
-          message: 'User with this email already exists'
-        });
+        return sendResponse(res, 400, false, 'User with this email already exists');
       }
     }
 
@@ -413,11 +318,8 @@ const updateTeacher = async (req, res) => {
       teacherEmail: updatedTeacher.email
     });
 
-    res.status(200).json({
-      success: true,
-      message: 'Teacher updated successfully',
-      data: updatedTeacher
-    });
+    return sendResponse(res, 200, true, 'Teacher updated successfully', updatedTeacher);
+    
   } catch (error) {
     console.error('❌ Error updating teacher:', error);
     
@@ -427,25 +329,14 @@ const updateTeacher = async (req, res) => {
         message: err.message
       }));
       
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: validationErrors
-      });
+      return sendResponse(res, 400, false, 'Validation failed', null, validationErrors);
     }
 
     if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
-    res.status(500).json({
-      success: false,
-      message: 'Server error while updating teacher',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error while updating teacher', null, [{ message: error.message }]);
   }
 };
 
@@ -464,11 +355,11 @@ const getAllTeachers = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // Build filter object - only get users with teacher role
+    // Build filter object
     const filter = { 
       role: 'teacher', 
       isActive: true,
-      approvalStatus: 'approved' // Only show approved teachers
+      approvalStatus: 'approved'
     };
     
     if (department) {
@@ -504,24 +395,20 @@ const getAllTeachers = async (req, res) => {
     const totalTeachers = await User.countDocuments(filter);
     const totalPages = Math.ceil(totalTeachers / parseInt(limit));
 
-    res.status(200).json({
-      success: true,
-      data: teachers,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalTeachers,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
-      }
-    });
+    const paginationMeta = {
+      currentPage: parseInt(page),
+      totalPages,
+      totalTeachers,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+      limit: parseInt(limit)
+    };
+
+    return sendResponse(res, 200, true, 'Teachers retrieved successfully', teachers, null, paginationMeta);
+    
   } catch (error) {
     console.error('❌ Error fetching teachers:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching teachers',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error while fetching teachers', null, [{ message: error.message }]);
   }
 };
 
@@ -534,10 +421,7 @@ const getTeacherById = async (req, res) => {
 
     // Validate MongoDB ObjectId format
     if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
     const teacher = await User.findOne({ 
@@ -546,45 +430,27 @@ const getTeacherById = async (req, res) => {
     }).select('-__v -password');
     
     if (!teacher) {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher not found'
-      });
+      return sendResponse(res, 404, false, 'Teacher not found');
     }
 
     if (!teacher.isActive) {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher is not active'
-      });
+      return sendResponse(res, 404, false, 'Teacher is not active');
     }
 
     if (teacher.approvalStatus !== 'approved') {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher is not approved'
-      });
+      return sendResponse(res, 404, false, 'Teacher is not approved');
     }
 
-    res.status(200).json({
-      success: true,
-      data: teacher
-    });
+    return sendResponse(res, 200, true, 'Teacher retrieved successfully', teacher);
+    
   } catch (error) {
     console.error('❌ Error fetching teacher:', error);
     
     if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching teacher',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error while fetching teacher', null, [{ message: error.message }]);
   }
 };
 
@@ -597,18 +463,12 @@ const deleteTeacher = async (req, res) => {
 
     // Validate MongoDB ObjectId format
     if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
     const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!teacher) {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher not found'
-      });
+      return sendResponse(res, 404, false, 'Teacher not found');
     }
 
     // Soft delete - set isActive to false
@@ -617,25 +477,16 @@ const deleteTeacher = async (req, res) => {
       updatedAt: new Date() 
     });
 
-    res.status(200).json({
-      success: true,
-      message: 'Teacher deleted successfully'
-    });
+    return sendResponse(res, 200, true, 'Teacher deleted successfully');
+    
   } catch (error) {
     console.error('❌ Error deleting teacher:', error);
     
     if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
-    res.status(500).json({
-      success: false,
-      message: 'Server error while deleting teacher',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error while deleting teacher', null, [{ message: error.message }]);
   }
 };
 
@@ -648,41 +499,26 @@ const permanentDeleteTeacher = async (req, res) => {
 
     // Validate MongoDB ObjectId format
     if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
     const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!teacher) {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher not found'
-      });
+      return sendResponse(res, 404, false, 'Teacher not found');
     }
 
     await User.findByIdAndDelete(teacherId);
 
-    res.status(200).json({
-      success: true,
-      message: 'Teacher permanently deleted'
-    });
+    return sendResponse(res, 200, true, 'Teacher permanently deleted');
+    
   } catch (error) {
     console.error('❌ Error permanently deleting teacher:', error);
     
     if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
-    res.status(500).json({
-      success: false,
-      message: 'Server error while permanently deleting teacher',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error while permanently deleting teacher', null, [{ message: error.message }]);
   }
 };
 
@@ -700,18 +536,11 @@ const getTeachersByDepartment = async (req, res) => {
       approvalStatus: 'approved'
     }).select('-__v -password');
     
-    res.status(200).json({
-      success: true,
-      data: teachers,
-      count: teachers.length
-    });
+    return sendResponse(res, 200, true, `Teachers from ${department} department retrieved successfully`, teachers, null, { count: teachers.length });
+    
   } catch (error) {
     console.error('❌ Error fetching teachers by department:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching teachers by department',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error while fetching teachers by department', null, [{ message: error.message }]);
   }
 };
 
@@ -761,21 +590,17 @@ const getTeacherStats = async (req, res) => {
       { $sort: { count: -1 } }
     ]);
 
-    res.status(200).json({
-      success: true,
-      data: {
-        totalTeachers,
-        departmentStats,
-        availabilityStats
-      }
-    });
+    const stats = {
+      totalTeachers,
+      departmentStats,
+      availabilityStats
+    };
+
+    return sendResponse(res, 200, true, 'Teacher statistics retrieved successfully', stats);
+    
   } catch (error) {
     console.error('❌ Error fetching teacher stats:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching teacher statistics',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error while fetching teacher statistics', null, [{ message: error.message }]);
   }
 };
 
@@ -788,25 +613,16 @@ const sendAccountSetupLink = async (req, res) => {
 
     // Validate MongoDB ObjectId format
     if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher ID format'
-      });
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
     const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!teacher) {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher not found'
-      });
+      return sendResponse(res, 404, false, 'Teacher not found');
     }
 
     if (teacher.hasAccount) {
-      return res.status(400).json({
-        success: false,
-        message: 'Teacher already has an account'
-      });
+      return sendResponse(res, 400, false, 'Teacher already has an account');
     }
 
     // Generate setup token
@@ -816,23 +632,18 @@ const sendAccountSetupLink = async (req, res) => {
     // In a real app, you'd send an email here
     const setupURL = `${req.protocol}://${req.get('host')}/api/teachers/setup-account/${setupToken}`;
 
-    res.status(200).json({
-      success: true,
-      message: 'Account setup link generated',
+    const responseData = {
+      teacherEmail: teacher.email,
+      teacherName: teacher.name,
       setupURL, // In production, remove this and send via email
-      data: {
-        teacherEmail: teacher.email,
-        teacherName: teacher.name,
-        expiresAt: teacher.accountSetupExpires
-      }
-    });
+      expiresAt: teacher.accountSetupExpires
+    };
+
+    return sendResponse(res, 200, true, 'Account setup link generated successfully', responseData);
+    
   } catch (error) {
     console.error('❌ Setup link error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while generating setup link',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error while generating setup link', null, [{ message: error.message }]);
   }
 };
 
@@ -841,13 +652,9 @@ const sendAccountSetupLink = async (req, res) => {
 // @access  Public
 const setupTeacherAccount = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+    const validation = handleValidationErrors(req);
+    if (validation.hasErrors) {
+      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
     }
 
     // Get token from URL
@@ -864,10 +671,7 @@ const setupTeacherAccount = async (req, res) => {
     });
 
     if (!teacher) {
-      return res.status(400).json({
-        success: false,
-        message: 'Token is invalid or has expired'
-      });
+      return sendResponse(res, 400, false, 'Token is invalid or has expired');
     }
 
     // Set password and activate account
@@ -879,15 +683,26 @@ const setupTeacherAccount = async (req, res) => {
     
     await teacher.save();
 
-    // Send token
-    createSendToken(teacher, 200, req, res);
+    // Create token
+    const token = signToken({
+      id: teacher._id.toString(),
+      email: teacher.email,
+      role: 'teacher',
+      loginTime: Date.now()
+    });
+
+    // Remove password from response
+    const teacherResponse = teacher.toObject();
+    delete teacherResponse.password;
+
+    return sendResponse(res, 200, true, 'Account setup completed successfully', {
+      teacher: teacherResponse,
+      token
+    });
+    
   } catch (error) {
     console.error('❌ Account setup error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error during account setup',
-      error: error.message
-    });
+    return sendResponse(res, 500, false, 'Server error during account setup', null, [{ message: error.message }]);
   }
 };
 
@@ -900,10 +715,7 @@ const teacherLogout = (req, res) => {
     httpOnly: true
   });
   
-  res.status(200).json({
-    success: true,
-    message: 'Logged out successfully'
-  });
+  return sendResponse(res, 200, true, 'Logged out successfully');
 };
 
 module.exports = {
