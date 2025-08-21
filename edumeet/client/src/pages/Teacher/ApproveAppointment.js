@@ -78,15 +78,11 @@ const TeacherAppointmentManager = () => {
         return;
       }
 
-      let teacherRaw = localStorage.getItem('teacher') || sessionStorage.getItem('teacher');
-      if (teacherRaw) {
-        try {
-          const teacher = JSON.parse(teacherRaw);
-          if (mountedRef.current) setCurrentTeacher(teacher);
-          return;
-        } catch (e) {
-          console.error('Error parsing teacher from storage', e);
-        }
+      // Try to get teacher from storage first
+      let teacherData = tokenManager.getCurrentTeacher();
+      if (teacherData && mountedRef.current) {
+        setCurrentTeacher(teacherData);
+        return;
       }
 
       // Fallback to API
@@ -94,18 +90,22 @@ const TeacherAppointmentManager = () => {
     };
 
     loadTeacher();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchTeacherProfile = async () => {
     try {
       setLoading(true);
       const res = await apiMethods.getTeacherProfile();
-      const ok = res?.data?.success;
-      const teacher = res?.data?.data || res?.data?.user || null;
-      if (ok && teacher && mountedRef.current) {
+      const teacher = res?.data?.data || res?.data?.user || res?.data || null;
+      
+      if (teacher && mountedRef.current) {
         setCurrentTeacher(teacher);
-        try { localStorage.setItem('teacher', JSON.stringify(teacher)); } catch {}
+        // Store teacher data
+        try { 
+          localStorage.setItem('teacher', JSON.stringify(teacher)); 
+        } catch (e) {
+          console.warn('Failed to store teacher data:', e);
+        }
       }
     } catch (err) {
       const code = getErrCode(err);
@@ -125,25 +125,34 @@ const TeacherAppointmentManager = () => {
 
   // Fetch pending requests --------------------------------------------
   const fetchPendingRequests = useCallback(async () => {
-    if (!currentTeacher?.id && !currentTeacher?._id) return;
+    const teacherId = currentTeacher?.id || currentTeacher?._id;
+    if (!teacherId) return;
     if (fetchingPending.current) return;
+    
     fetchingPending.current = true;
 
     try {
       setLoading(true);
-      const teacherId = currentTeacher.id || currentTeacher._id;
       const res = await apiMethods.getTeacherPendingRequests(teacherId);
 
       if (!mountedRef.current) return;
+      
+      // Handle different response structures
       let data = [];
-      if (res?.data?.success && Array.isArray(res?.data?.data)) data = res.data.data;
-      else if (Array.isArray(res?.data)) data = res.data;
+      if (res?.data?.success && Array.isArray(res?.data?.data)) {
+        data = res.data.data;
+      } else if (Array.isArray(res?.data)) {
+        data = res.data;
+      } else if (res?.data && Array.isArray(res.data.appointments)) {
+        data = res.data.appointments;
+      }
 
       setPendingRequests(data || []);
     } catch (err) {
       if (!mountedRef.current) return;
       const code = getErrCode(err);
       const msg = getErrMsg(err);
+      
       if (code === 401) {
         setError('Authentication failed. Please log in again.');
         tokenManager?.removeTeacherToken?.();
@@ -162,27 +171,36 @@ const TeacherAppointmentManager = () => {
 
   // Fetch all appointments --------------------------------------------
   const fetchAllAppointments = useCallback(async () => {
-    if (!currentTeacher?.id && !currentTeacher?._id) return;
+    const teacherId = currentTeacher?.id || currentTeacher?._id;
+    if (!teacherId) return;
     if (fetchingAppointments.current) return;
+    
     fetchingAppointments.current = true;
 
     try {
       setLoading(true);
-      const teacherId = currentTeacher.id || currentTeacher._id;
       const res = await apiMethods.getTeacherAppointments(teacherId);
 
       if (!mountedRef.current) return;
+      
+      // Handle different response structures
       let data = [];
-      if (res?.data?.success && Array.isArray(res?.data?.data)) data = res.data.data;
-      else if (Array.isArray(res?.data)) data = res.data;
+      if (res?.data?.success && Array.isArray(res?.data?.data)) {
+        data = res.data.data;
+      } else if (Array.isArray(res?.data)) {
+        data = res.data;
+      } else if (res?.data && Array.isArray(res.data.appointments)) {
+        data = res.data.appointments;
+      }
 
-      // Exclude pending here; they live in their own tab
+      // Exclude pending appointments; they live in their own tab
       const nonPending = (data || []).filter((apt) => apt?.status !== 'pending');
       setAppointments(nonPending);
     } catch (err) {
       if (!mountedRef.current) return;
       const code = getErrCode(err);
       const msg = getErrMsg(err);
+      
       if (code === 401) {
         setError('Authentication failed. Please log in again.');
         tokenManager?.removeTeacherToken?.();
@@ -202,23 +220,37 @@ const TeacherAppointmentManager = () => {
   // Debounced initial fetch when teacher is set -----------------------
   useEffect(() => {
     if (!currentTeacher) return;
+    
     const timeout = setTimeout(() => {
       if (!mountedRef.current) return;
+      
+      // Fetch pending requests first, then appointments
       fetchPendingRequests().then(() => {
-        if (mountedRef.current) return fetchAllAppointments();
+        if (mountedRef.current) {
+          // Small delay to prevent rate limiting
+          setTimeout(() => {
+            if (mountedRef.current) {
+              fetchAllAppointments();
+            }
+          }, 300);
+        }
       });
     }, 500);
+    
     return () => clearTimeout(timeout);
   }, [currentTeacher, fetchPendingRequests, fetchAllAppointments]);
 
   // Actions ------------------------------------------------------------
   const refreshData = useCallback(async () => {
     if (loading || fetchingPending.current || fetchingAppointments.current) return;
+    
     try {
       setLoading(true);
       await fetchPendingRequests();
+      
       if (mountedRef.current) {
-        await new Promise((r) => setTimeout(r, 800)); // small gap to be gentle on server
+        // Small gap to be gentle on server
+        await new Promise((r) => setTimeout(r, 500)); 
         await fetchAllAppointments();
       }
     } catch (err) {
@@ -229,27 +261,45 @@ const TeacherAppointmentManager = () => {
   }, [loading, fetchPendingRequests, fetchAllAppointments, showMessage]);
 
   const handleApproveRequest = async (appointmentId, message = '') => {
-    if (loading) return showMessage('Please wait for the current operation to complete.', 'error');
+    if (loading) {
+      showMessage('Please wait for the current operation to complete.', 'error');
+      return;
+    }
+    
     try {
       setLoading(true);
       await apiMethods.acceptAppointmentRequest(appointmentId, message);
       showMessage('Appointment request approved successfully!');
+      
       setResponseModal({ show: false, type: '', appointmentId: '' });
       setResponseMessage('');
-      setTimeout(() => mountedRef.current && refreshData(), 800);
+      
+      // Refresh data after successful operation
+      setTimeout(() => {
+        if (mountedRef.current) refreshData();
+      }, 500);
     } catch (err) {
       const code = getErrCode(err);
       const msg = getErrMsg(err);
       let errorMessage = 'Failed to approve appointment';
+      
       if (code === 401) {
         errorMessage = 'Authentication failed. Please log in again.';
         tokenManager?.removeTeacherToken?.();
-      } else if (code === 403) errorMessage = 'You do not have permission to approve this appointment.';
-      else if (code === 404) errorMessage = 'Appointment not found. It may have been processed already.';
-      else if (code === 400) errorMessage = msg || 'Invalid request data.';
-      else if (msg?.toLowerCase?.().includes('cors') || msg?.toLowerCase?.().includes('failed to fetch')) errorMessage = 'Connection failed. Check server & CORS config.';
-      else if (code === 429 || msg?.toLowerCase?.().includes('too many requests')) errorMessage = 'Rate limit exceeded. Please try again shortly.';
-      else errorMessage = msg || errorMessage;
+      } else if (code === 403) {
+        errorMessage = 'You do not have permission to approve this appointment.';
+      } else if (code === 404) {
+        errorMessage = 'Appointment not found. It may have been processed already.';
+      } else if (code === 400) {
+        errorMessage = msg || 'Invalid request data.';
+      } else if (msg?.toLowerCase?.().includes('cors') || msg?.toLowerCase?.().includes('failed to fetch')) {
+        errorMessage = 'Connection failed. Check server & CORS config.';
+      } else if (code === 429 || msg?.toLowerCase?.().includes('too many requests')) {
+        errorMessage = 'Rate limit exceeded. Please try again shortly.';
+      } else {
+        errorMessage = msg || errorMessage;
+      }
+      
       showMessage(errorMessage, 'error');
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -257,27 +307,45 @@ const TeacherAppointmentManager = () => {
   };
 
   const handleRejectRequest = async (appointmentId, message = '') => {
-    if (loading) return showMessage('Please wait for the current operation to complete.', 'error');
+    if (loading) {
+      showMessage('Please wait for the current operation to complete.', 'error');
+      return;
+    }
+    
     try {
       setLoading(true);
       await apiMethods.rejectAppointmentRequest(appointmentId, message || 'Request rejected by teacher');
       showMessage('Appointment request rejected');
+      
       setResponseModal({ show: false, type: '', appointmentId: '' });
       setResponseMessage('');
-      setTimeout(() => mountedRef.current && refreshData(), 800);
+      
+      // Refresh data after successful operation
+      setTimeout(() => {
+        if (mountedRef.current) refreshData();
+      }, 500);
     } catch (err) {
       const code = getErrCode(err);
       const msg = getErrMsg(err);
       let errorMessage = 'Failed to reject appointment';
+      
       if (code === 401) {
         errorMessage = 'Authentication failed. Please log in again.';
         tokenManager?.removeTeacherToken?.();
-      } else if (code === 403) errorMessage = 'You do not have permission to reject this appointment.';
-      else if (code === 404) errorMessage = 'Appointment not found. It may have been processed already.';
-      else if (code === 400) errorMessage = msg || 'Invalid request data.';
-      else if (msg?.toLowerCase?.().includes('cors') || msg?.toLowerCase?.().includes('failed to fetch')) errorMessage = 'Connection failed. Check server & CORS config.';
-      else if (code === 429 || msg?.toLowerCase?.().includes('too many requests')) errorMessage = 'Rate limit exceeded. Please try again shortly.';
-      else errorMessage = msg || errorMessage;
+      } else if (code === 403) {
+        errorMessage = 'You do not have permission to reject this appointment.';
+      } else if (code === 404) {
+        errorMessage = 'Appointment not found. It may have been processed already.';
+      } else if (code === 400) {
+        errorMessage = msg || 'Invalid request data.';
+      } else if (msg?.toLowerCase?.().includes('cors') || msg?.toLowerCase?.().includes('failed to fetch')) {
+        errorMessage = 'Connection failed. Check server & CORS config.';
+      } else if (code === 429 || msg?.toLowerCase?.().includes('too many requests')) {
+        errorMessage = 'Rate limit exceeded. Please try again shortly.';
+      } else {
+        errorMessage = msg || errorMessage;
+      }
+      
       showMessage(errorMessage, 'error');
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -285,19 +353,32 @@ const TeacherAppointmentManager = () => {
   };
 
   const cancelAppointment = async (appointmentId) => {
-    if (loading) return showMessage('Please wait for the current operation to complete.', 'error');
+    if (loading) {
+      showMessage('Please wait for the current operation to complete.', 'error');
+      return;
+    }
+    
     try {
       setLoading(true);
       await apiMethods.cancelAppointment(appointmentId, 'Cancelled by teacher');
       showMessage('Appointment cancelled successfully');
-      setTimeout(() => mountedRef.current && refreshData(), 800);
+      
+      setTimeout(() => {
+        if (mountedRef.current) refreshData();
+      }, 500);
     } catch (err) {
       const code = getErrCode(err);
       const msg = getErrMsg(err);
       let errorMessage = 'Failed to cancel appointment';
-      if (msg?.toLowerCase?.().includes('cors') || msg?.toLowerCase?.().includes('failed to fetch')) errorMessage = 'Connection failed. Check server & CORS config.';
-      else if (code === 429 || msg?.toLowerCase?.().includes('too many requests')) errorMessage = 'Rate limit exceeded. Please try again shortly.';
-      else errorMessage = 'Failed to cancel appointment: ' + (msg || 'Unknown error');
+      
+      if (msg?.toLowerCase?.().includes('cors') || msg?.toLowerCase?.().includes('failed to fetch')) {
+        errorMessage = 'Connection failed. Check server & CORS config.';
+      } else if (code === 429 || msg?.toLowerCase?.().includes('too many requests')) {
+        errorMessage = 'Rate limit exceeded. Please try again shortly.';
+      } else {
+        errorMessage = 'Failed to cancel appointment: ' + (msg || 'Unknown error');
+      }
+      
       showMessage(errorMessage, 'error');
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -305,19 +386,32 @@ const TeacherAppointmentManager = () => {
   };
 
   const completeAppointment = async (appointmentId) => {
-    if (loading) return showMessage('Please wait for the current operation to complete.', 'error');
+    if (loading) {
+      showMessage('Please wait for the current operation to complete.', 'error');
+      return;
+    }
+    
     try {
       setLoading(true);
       await apiMethods.completeAppointment(appointmentId);
       showMessage('Appointment marked as completed');
-      setTimeout(() => mountedRef.current && refreshData(), 800);
+      
+      setTimeout(() => {
+        if (mountedRef.current) refreshData();
+      }, 500);
     } catch (err) {
       const code = getErrCode(err);
       const msg = getErrMsg(err);
       let errorMessage = 'Failed to complete appointment';
-      if (msg?.toLowerCase?.().includes('cors') || msg?.toLowerCase?.().includes('failed to fetch')) errorMessage = 'Connection failed. Check server & CORS config.';
-      else if (code === 429 || msg?.toLowerCase?.().includes('too many requests')) errorMessage = 'Rate limit exceeded. Please try again shortly.';
-      else errorMessage = 'Failed to complete appointment: ' + (msg || 'Unknown error');
+      
+      if (msg?.toLowerCase?.().includes('cors') || msg?.toLowerCase?.().includes('failed to fetch')) {
+        errorMessage = 'Connection failed. Check server & CORS config.';
+      } else if (code === 429 || msg?.toLowerCase?.().includes('too many requests')) {
+        errorMessage = 'Rate limit exceeded. Please try again shortly.';
+      } else {
+        errorMessage = 'Failed to complete appointment: ' + (msg || 'Unknown error');
+      }
+      
       showMessage(errorMessage, 'error');
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -337,8 +431,12 @@ const TeacherAppointmentManager = () => {
   const handleModalSubmit = () => {
     const { type, appointmentId } = responseModal;
     if (!appointmentId) return;
-    if (type === 'approve') handleApproveRequest(appointmentId, responseMessage);
-    else if (type === 'reject') handleRejectRequest(appointmentId, responseMessage);
+    
+    if (type === 'approve') {
+      handleApproveRequest(appointmentId, responseMessage);
+    } else if (type === 'reject') {
+      handleRejectRequest(appointmentId, responseMessage);
+    }
   };
 
   // Derived / filtered lists ------------------------------------------
@@ -346,10 +444,15 @@ const TeacherAppointmentManager = () => {
     const q = searchTerm.trim().toLowerCase();
     return (pendingRequests || []).filter((req) => {
       if (!q) return true;
+      
+      const studentName = req?.student?.name || req?.studentName || '';
+      const studentEmail = req?.student?.email || req?.studentEmail || '';
+      const subject = req?.student?.subject || req?.subject || '';
+      
       return (
-        req?.student?.name?.toLowerCase?.().includes(q) ||
-        req?.student?.email?.toLowerCase?.().includes(q) ||
-        req?.student?.subject?.toLowerCase?.().includes(q)
+        studentName.toLowerCase().includes(q) ||
+        studentEmail.toLowerCase().includes(q) ||
+        subject.toLowerCase().includes(q)
       );
     });
   }, [pendingRequests, searchTerm]);
@@ -357,16 +460,27 @@ const TeacherAppointmentManager = () => {
   const filteredAppointments = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     let list = (appointments || []).filter((apt) => {
-      const matchesSearch = !q ||
-        apt?.student?.name?.toLowerCase?.().includes(q) ||
-        apt?.student?.email?.toLowerCase?.().includes(q) ||
-        apt?.student?.subject?.toLowerCase?.().includes(q);
+      const studentName = apt?.student?.name || apt?.studentName || '';
+      const studentEmail = apt?.student?.email || apt?.studentEmail || '';
+      const subject = apt?.student?.subject || apt?.subject || '';
+      
+      const matchesSearch = !q || (
+        studentName.toLowerCase().includes(q) ||
+        studentEmail.toLowerCase().includes(q) ||
+        subject.toLowerCase().includes(q)
+      );
+      
       const matchesStatus = filterStatus === 'all' || apt?.status === filterStatus;
       return matchesSearch && matchesStatus;
     });
 
     // Sort by date ascending
-    list = list.sort((a, b) => new Date(a?.date || a?.appointmentDate) - new Date(b?.date || b?.appointmentDate));
+    list = list.sort((a, b) => {
+      const dateA = new Date(a?.date || a?.appointmentDate || 0);
+      const dateB = new Date(b?.date || b?.appointmentDate || 0);
+      return dateA - dateB;
+    });
+    
     return list;
   }, [appointments, searchTerm, filterStatus]);
 
@@ -397,7 +511,7 @@ const TeacherAppointmentManager = () => {
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
               <h1 className="text-4xl font-bold text-gray-800 mb-2">Appointment Management</h1>
-              <p className="text-gray-600">Welcome, {currentTeacher?.name ?? 'Teacher'}</p>
+              <p className="text-gray-600">Welcome, {currentTeacher?.name || 'Teacher'}</p>
             </div>
             <div className="flex items-center gap-4">
               <button
@@ -531,16 +645,18 @@ const TeacherAppointmentManager = () => {
                         <User className="w-6 h-6 text-white" />
                       </div>
                       <div className="flex-1">
-                        <h3 className="text-xl font-semibold text-gray-800 mb-2">{request?.student?.name || 'Unknown Student'}</h3>
+                        <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                          {request?.student?.name || request?.studentName || 'Unknown Student'}
+                        </h3>
                         <div className="space-y-1">
                           <p className="text-gray-600 flex items-center text-sm">
                             <Mail className="w-4 h-4 mr-2 text-gray-500" />
-                            {request?.student?.email || 'N/A'}
+                            {request?.student?.email || request?.studentEmail || 'N/A'}
                           </p>
-                          {request?.student?.phone && (
+                          {(request?.student?.phone || request?.studentPhone) && (
                             <p className="text-gray-600 flex items-center text-sm">
                               <Phone className="w-4 h-4 mr-2 text-gray-500" />
-                              {request?.student?.phone}
+                              {request?.student?.phone || request?.studentPhone}
                             </p>
                           )}
                           <div className="flex items-center gap-4 text-sm">
@@ -577,16 +693,16 @@ const TeacherAppointmentManager = () => {
                     </div>
                   </div>
 
-                  {(request?.student?.subject || request?.student?.message) && (
+                  {(request?.student?.subject || request?.subject || request?.student?.message || request?.message) && (
                     <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      {request?.student?.subject && (
+                      {(request?.student?.subject || request?.subject) && (
                         <p className="text-sm text-gray-700 mb-2">
-                          <strong>Subject:</strong> {request?.student?.subject}
+                          <strong>Subject:</strong> {request?.student?.subject || request?.subject}
                         </p>
                       )}
-                      {request?.student?.message && (
+                      {(request?.student?.message || request?.message) && (
                         <p className="text-sm text-gray-700">
-                          <strong>Message:</strong> {request?.student?.message}
+                          <strong>Message:</strong> {request?.student?.message || request?.message}
                         </p>
                       )}
                     </div>
@@ -617,16 +733,18 @@ const TeacherAppointmentManager = () => {
                         <User className="w-6 h-6 text-white" />
                       </div>
                       <div className="flex-1">
-                        <h3 className="text-xl font-semibold text-gray-800 mb-2">{appointment?.student?.name || 'Unknown Student'}</h3>
+                        <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                          {appointment?.student?.name || appointment?.studentName || 'Unknown Student'}
+                        </h3>
                         <div className="space-y-1">
                           <p className="text-gray-600 flex items-center text-sm">
                             <Mail className="w-4 h-4 mr-2 text-gray-500" />
-                            {appointment?.student?.email || 'N/A'}
+                            {appointment?.student?.email || appointment?.studentEmail || 'N/A'}
                           </p>
-                          {appointment?.student?.phone && (
+                          {(appointment?.student?.phone || appointment?.studentPhone) && (
                             <p className="text-gray-600 flex items-center text-sm">
                               <Phone className="w-4 h-4 mr-2 text-gray-500" />
-                              {appointment?.student?.phone}
+                              {appointment?.student?.phone || appointment?.studentPhone}
                             </p>
                           )}
                           <div className="flex items-center gap-4 text-sm">
@@ -684,16 +802,16 @@ const TeacherAppointmentManager = () => {
                     </div>
                   </div>
 
-                  {(appointment?.student?.subject || appointment?.student?.message) && (
+                  {(appointment?.student?.subject || appointment?.subject || appointment?.student?.message || appointment?.message) && (
                     <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      {appointment?.student?.subject && (
+                      {(appointment?.student?.subject || appointment?.subject) && (
                         <p className="text-sm text-gray-700 mb-2">
-                          <strong>Subject:</strong> {appointment?.student?.subject}
+                          <strong>Subject:</strong> {appointment?.student?.subject || appointment?.subject}
                         </p>
                       )}
-                      {appointment?.student?.message && (
+                      {(appointment?.student?.message || appointment?.message) && (
                         <p className="text-sm text-gray-700">
-                          <strong>Message:</strong> {appointment?.student?.message}
+                          <strong>Message:</strong> {appointment?.student?.message || appointment?.message}
                         </p>
                       )}
                     </div>
