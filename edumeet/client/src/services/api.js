@@ -1,5 +1,3 @@
-// FIXED API CLIENT - services/api.js
-
 import axios from 'axios';
 
 // API Configuration
@@ -8,62 +6,57 @@ const API_BASE_URL = process.env.REACT_APP_API_URL ||
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // Increased timeout
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: true,
+  withCredentials: true, // Important for cookie-based auth if used
 });
 
-// Enhanced token retrieval with better error handling
+// Simplified token retrieval helper
 const getTokenFromStorage = (tokenType = 'userToken') => {
-  try {
-    // Check localStorage first (persistent storage)
-    let token = localStorage.getItem(tokenType);
-    if (token && token.trim() !== '') {
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`🔍 Found ${tokenType} in localStorage`);
-      }
-      return token.trim();
+  // Check localStorage first (persistent storage)
+  let token = localStorage.getItem(tokenType);
+  if (token) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`🔍 Found ${tokenType} in localStorage`);
     }
-    
-    // Fallback to sessionStorage (temporary storage)
-    token = sessionStorage.getItem(tokenType);
-    if (token && token.trim() !== '') {
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`🔍 Found ${tokenType} in sessionStorage`);
-      }
-      return token.trim();
-    }
-  } catch (error) {
-    console.error(`Error retrieving ${tokenType}:`, error);
+    return token;
   }
   
-  return null;
+  // Fallback to sessionStorage (temporary storage)
+  token = sessionStorage.getItem(tokenType);
+  if (token && process.env.NODE_ENV === 'development') {
+    console.log(`🔍 Found ${tokenType} in sessionStorage`);
+  }
+  
+  return token;
 };
 
-// FIXED Request interceptor with better token handling
+// Request interceptor with proper token handling
 api.interceptors.request.use(
   (config) => {
     let token = null;
 
-    // Enhanced URL-based token logic
-    const url = config.url || '';
-    
-    if (url.includes('/admin/') || url.startsWith('/admin')) {
+    // Determine which token to use based on the URL - CORRECTED LOGIC
+    if (config.url.startsWith('/admin') || config.url.includes('/admin/')) {
       token = getTokenFromStorage('adminToken');
-    } else if (url.includes('/teachers/') || url.startsWith('/teachers')) {
+    } else if (config.url.startsWith('/teachers') || config.url.includes('/teachers/')) {
       token = getTokenFromStorage('teacherToken');
-    } else if (url.includes('/appointments/')) {
+    } else if (config.url.startsWith('/auth') || config.url.includes('/auth/')) {
+      // For auth routes, use appropriate token or none for login/register
+      if (config.url.includes('/profile') || config.url.includes('/verify-token')) {
+        token = getTokenFromStorage('userToken');
+      }
+      // No token needed for login/register/logout
+    } else if (config.url.startsWith('/appointments') || config.url.includes('/appointments/')) {
       // For appointments, prioritize teacher token, then user token
       token = getTokenFromStorage('teacherToken') || getTokenFromStorage('userToken');
-    } else if (url.includes('/messages/')) {
+    } else if (config.url.startsWith('/messages') || config.url.includes('/messages/')) {
       // For messages, use any available token
       token = getTokenFromStorage('teacherToken') || getTokenFromStorage('userToken') || getTokenFromStorage('adminToken');
-    } else if (url.includes('/auth/profile') || url.includes('/auth/verify-token')) {
-      token = getTokenFromStorage('userToken');
-    } else if (!url.includes('/auth/login') && !url.includes('/auth/register') && !url.includes('/auth/logout')) {
-      // Default fallback for protected routes
+    } else {
+      // Default fallback
       token = getTokenFromStorage('userToken');
     }
 
@@ -88,7 +81,7 @@ api.interceptors.request.use(
   }
 );
 
-// FIXED Response interceptor with better error handling
+// Response interceptor with proper error handling and redirects
 api.interceptors.response.use(
   (response) => {
     if (process.env.NODE_ENV === 'development') {
@@ -115,7 +108,7 @@ api.interceptors.response.use(
             if (window.location.pathname.includes('/admin')) {
               window.location.href = '/admin/login';
             }
-          } else if (config.url.includes('/teachers/') || config.url.includes('/appointments/')) {
+          } else if (config.url.includes('/teachers/')) {
             tokenManager.removeTeacherToken();
             if (window.location.pathname.includes('/teacher')) {
               window.location.href = '/teacher/login';
@@ -161,9 +154,9 @@ api.interceptors.response.use(
   }
 );
 
-// FIXED API endpoints
+// CORRECTED API endpoints based on your backend routes
 export const endpoints = {
-  // Auth endpoints
+  // Auth endpoints (for regular users) - CORRECTED
   auth: {
     register: '/auth/register',
     login: '/auth/login',
@@ -171,6 +164,7 @@ export const endpoints = {
     profile: '/auth/profile',
     updateProfile: '/auth/profile',
     verifyToken: '/auth/verify-token',
+    // Admin functions accessible through auth controller
     getPendingRegistrations: '/auth/pending-registrations',
     approveUser: (id) => `/auth/approve/${id}`,
     rejectUser: (id) => `/auth/reject/${id}`,
@@ -178,15 +172,21 @@ export const endpoints = {
     getUserStats: '/auth/stats',
   },
 
-  // Teacher endpoints
+  // Teacher endpoints - CORRECTED
   teachers: {
+    // Public endpoints
     getAll: '/teachers',
     getById: (id) => `/teachers/${id}`,
     getByDepartment: (department) => `/teachers/department/${department}`,
     getStats: '/teachers/stats',
+    
+    // Admin-only endpoints
     create: '/teachers',
     update: (id) => `/teachers/${id}`,
     delete: (id) => `/teachers/${id}`,
+    permanentDelete: (id) => `/teachers/${id}/permanent`,
+    
+    // Teacher Authentication routes
     login: '/teachers/login',
     logout: '/teachers/logout',
     profile: '/teachers/profile',
@@ -194,31 +194,45 @@ export const endpoints = {
     setupAccount: (token) => `/teachers/setup-account/${token}`,
   },
 
-  // FIXED Appointment endpoints
+  // Appointment endpoints - CORRECTED
   appointments: {
     getAll: '/appointments',
     getById: (id) => `/appointments/${id}`,
     getStats: '/appointments/stats',
+    
+    // Student actions
     request: '/appointments/request',
+    
+    // Teacher actions  
     book: '/appointments/book',
-    // FIXED: These should use PUT method with proper endpoints
     accept: (id) => `/appointments/${id}/accept`,
     reject: (id) => `/appointments/${id}/reject`,
     complete: (id) => `/appointments/${id}/complete`,
-    cancel: (id) => `/appointments/${id}/cancel`,
+    
+    // Common actions
     update: (id) => `/appointments/${id}`,
+    cancel: (id) => `/appointments/${id}/cancel`,
+    
+    // Teacher-specific queries
     getByTeacher: (teacherId) => `/appointments/teacher/${teacherId}`,
     getTeacherPending: (teacherId) => `/appointments/teacher/${teacherId}/pending`,
   },
 
-  // Admin endpoints
+  // Admin endpoints - CORRECTED to match your adminRoutes
   admin: {
+    // Auth
     register: '/admin/register',
     login: '/admin/login',
     logout: '/admin/logout',
+    
+    // Profile
     profile: '/admin/profile',
     updateProfile: '/admin/profile',
+    
+    // Dashboard
     dashboardStats: '/admin/dashboard/stats',
+    
+    // User Management  
     getUsers: '/admin/users',
     getUserById: (id) => `/admin/users/${id}`,
     updateUser: (id) => `/admin/users/${id}`,
@@ -227,20 +241,29 @@ export const endpoints = {
     rejectUser: (id) => `/admin/users/${id}/reject`,
     getPendingRegistrations: '/admin/users/pending',
     getUserStats: '/admin/users/stats',
+    
+    // Teacher Management
     getTeachers: '/admin/teachers',
     getTeacherById: (id) => `/admin/teachers/${id}`,
     updateTeacher: (id) => `/admin/teachers/${id}`,
     deleteTeacher: (id) => `/admin/teachers/${id}`,
+    updateTeacherStatus: (id) => `/admin/teachers/${id}/status`,
+    getTeacherStats: '/admin/teachers/stats',
+    
+    // Appointment Management
     getAppointments: '/admin/appointments',
     getAppointmentById: (id) => `/admin/appointments/${id}`,
     updateAppointment: (id) => `/admin/appointments/${id}`,
     deleteAppointment: (id) => `/admin/appointments/${id}`,
+    getAppointmentStats: '/admin/appointments/stats',
+    
+    // System Management
     getSystemSettings: '/admin/settings',
     updateSystemSettings: '/admin/settings',
     getSystemStats: '/admin/stats',
   },
   
-  // Message endpoints
+  // Message endpoints - CORRECTED
   messages: {
     getByRoom: (roomId) => `/messages/room/${roomId}`,
     delete: (id) => `/messages/${id}`,
@@ -249,12 +272,14 @@ export const endpoints = {
     update: (id) => `/messages/${id}`,
   },
   
+  // Health check
   health: '/health'
 };
 
-// Token management utilities (keeping existing structure but improving)
+// Simplified token management utilities - ENHANCED
 export const tokenManager = {
-  setUserToken: (token, persistent = true) => {
+  // User token methods
+  setUserToken: (token, persistent = true) => { // Changed default to persistent
     console.log('🔧 Setting user token:', { hasToken: !!token, persistent });
     
     if (!token || typeof token !== 'string' || token.trim() === '') {
@@ -264,37 +289,30 @@ export const tokenManager = {
     
     const cleanToken = token.trim();
     
-    try {
-      if (persistent) {
-        localStorage.setItem('userToken', cleanToken);
-        sessionStorage.removeItem('userToken');
-      } else {
-        sessionStorage.setItem('userToken', cleanToken);
-        localStorage.removeItem('userToken');
-      }
-      return true;
-    } catch (error) {
-      console.error('Error setting user token:', error);
-      return false;
+    if (persistent) {
+      localStorage.setItem('userToken', cleanToken);
+      sessionStorage.removeItem('userToken');
+    } else {
+      sessionStorage.setItem('userToken', cleanToken);
+      localStorage.removeItem('userToken');
     }
+    
+    return true;
   },
   
   getUserToken: () => getTokenFromStorage('userToken'),
   
   removeUserToken: () => {
-    try {
-      localStorage.removeItem('userToken');
-      sessionStorage.removeItem('userToken');
-      localStorage.removeItem('userData');
-      sessionStorage.removeItem('userData');
-      localStorage.removeItem('userRole');
-      sessionStorage.removeItem('userRole');
-    } catch (error) {
-      console.error('Error removing user token:', error);
-    }
+    localStorage.removeItem('userToken');
+    sessionStorage.removeItem('userToken');
+    localStorage.removeItem('userData');
+    sessionStorage.removeItem('userData');
+    localStorage.removeItem('userRole');
+    sessionStorage.removeItem('userRole');
   },
   
-  setTeacherToken: (token, persistent = true) => {
+  // Teacher token methods
+  setTeacherToken: (token, persistent = true) => { // Changed default to persistent
     console.log('🔧 Setting teacher token:', { 
       hasToken: !!token, 
       persistent, 
@@ -308,38 +326,31 @@ export const tokenManager = {
     
     const cleanToken = token.trim();
     
-    try {
-      if (persistent) {
-        localStorage.setItem('teacherToken', cleanToken);
-        sessionStorage.removeItem('teacherToken');
-        console.log('✅ Teacher token stored in localStorage (persistent)');
-      } else {
-        sessionStorage.setItem('teacherToken', cleanToken);
-        localStorage.removeItem('teacherToken');
-        console.log('✅ Teacher token stored in sessionStorage (temporary)');
-      }
-      return true;
-    } catch (error) {
-      console.error('Error setting teacher token:', error);
-      return false;
+    if (persistent) {
+      localStorage.setItem('teacherToken', cleanToken);
+      sessionStorage.removeItem('teacherToken');
+      console.log('✅ Teacher token stored in localStorage (persistent)');
+    } else {
+      sessionStorage.setItem('teacherToken', cleanToken);
+      localStorage.removeItem('teacherToken');
+      console.log('✅ Teacher token stored in sessionStorage (temporary)');
     }
+    
+    return true;
   },
   
   getTeacherToken: () => getTokenFromStorage('teacherToken'),
   
   removeTeacherToken: () => {
     console.log('🗑️ Removing teacher token from all storage');
-    try {
-      localStorage.removeItem('teacherToken');
-      sessionStorage.removeItem('teacherToken');
-      localStorage.removeItem('teacher');
-      sessionStorage.removeItem('teacher');
-    } catch (error) {
-      console.error('Error removing teacher token:', error);
-    }
+    localStorage.removeItem('teacherToken');
+    sessionStorage.removeItem('teacherToken');
+    localStorage.removeItem('teacher');
+    sessionStorage.removeItem('teacher');
   },
   
-  setAdminToken: (token, persistent = true) => {
+  // Admin token methods
+  setAdminToken: (token, persistent = true) => { // Changed default to persistent
     console.log('🔧 Setting admin token:', { hasToken: !!token, persistent });
     
     if (!token || typeof token !== 'string' || token.trim() === '') {
@@ -349,67 +360,57 @@ export const tokenManager = {
     
     const cleanToken = token.trim();
     
-    try {
-      if (persistent) {
-        localStorage.setItem('adminToken', cleanToken);
-        sessionStorage.removeItem('adminToken');
-      } else {
-        sessionStorage.setItem('adminToken', cleanToken);
-        localStorage.removeItem('adminToken');
-      }
-      return true;
-    } catch (error) {
-      console.error('Error setting admin token:', error);
-      return false;
+    if (persistent) {
+      localStorage.setItem('adminToken', cleanToken);
+      sessionStorage.removeItem('adminToken');
+    } else {
+      sessionStorage.setItem('adminToken', cleanToken);
+      localStorage.removeItem('adminToken');
     }
+    
+    return true;
   },
   
   getAdminToken: () => getTokenFromStorage('adminToken'),
   
   removeAdminToken: () => {
-    try {
-      localStorage.removeItem('adminToken');
-      sessionStorage.removeItem('adminToken');
-      localStorage.removeItem('adminData');
-      sessionStorage.removeItem('adminData');
-    } catch (error) {
-      console.error('Error removing admin token:', error);
-    }
+    localStorage.removeItem('adminToken');
+    sessionStorage.removeItem('adminToken');
+    localStorage.removeItem('adminData');
+    sessionStorage.removeItem('adminData');
   },
   
+  // Clear all tokens and data
   clearAllTokens: () => {
     console.log('🧹 Clearing all tokens and user data');
     
-    try {
-      // Clear all tokens
-      localStorage.removeItem('userToken');
-      localStorage.removeItem('teacherToken');
-      localStorage.removeItem('adminToken');
-      sessionStorage.removeItem('userToken');
-      sessionStorage.removeItem('teacherToken');
-      sessionStorage.removeItem('adminToken');
-      
-      // Clear all user data
-      localStorage.removeItem('userData');
-      localStorage.removeItem('teacher');
-      localStorage.removeItem('adminData');
-      localStorage.removeItem('userRole');
-      sessionStorage.removeItem('userData');
-      sessionStorage.removeItem('teacher');
-      sessionStorage.removeItem('adminData');
-      sessionStorage.removeItem('userRole');
-      
-      console.log('✅ All tokens and data cleared');
-    } catch (error) {
-      console.error('Error clearing tokens:', error);
-    }
+    // Clear all tokens
+    localStorage.removeItem('userToken');
+    localStorage.removeItem('teacherToken');
+    localStorage.removeItem('adminToken');
+    sessionStorage.removeItem('userToken');
+    sessionStorage.removeItem('teacherToken');
+    sessionStorage.removeItem('adminToken');
+    
+    // Clear all user data
+    localStorage.removeItem('userData');
+    localStorage.removeItem('teacher');
+    localStorage.removeItem('adminData');
+    localStorage.removeItem('userRole');
+    sessionStorage.removeItem('userData');
+    sessionStorage.removeItem('teacher');
+    sessionStorage.removeItem('adminData');
+    sessionStorage.removeItem('userRole');
+    
+    console.log('✅ All tokens and data cleared');
   },
 
-  // Helper methods
+  // Helper methods for authentication status
   isUserLoggedIn: () => !!getTokenFromStorage('userToken'),
   isTeacherLoggedIn: () => !!getTokenFromStorage('teacherToken'),
   isAdminLoggedIn: () => !!getTokenFromStorage('adminToken'),
 
+  // Get current user data
   getCurrentUser: () => {
     try {
       let userData = localStorage.getItem('userData') || sessionStorage.getItem('userData');
@@ -440,6 +441,7 @@ export const tokenManager = {
     }
   },
 
+  // Get IDs
   getTeacherId: () => {
     try {
       const teacher = tokenManager.getCurrentTeacher();
@@ -468,12 +470,84 @@ export const tokenManager = {
       console.error('Error getting admin ID:', error);
       return null;
     }
+  },
+
+  // Get authentication status
+  getAuthenticationStatus: () => {
+    return {
+      isTeacherLoggedIn: tokenManager.isTeacherLoggedIn(),
+      isUserLoggedIn: tokenManager.isUserLoggedIn(),
+      isAdminLoggedIn: tokenManager.isAdminLoggedIn(),
+      hasAnyAuth: tokenManager.isTeacherLoggedIn() || tokenManager.isUserLoggedIn() || tokenManager.isAdminLoggedIn(),
+      currentTeacher: tokenManager.getCurrentTeacher(),
+      currentUser: tokenManager.getCurrentUser(),
+      currentAdmin: tokenManager.getCurrentAdmin(),
+    };
+  },
+
+  // Enhanced utility methods
+  getTeacherName: () => {
+    try {
+      const teacher = tokenManager.getCurrentTeacher();
+      return teacher?.name || 'Unknown Teacher';
+    } catch (error) {
+      console.error('Error getting teacher name:', error);
+      return 'Unknown Teacher';
+    }
+  },
+
+  getTeacherEmail: () => {
+    try {
+      const teacher = tokenManager.getCurrentTeacher();
+      return teacher?.email || null;
+    } catch (error) {
+      console.error('Error getting teacher email:', error);
+      return null;
+    }
+  },
+
+  // Validation methods
+  validateTokenFormat: (token) => {
+    if (!token || typeof token !== 'string') {
+      return { valid: false, error: 'Token must be a non-empty string' };
+    }
+    
+    if (token.trim() === '') {
+      return { valid: false, error: 'Token cannot be empty or whitespace only' };
+    }
+    
+    // Basic JWT format check (3 parts separated by dots)
+    const parts = token.trim().split('.');
+    if (parts.length !== 3) {
+      return { valid: false, error: 'Invalid JWT format (should have 3 parts)' };
+    }
+    
+    return { valid: true, error: null };
+  },
+
+  // Debug methods (development only)
+  debugTokenState: () => {
+    if (process.env.NODE_ENV === 'development') {
+      const state = {
+        hasUserToken: !!getTokenFromStorage('userToken'),
+        hasTeacherToken: !!getTokenFromStorage('teacherToken'),
+        hasAdminToken: !!getTokenFromStorage('adminToken'),
+        currentTeacher: tokenManager.getCurrentTeacher(),
+        currentUser: tokenManager.getCurrentUser(),
+        currentAdmin: tokenManager.getCurrentAdmin(),
+        authStatus: tokenManager.getAuthenticationStatus()
+      };
+      
+      console.log('🔍 Token Debug State:', state);
+      return state;
+    }
+    return null;
   }
 };
 
-// FIXED API methods with better error handling and response processing
+// CORRECTED API methods to match backend implementation
 export const apiMethods = {
-  // Auth Operations
+  // Enhanced Auth Operations - CORRECTED
   register: async (userData) => {
     try {
       const response = await api.post(endpoints.auth.register, userData);
@@ -498,7 +572,7 @@ export const apiMethods = {
   getProfile: () => api.get(endpoints.auth.profile),
   updateProfile: (data) => api.put(endpoints.auth.updateProfile, data),
 
-  // Teacher Operations
+  // Teacher Operations - CORRECTED
   teacherLogin: async (credentials) => {
     try {
       console.log('🔄 Attempting teacher login');
@@ -513,12 +587,22 @@ export const apiMethods = {
 
   teacherLogout: () => api.post(endpoints.teachers.logout),
   getTeacherProfile: () => api.get(endpoints.teachers.profile),
+
   getAllTeachers: (params = {}) => api.get(endpoints.teachers.getAll, { params }),
   getTeacherById: (id) => api.get(endpoints.teachers.getById(id)),
   getTeachersByDepartment: (department) => api.get(endpoints.teachers.getByDepartment(department)),
   getTeacherStats: () => api.get(endpoints.teachers.getStats),
 
-  // FIXED Appointment Operations
+  // Admin-only teacher operations
+  createTeacher: (teacherData) => api.post(endpoints.teachers.create, teacherData),
+  updateTeacher: (id, teacherData) => api.put(endpoints.teachers.update(id), teacherData),
+  deleteTeacher: (id) => api.delete(endpoints.teachers.delete(id)),
+  permanentDeleteTeacher: (id) => api.delete(endpoints.teachers.permanentDelete(id)),
+  
+  sendTeacherSetupLink: (data) => api.post(endpoints.teachers.sendSetupLink, data),
+  setupTeacherAccount: (token, data) => api.post(endpoints.teachers.setupAccount(token), data),
+
+  // Appointment Operations - CORRECTED
   requestAppointment: async (appointmentData) => {
     try {
       console.log('🔄 Student requesting appointment:', appointmentData);
@@ -541,67 +625,30 @@ export const apiMethods = {
     }
   },
 
-  // FIXED: Accept appointment request with better error handling and validation
   acceptAppointmentRequest: async (id, responseMessage = '') => {
     try {
-      console.log('🔄 Accepting appointment request:', { id, responseMessage });
-      
-      if (!id) {
-        throw new Error('Appointment ID is required');
-      }
-
-      const payload = { 
-        responseMessage: responseMessage?.trim() || 'Request accepted'
-      };
-
-      const response = await api.put(endpoints.appointments.accept(id), payload);
+      console.log('🔄 Accepting appointment request:', id);
+      const response = await api.put(endpoints.appointments.accept(id), { 
+        responseMessage: responseMessage.trim() 
+      });
       console.log('✅ Appointment accepted successfully');
       return response;
     } catch (error) {
       console.error('❌ Error accepting appointment:', error);
-      
-      // Enhanced error processing
-      const errorMessage = error?.response?.data?.message || error.message || 'Failed to accept appointment';
-      const statusCode = error?.response?.status;
-      
-      // Create enhanced error object
-      const enhancedError = new Error(errorMessage);
-      enhancedError.statusCode = statusCode;
-      enhancedError.originalError = error;
-      
-      throw enhancedError;
+      throw error;
     }
   },
 
-  // FIXED: Reject appointment request with better error handling and validation
   rejectAppointmentRequest: async (id, responseMessage = '') => {
     try {
-      console.log('🔄 Rejecting appointment request:', { id, responseMessage });
-      
-      if (!id) {
-        throw new Error('Appointment ID is required');
-      }
-
-      const payload = { 
-        responseMessage: responseMessage?.trim() || 'Request rejected'
-      };
-
-      const response = await api.put(endpoints.appointments.reject(id), payload);
-      console.log('✅ Appointment rejected successfully');
+      console.log('🔄 Rejecting appointment request:', id);
+      const response = await api.put(endpoints.appointments.reject(id), { 
+        responseMessage: responseMessage.trim() 
+      });
       return response;
     } catch (error) {
       console.error('❌ Error rejecting appointment:', error);
-      
-      // Enhanced error processing
-      const errorMessage = error?.response?.data?.message || error.message || 'Failed to reject appointment';
-      const statusCode = error?.response?.status;
-      
-      // Create enhanced error object
-      const enhancedError = new Error(errorMessage);
-      enhancedError.statusCode = statusCode;
-      enhancedError.originalError = error;
-      
-      throw enhancedError;
+      throw error;
     }
   },
 
@@ -613,36 +660,15 @@ export const apiMethods = {
   updateAppointment: (id, data) => api.put(endpoints.appointments.update(id), data),
   getAppointmentStats: () => api.get(endpoints.appointments.getStats),
 
-  // FIXED: Teacher appointment methods with better error handling
-  getTeacherAppointments: async (teacherId, params = {}) => {
-    try {
-      if (!teacherId) {
-        throw new Error('Teacher ID is required');
-      }
-      
-      const response = await api.get(endpoints.appointments.getByTeacher(teacherId), { params });
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching teacher appointments:', error);
-      throw error;
-    }
+  getTeacherAppointments: (teacherId, params = {}) => {
+    return api.get(endpoints.appointments.getByTeacher(teacherId), { params });
   },
 
-  getTeacherPendingRequests: async (teacherId) => {
-    try {
-      if (!teacherId) {
-        throw new Error('Teacher ID is required');
-      }
-      
-      const response = await api.get(endpoints.appointments.getTeacherPending(teacherId));
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching pending requests:', error);
-      throw error;
-    }
+  getTeacherPendingRequests: (teacherId) => {
+    return api.get(endpoints.appointments.getTeacherPending(teacherId));
   },
 
-  // Admin Operations
+  // Admin Operations - CORRECTED to match your adminRoutes
   adminLogin: async (credentials) => {
     try {
       const response = await api.post(endpoints.admin.login, credentials);
@@ -659,7 +685,7 @@ export const apiMethods = {
   updateAdminProfile: (data) => api.put(endpoints.admin.updateProfile, data),
   getDashboardStats: () => api.get(endpoints.admin.dashboardStats),
 
-  // User management via auth controller
+  // User management via auth controller (as per your implementation)
   getPendingRegistrations: () => api.get(endpoints.auth.getPendingRegistrations),
   getAllUsersForAdmin: (params = {}) => api.get(endpoints.auth.getAllUsers, { params }),
   approveUser: (id) => api.put(endpoints.auth.approveUser(id)),
@@ -674,7 +700,7 @@ export const apiMethods = {
   // Health check
   healthCheck: () => api.get(endpoints.health),
 
-  // FIXED: Enhanced appointment validation
+  // Enhanced appointment utilities
   validateAppointmentData: (appointmentData, isTeacherBooking = false) => {
     const errors = [];
     
@@ -690,11 +716,8 @@ export const apiMethods = {
       errors.push('Date is required');
     } else {
       const appointmentDate = new Date(appointmentData.date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      if (appointmentDate < today) {
-        errors.push('Appointment date must be today or in the future');
+      if (appointmentDate < new Date()) {
+        errors.push('Appointment date must be in the future');
       }
     }
     

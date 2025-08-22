@@ -3,12 +3,12 @@ const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
-const { sendResponse } = require('../middleware/auth');
+const { sendResponse } = require('../utils/responceHandler');
 
 // Helper function to sign JWT token
 const signToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: '90d'
+    expiresIn: process.env.JWT_EXPIRES_IN || '90d'
   });
 };
 
@@ -18,7 +18,11 @@ const handleValidationErrors = (req) => {
   if (!errors.isEmpty()) {
     return {
       hasErrors: true,
-      errors: errors.array()
+      errors: errors.array().map(error => ({
+        field: error.param || error.path,
+        message: error.msg,
+        value: error.value
+      }))
     };
   }
   return { hasErrors: false };
@@ -44,7 +48,7 @@ const teacherLogin = async (req, res) => {
     }).select('+password');
     
     if (!teacher) {
-      return sendResponse(res, 401, false, 'Invalid credentials or teacher not found');
+      return sendResponse(res, 401, false, 'Invalid credentials');
     }
 
     // Check if account is set up
@@ -54,11 +58,14 @@ const teacherLogin = async (req, res) => {
 
     // Check approval status
     if (teacher.approvalStatus !== 'approved') {
-      return sendResponse(res, 401, false, 'Account not approved. Please contact admin.');
+      const statusMessage = teacher.approvalStatus === 'rejected' 
+        ? 'Account has been rejected. Please contact admin.'
+        : 'Account pending approval. Please contact admin.';
+      return sendResponse(res, 401, false, statusMessage);
     }
 
     // Verify password
-    const isPasswordCorrect = await teacher.correctPassword(password, teacher.password);
+    const isPasswordCorrect = await teacher.correctPassword(password);
     if (!isPasswordCorrect) {
       return sendResponse(res, 401, false, 'Invalid credentials');
     }
@@ -67,21 +74,21 @@ const teacherLogin = async (req, res) => {
     teacher.lastLogin = new Date();
     await teacher.save({ validateBeforeSave: false });
 
-    // Create token with string ID
-    const token = jwt.sign(
-      { 
-        id: teacher._id.toString(),
-        email: teacher.email, 
-        role: 'teacher', 
-        loginTime: Date.now() 
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '90d' }
-    );
+    // Create token
+    const token = signToken({
+      id: teacher._id.toString(),
+      email: teacher.email, 
+      role: 'teacher', 
+      loginTime: Date.now() 
+    });
 
-    // Remove password from response
+    // Remove sensitive data from response
     const teacherResponse = teacher.toObject();
     delete teacherResponse.password;
+    delete teacherResponse.accountSetupToken;
+    delete teacherResponse.accountSetupExpires;
+    delete teacherResponse.passwordResetToken;
+    delete teacherResponse.passwordResetExpires;
 
     console.log('✅ Teacher login successful:', {
       teacherId: teacher._id.toString(),
@@ -126,7 +133,7 @@ const getTeacherProfile = async (req, res) => {
       _id: req.user.id, 
       role: 'teacher',
       isActive: true 
-    }).select('-password -__v');
+    }).select('-password -__v -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
     
     if (!teacher) {
       console.error('❌ Teacher not found with ID:', req.user.id);
@@ -194,32 +201,38 @@ const createTeacher = async (req, res) => {
 
     // Create new teacher user object
     const userData = {
-      name,
+      name: name.trim(),
       email: email.toLowerCase().trim(),
       role: 'teacher',
       teacherProfile,
       approvalStatus: 'pending',
-      isActive: true
+      isActive: true,
+      hasAccount: false
     };
 
     // If password is provided, set it and mark account as active
-    if (password) {
+    if (password && password.trim()) {
       userData.password = password;
       userData.hasAccount = true;
-      userData.lastLogin = new Date();
+      userData.approvalStatus = 'approved'; // Auto-approve if created with password
     }
 
     // Create new teacher user
     const teacher = new User(userData);
     const savedTeacher = await teacher.save();
 
-    // Remove password from response
+    // Remove sensitive data from response
     const responseData = savedTeacher.toObject();
     delete responseData.password;
+    delete responseData.accountSetupToken;
+    delete responseData.accountSetupExpires;
+    delete responseData.passwordResetToken;
+    delete responseData.passwordResetExpires;
 
     console.log('✅ Teacher created successfully:', {
       teacherId: savedTeacher._id.toString(),
-      teacherEmail: savedTeacher.email
+      teacherEmail: savedTeacher.email,
+      hasPassword: !!password
     });
 
     return sendResponse(res, 201, true, 'Teacher created successfully', responseData);
@@ -230,14 +243,16 @@ const createTeacher = async (req, res) => {
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => ({
         field: err.path,
-        message: err.message
+        message: err.message,
+        value: err.value
       }));
       
       return sendResponse(res, 400, false, 'Validation failed', null, validationErrors);
     }
 
     if (error.code === 11000) {
-      return sendResponse(res, 400, false, 'Teacher with this email already exists');
+      const field = Object.keys(error.keyValue)[0];
+      return sendResponse(res, 400, false, `Teacher with this ${field} already exists`);
     }
 
     return sendResponse(res, 500, false, 'Server error while creating teacher', null, [{ message: error.message }]);
@@ -269,7 +284,7 @@ const updateTeacher = async (req, res) => {
     }
 
     // If email is being updated, check for duplicates
-    if (updateData.email && updateData.email !== existingTeacher.email) {
+    if (updateData.email && updateData.email.toLowerCase().trim() !== existingTeacher.email) {
       const emailExists = await User.findOne({ 
         email: updateData.email.toLowerCase().trim(), 
         _id: { $ne: teacherId } 
@@ -280,9 +295,9 @@ const updateTeacher = async (req, res) => {
       }
     }
 
-    // Prepare update data for teacher profile fields
+    // Prepare update data
     const teacherProfileFields = ['phone', 'department', 'subject', 'experience', 'qualification', 'bio', 'availability'];
-    const generalFields = ['name', 'email'];
+    const generalFields = ['name', 'email', 'approvalStatus'];
     
     const finalUpdateData = { updatedAt: new Date() };
     const teacherProfileUpdates = {};
@@ -292,6 +307,8 @@ const updateTeacher = async (req, res) => {
       if (generalFields.includes(key)) {
         if (key === 'email') {
           finalUpdateData[key] = updateData[key].toLowerCase().trim();
+        } else if (key === 'name') {
+          finalUpdateData[key] = updateData[key].trim();
         } else {
           finalUpdateData[key] = updateData[key];
         }
@@ -311,7 +328,11 @@ const updateTeacher = async (req, res) => {
         new: true, 
         runValidators: true 
       }
-    ).select('-__v -password');
+    ).select('-__v -password -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
+
+    if (!updatedTeacher) {
+      return sendResponse(res, 404, false, 'Teacher not found');
+    }
 
     console.log('✅ Teacher updated successfully:', {
       teacherId: updatedTeacher._id.toString(),
@@ -326,7 +347,8 @@ const updateTeacher = async (req, res) => {
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => ({
         field: err.path,
-        message: err.message
+        message: err.message,
+        value: err.value
       }));
       
       return sendResponse(res, 400, false, 'Validation failed', null, validationErrors);
@@ -334,6 +356,11 @@ const updateTeacher = async (req, res) => {
 
     if (error.name === 'CastError') {
       return sendResponse(res, 400, false, 'Invalid teacher ID format');
+    }
+
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyValue)[0];
+      return sendResponse(res, 400, false, `Teacher with this ${field} already exists`);
     }
 
     return sendResponse(res, 500, false, 'Server error while updating teacher', null, [{ message: error.message }]);
@@ -352,22 +379,27 @@ const getAllTeachers = async (req, res) => {
       subject,
       search,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      status = 'approved' // Filter by approval status
     } = req.query;
 
     // Build filter object
     const filter = { 
       role: 'teacher', 
-      isActive: true,
-      approvalStatus: 'approved'
+      isActive: true
     };
+    
+    // Add status filter
+    if (status && status !== 'all') {
+      filter.approvalStatus = status;
+    }
     
     if (department) {
       filter['teacherProfile.department'] = department;
     }
     
     if (subject) {
-      filter['teacherProfile.subject'] = subject;
+      filter['teacherProfile.subject'] = { $regex: subject, $options: 'i' };
     }
     
     if (search) {
@@ -384,24 +416,34 @@ const getAllTeachers = async (req, res) => {
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
     // Execute query with pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.max(1, Math.min(50, parseInt(limit))); // Max 50 items per page
+    const skip = (pageNum - 1) * limitNum;
     
-    const teachers = await User.find(filter)
-      .sort(sort)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .select('-__v -password');
+    const [teachers, totalTeachers] = await Promise.all([
+      User.find(filter)
+        .sort(sort)
+        .skip(skip)
+        .limit(limitNum)
+        .select('-__v -password -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires'),
+      User.countDocuments(filter)
+    ]);
 
-    const totalTeachers = await User.countDocuments(filter);
-    const totalPages = Math.ceil(totalTeachers / parseInt(limit));
+    const totalPages = Math.ceil(totalTeachers / limitNum);
 
     const paginationMeta = {
-      currentPage: parseInt(page),
+      currentPage: pageNum,
       totalPages,
       totalTeachers,
-      hasNext: page < totalPages,
-      hasPrev: page > 1,
-      limit: parseInt(limit)
+      hasNext: pageNum < totalPages,
+      hasPrev: pageNum > 1,
+      limit: limitNum,
+      filters: {
+        department: department || null,
+        subject: subject || null,
+        search: search || null,
+        status: status || 'approved'
+      }
     };
 
     return sendResponse(res, 200, true, 'Teachers retrieved successfully', teachers, null, paginationMeta);
@@ -427,7 +469,7 @@ const getTeacherById = async (req, res) => {
     const teacher = await User.findOne({ 
       _id: teacherId, 
       role: 'teacher' 
-    }).select('-__v -password');
+    }).select('-__v -password -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
     
     if (!teacher) {
       return sendResponse(res, 404, false, 'Teacher not found');
@@ -435,10 +477,6 @@ const getTeacherById = async (req, res) => {
 
     if (!teacher.isActive) {
       return sendResponse(res, 404, false, 'Teacher is not active');
-    }
-
-    if (teacher.approvalStatus !== 'approved') {
-      return sendResponse(res, 404, false, 'Teacher is not approved');
     }
 
     return sendResponse(res, 200, true, 'Teacher retrieved successfully', teacher);
@@ -472,9 +510,18 @@ const deleteTeacher = async (req, res) => {
     }
 
     // Soft delete - set isActive to false
-    await User.findByIdAndUpdate(teacherId, { 
-      isActive: false, 
-      updatedAt: new Date() 
+    const updatedTeacher = await User.findByIdAndUpdate(
+      teacherId, 
+      { 
+        isActive: false, 
+        updatedAt: new Date() 
+      },
+      { new: true }
+    );
+
+    console.log('✅ Teacher soft deleted:', {
+      teacherId: teacher._id.toString(),
+      teacherEmail: teacher.email
     });
 
     return sendResponse(res, 200, true, 'Teacher deleted successfully');
@@ -509,6 +556,11 @@ const permanentDeleteTeacher = async (req, res) => {
 
     await User.findByIdAndDelete(teacherId);
 
+    console.log('✅ Teacher permanently deleted:', {
+      teacherId: teacher._id.toString(),
+      teacherEmail: teacher.email
+    });
+
     return sendResponse(res, 200, true, 'Teacher permanently deleted');
     
   } catch (error) {
@@ -529,14 +581,40 @@ const getTeachersByDepartment = async (req, res) => {
   try {
     const { department } = req.params;
     
+    // Validate department
+    const validDepartments = [
+      'Computer Science',
+      'Mathematics', 
+      'Physics',
+      'Chemistry',
+      'Biology',
+      'English',
+      'History',
+      'Economics',
+      'Business Administration',
+      'Psychology'
+    ];
+
+    if (!validDepartments.includes(department)) {
+      return sendResponse(res, 400, false, 'Invalid department');
+    }
+    
     const teachers = await User.find({
       role: 'teacher',
       'teacherProfile.department': department,
       isActive: true,
       approvalStatus: 'approved'
-    }).select('-__v -password');
+    }).select('-__v -password -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
     
-    return sendResponse(res, 200, true, `Teachers from ${department} department retrieved successfully`, teachers, null, { count: teachers.length });
+    return sendResponse(
+      res, 
+      200, 
+      true, 
+      `Teachers from ${department} department retrieved successfully`, 
+      teachers, 
+      null, 
+      { count: teachers.length, department }
+    );
     
   } catch (error) {
     console.error('❌ Error fetching teachers by department:', error);
@@ -549,51 +627,69 @@ const getTeachersByDepartment = async (req, res) => {
 // @access  Private/Admin
 const getTeacherStats = async (req, res) => {
   try {
-    const totalTeachers = await User.countDocuments({ 
-      role: 'teacher', 
-      isActive: true,
-      approvalStatus: 'approved' 
-    });
-    
-    const departmentStats = await User.aggregate([
-      { 
-        $match: { 
-          role: 'teacher', 
-          isActive: true,
-          approvalStatus: 'approved' 
-        } 
-      },
-      { 
-        $group: { 
-          _id: '$teacherProfile.department', 
-          count: { $sum: 1 } 
-        } 
-      },
-      { $sort: { count: -1 } }
-    ]);
-
-    const availabilityStats = await User.aggregate([
-      { 
-        $match: { 
-          role: 'teacher', 
-          isActive: true,
-          approvalStatus: 'approved' 
-        } 
-      },
-      { $unwind: '$teacherProfile.availability' },
-      { 
-        $group: { 
-          _id: '$teacherProfile.availability', 
-          count: { $sum: 1 } 
-        } 
-      },
-      { $sort: { count: -1 } }
+    const [
+      totalTeachers,
+      approvedTeachers,
+      pendingTeachers,
+      rejectedTeachers,
+      departmentStats,
+      availabilityStats
+    ] = await Promise.all([
+      User.countDocuments({ role: 'teacher', isActive: true }),
+      User.countDocuments({ role: 'teacher', isActive: true, approvalStatus: 'approved' }),
+      User.countDocuments({ role: 'teacher', isActive: true, approvalStatus: 'pending' }),
+      User.countDocuments({ role: 'teacher', isActive: true, approvalStatus: 'rejected' }),
+      User.aggregate([
+        { 
+          $match: { 
+            role: 'teacher', 
+            isActive: true,
+            approvalStatus: 'approved' 
+          } 
+        },
+        { 
+          $group: { 
+            _id: '$teacherProfile.department', 
+            count: { $sum: 1 } 
+          } 
+        },
+        { $sort: { count: -1 } }
+      ]),
+      User.aggregate([
+        { 
+          $match: { 
+            role: 'teacher', 
+            isActive: true,
+            approvalStatus: 'approved' 
+          } 
+        },
+        { $unwind: { path: '$teacherProfile.availability', preserveNullAndEmptyArrays: true } },
+        { 
+          $group: { 
+            _id: '$teacherProfile.availability', 
+            count: { $sum: 1 } 
+          } 
+        },
+        { $match: { _id: { $ne: null } } },
+        { $sort: { count: -1 } }
+      ])
     ]);
 
     const stats = {
-      totalTeachers,
-      departmentStats,
-      availabilityStats
+      overview: {
+        totalTeachers,
+        approvedTeachers,
+        pendingTeachers,
+        rejectedTeachers
+      },
+      departmentStats: departmentStats.map(stat => ({
+        department: stat._id || 'Unknown',
+        count: stat.count
+      })),
+      availabilityStats: availabilityStats.map(stat => ({
+        timeSlot: stat._id,
+        count: stat.count
+      }))
     };
 
     return sendResponse(res, 200, true, 'Teacher statistics retrieved successfully', stats);
@@ -609,6 +705,11 @@ const getTeacherStats = async (req, res) => {
 // @access  Private/Admin
 const sendAccountSetupLink = async (req, res) => {
   try {
+    const validation = handleValidationErrors(req);
+    if (validation.hasErrors) {
+      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
+    }
+
     const { teacherId } = req.body;
 
     // Validate MongoDB ObjectId format
@@ -616,7 +717,7 @@ const sendAccountSetupLink = async (req, res) => {
       return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
-    const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
+    const teacher = await User.findOne({ _id: teacherId, role: 'teacher', isActive: true });
     if (!teacher) {
       return sendResponse(res, 404, false, 'Teacher not found');
     }
@@ -629,15 +730,23 @@ const sendAccountSetupLink = async (req, res) => {
     const setupToken = teacher.createAccountSetupToken();
     await teacher.save({ validateBeforeSave: false });
 
-    // In a real app, you'd send an email here
+    // In production, send this via email instead of returning in response
     const setupURL = `${req.protocol}://${req.get('host')}/api/teachers/setup-account/${setupToken}`;
 
     const responseData = {
       teacherEmail: teacher.email,
       teacherName: teacher.name,
-      setupURL, // In production, remove this and send via email
-      expiresAt: teacher.accountSetupExpires
+      // Remove setupURL in production and send via email
+      ...(process.env.NODE_ENV === 'development' && { setupURL }),
+      expiresAt: teacher.accountSetupExpires,
+      message: 'Setup link generated successfully. In production, this would be sent via email.'
     };
+
+    console.log('✅ Setup link generated for teacher:', {
+      teacherId: teacher._id.toString(),
+      teacherEmail: teacher.email,
+      expiresAt: teacher.accountSetupExpires
+    });
 
     return sendResponse(res, 200, true, 'Account setup link generated successfully', responseData);
     
@@ -657,47 +766,69 @@ const setupTeacherAccount = async (req, res) => {
       return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
     }
 
-    // Get token from URL
+    const { password } = req.body;
+    const { token } = req.params;
+
+    if (!token) {
+      return sendResponse(res, 400, false, 'Setup token is required');
+    }
+
+    // Hash the token
     const hashedToken = crypto
       .createHash('sha256')
-      .update(req.params.token)
+      .update(token)
       .digest('hex');
 
     // Find teacher with valid token
     const teacher = await User.findOne({
       role: 'teacher',
       accountSetupToken: hashedToken,
-      accountSetupExpires: { $gt: Date.now() }
+      accountSetupExpires: { $gt: Date.now() },
+      isActive: true
     });
 
     if (!teacher) {
       return sendResponse(res, 400, false, 'Token is invalid or has expired');
     }
 
+    if (teacher.hasAccount) {
+      return sendResponse(res, 400, false, 'Account is already set up');
+    }
+
     // Set password and activate account
-    teacher.password = req.body.password;
+    teacher.password = password;
     teacher.hasAccount = true;
     teacher.accountSetupToken = undefined;
     teacher.accountSetupExpires = undefined;
+    teacher.approvalStatus = 'approved'; // Auto-approve on account setup
     teacher.lastLogin = new Date();
     
     await teacher.save();
 
     // Create token
-    const token = signToken({
+    const jwtToken = signToken({
       id: teacher._id.toString(),
       email: teacher.email,
       role: 'teacher',
       loginTime: Date.now()
     });
 
-    // Remove password from response
+    // Remove sensitive data from response
     const teacherResponse = teacher.toObject();
     delete teacherResponse.password;
+    delete teacherResponse.accountSetupToken;
+    delete teacherResponse.accountSetupExpires;
+    delete teacherResponse.passwordResetToken;
+    delete teacherResponse.passwordResetExpires;
+
+    console.log('✅ Teacher account setup completed:', {
+      teacherId: teacher._id.toString(),
+      teacherEmail: teacher.email
+    });
 
     return sendResponse(res, 200, true, 'Account setup completed successfully', {
       teacher: teacherResponse,
-      token
+      token: jwtToken
     });
     
   } catch (error) {
@@ -706,31 +837,191 @@ const setupTeacherAccount = async (req, res) => {
   }
 };
 
+// Add this after the approveTeacher function (around line 940)
+
+// @desc    Approve teacher
+// @route   PATCH /api/teachers/:id/approve
+// @access  Private/Admin
+const approveTeacher = async (req, res) => {
+  try {
+    const teacherId = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
+    }
+
+    const teacher = await User.findOneAndUpdate(
+      { _id: teacherId, role: 'teacher', isActive: true },
+      { 
+        approvalStatus: 'approved',
+        updatedAt: new Date()
+      },
+      { new: true }
+    ).select('-password -__v -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
+
+    if (!teacher) {
+      return sendResponse(res, 404, false, 'Teacher not found');
+    }
+
+    console.log('✅ Teacher approved:', {
+      teacherId: teacher._id.toString(),
+      teacherEmail: teacher.email
+    });
+
+    return sendResponse(res, 200, true, 'Teacher approved successfully', teacher);
+
+  } catch (error) {
+    console.error('❌ Error approving teacher:', error);
+    return sendResponse(res, 500, false, 'Server error while approving teacher', null, [{ message: error.message }]);
+  }
+};
+
+// @desc    Reject teacher
+// @route   PATCH /api/teachers/:id/reject
+// @access  Private/Admin
+const rejectTeacher = async (req, res) => {
+  try {
+    const teacherId = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
+    }
+
+    const teacher = await User.findOneAndUpdate(
+      { _id: teacherId, role: 'teacher', isActive: true },
+      { 
+        approvalStatus: 'rejected',
+        updatedAt: new Date()
+      },
+      { new: true }
+    ).select('-password -__v -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
+
+    if (!teacher) {
+      return sendResponse(res, 404, false, 'Teacher not found');
+    }
+
+    console.log('✅ Teacher rejected:', {
+      teacherId: teacher._id.toString(),
+      teacherEmail: teacher.email
+    });
+
+    return sendResponse(res, 200, true, 'Teacher rejected successfully', teacher);
+
+  } catch (error) {
+    console.error('❌ Error rejecting teacher:', error);
+    return sendResponse(res, 500, false, 'Server error while rejecting teacher', null, [{ message: error.message }]);
+  }
+};
 // @desc    Teacher logout
 // @route   POST /api/teachers/logout
 // @access  Private/Teacher
 const teacherLogout = (req, res) => {
+  // Clear JWT cookie if using cookies
   res.cookie('jwt', 'loggedout', {
     expires: new Date(Date.now() + 10 * 1000),
     httpOnly: true
   });
   
+  console.log('✅ Teacher logout:', {
+    teacherId: req.user?.id,
+    teacherEmail: req.user?.email
+  });
+  
   return sendResponse(res, 200, true, 'Logged out successfully');
 };
 
+// @desc    Update teacher profile (by teacher themselves)
+// @route   PUT /api/teachers/profile
+// @access  Private/Teacher
+const updateTeacherProfile = async (req, res) => {
+  try {
+    const validation = handleValidationErrors(req);
+    if (validation.hasErrors) {
+      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
+    }
+
+    const teacherId = req.user.id;
+    const updateData = req.body;
+
+    // Fields that teachers can update themselves
+    const allowedFields = ['bio', 'availability', 'phone'];
+    const teacherProfileUpdates = {};
+    const generalUpdates = { updatedAt: new Date() };
+
+    // Filter allowed fields
+    Object.keys(updateData).forEach(key => {
+      if (allowedFields.includes(key)) {
+        teacherProfileUpdates[`teacherProfile.${key}`] = updateData[key];
+      }
+    });
+
+    if (Object.keys(teacherProfileUpdates).length === 0) {
+      return sendResponse(res, 400, false, 'No valid fields to update');
+    }
+
+    // Merge updates
+    Object.assign(generalUpdates, teacherProfileUpdates);
+
+    // Update teacher
+    const updatedTeacher = await User.findByIdAndUpdate(
+      teacherId,
+      generalUpdates,
+      { 
+        new: true, 
+        runValidators: true 
+      }
+    ).select('-__v -password -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
+
+    if (!updatedTeacher) {
+      return sendResponse(res, 404, false, 'Teacher not found');
+    }
+
+    console.log('✅ Teacher profile updated by teacher:', {
+      teacherId: updatedTeacher._id.toString(),
+      teacherEmail: updatedTeacher.email
+    });
+
+    return sendResponse(res, 200, true, 'Profile updated successfully', updatedTeacher);
+    
+  } catch (error) {
+    console.error('❌ Error updating teacher profile:', error);
+    
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(err => ({
+        field: err.path,
+        message: err.message,
+        value: err.value
+      }));
+      
+      return sendResponse(res, 400, false, 'Validation failed', null, validationErrors);
+    }
+
+    return sendResponse(res, 500, false, 'Server error while updating profile', null, [{ message: error.message }]);
+  }
+};
+
 module.exports = {
+  // Public routes
   getAllTeachers,
   getTeacherById,
+  getTeachersByDepartment,
+  
+  // Authentication routes
+  teacherLogin,
+  teacherLogout,
+  setupTeacherAccount,
+  
+  // Teacher protected routes
+  getTeacherProfile,
+  updateTeacherProfile,
+  
+  // Admin protected routes
   createTeacher,
   updateTeacher,
   deleteTeacher,
   permanentDeleteTeacher,
-  getTeachersByDepartment,
   getTeacherStats,
-  // Authentication methods
-  teacherLogin,
   sendAccountSetupLink,
-  setupTeacherAccount,
-  getTeacherProfile,
-  teacherLogout
+  approveTeacher,
+  rejectTeacher,
 };

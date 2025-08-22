@@ -8,7 +8,8 @@ const sendResponse = (res, statusCode, success, message, data = null, errors = n
   const response = {
     success,
     message,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    requestId: res.locals?.requestId || res.req?.id || 'unknown'
   };
 
   if (data !== null) response.data = data;
@@ -16,6 +17,25 @@ const sendResponse = (res, statusCode, success, message, data = null, errors = n
   if (meta !== null) response.meta = meta;
 
   return res.status(statusCode).json(response);
+};
+
+// Enhanced JWT verification with better error handling
+const verifyToken = (token) => {
+  return new Promise((resolve, reject) => {
+    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+      if (err) {
+        if (err.name === 'TokenExpiredError') {
+          reject({ name: 'TokenExpiredError', message: 'Token has expired' });
+        } else if (err.name === 'JsonWebTokenError') {
+          reject({ name: 'JsonWebTokenError', message: 'Invalid token' });
+        } else {
+          reject({ name: 'TokenError', message: 'Token verification failed' });
+        }
+      } else {
+        resolve(decoded);
+      }
+    });
+  });
 };
 
 // Consolidated authentication middleware
@@ -45,16 +65,24 @@ const authenticate = (options = {}) => {
         return sendResponse(res, 401, false, 'Access denied. No authentication token provided.');
       }
 
+      // Skip if token is logout placeholder
+      if (token === 'loggedout') {
+        if (!required) {
+          return next();
+        }
+        return sendResponse(res, 401, false, 'Access denied. Please log in again.');
+      }
+
       // Verify token
       let decoded;
       try {
-        decoded = jwt.verify(token, process.env.JWT_SECRET);
+        decoded = await verifyToken(token);
       } catch (tokenError) {
         console.error('Token verification failed:', tokenError.message);
         
         let message = 'Invalid authentication token';
         if (tokenError.name === 'TokenExpiredError') {
-          message = 'Authentication token has expired';
+          message = 'Authentication token has expired. Please log in again.';
         } else if (tokenError.name === 'JsonWebTokenError') {
           message = 'Invalid token format or signature';
         }
@@ -64,11 +92,15 @@ const authenticate = (options = {}) => {
 
       // Validate token payload
       const userId = decoded.id;
-      if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
-        return sendResponse(res, 401, false, 'Invalid token structure - no valid user ID found');
+      if (!userId) {
+        return sendResponse(res, 401, false, 'Invalid token structure - no user ID found');
       }
 
-      console.log('🔍 Decoded token payload:', {
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return sendResponse(res, 401, false, 'Invalid token structure - invalid user ID format');
+      }
+
+      console.log('🔍 Token verified for user:', {
         id: decoded.id,
         role: decoded.role,
         email: decoded.email
@@ -92,23 +124,36 @@ const authenticate = (options = {}) => {
       
       // Check if user exists
       if (!user) {
-        return sendResponse(res, 401, false, 'User not found. Token invalid or user does not exist.');
+        console.error('❌ User not found:', userId);
+        return sendResponse(res, 401, false, 'User not found. Token may be invalid or user may have been deleted.');
       }
 
       // Check if user is active
       if (user.isActive === false) {
+        console.error('❌ User account deactivated:', userId);
         return sendResponse(res, 401, false, 'Account is deactivated. Please contact support.');
       }
 
       // Check approval status (except for admin)
-      if (checkApproval && user.role !== 'admin' && user.approvalStatus !== 'approved') {
-        return sendResponse(res, 401, false, 'User account is not approved or is pending approval.');
+      if (checkApproval && user.role !== 'admin' && decoded.role !== 'admin') {
+        if (user.approvalStatus === 'rejected') {
+          return sendResponse(res, 401, false, 'Account has been rejected. Please contact admin.');
+        }
+        if (user.approvalStatus === 'pending') {
+          return sendResponse(res, 401, false, 'Account is pending approval. Please contact admin.');
+        }
+        if (user.approvalStatus !== 'approved') {
+          return sendResponse(res, 401, false, 'Account is not approved.');
+        }
       }
 
+      // Determine user role
+      const userRole = user.role || decoded.role;
+
       // Check role authorization
-      if (roles.length > 0 && !roles.includes(user.role || decoded.role)) {
-        console.log(`❌ Authorization failed: User role '${user.role || decoded.role}' not in required roles:`, roles);
-        return sendResponse(res, 403, false, `Access denied. Role '${user.role || decoded.role}' is not authorized for this resource.`);
+      if (roles.length > 0 && !roles.includes(userRole)) {
+        console.log(`❌ Authorization failed: User role '${userRole}' not in required roles:`, roles);
+        return sendResponse(res, 403, false, `Access denied. Role '${userRole}' is not authorized for this resource.`);
       }
 
       // Attach user to request with consistent format
@@ -117,24 +162,26 @@ const authenticate = (options = {}) => {
         _id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role || decoded.role,
+        role: userRole,
         isActive: user.isActive,
-        approvalStatus: user.approvalStatus
+        approvalStatus: user.approvalStatus || 'approved'
       };
 
       // For backward compatibility, also set role-specific properties
-      if (user.role === 'admin' || decoded.role === 'admin') {
+      if (userRole === 'admin') {
         req.admin = req.user;
-      } else if (user.role === 'teacher' || decoded.role === 'teacher') {
+      } else if (userRole === 'teacher') {
         req.teacher = req.user;
+      } else if (userRole === 'student') {
+        req.student = req.user;
       }
       
-      console.log(`✅ User authenticated: ${user.name} (${user.role || decoded.role})`);
+      console.log(`✅ User authenticated: ${user.name} (${userRole})`);
       next();
 
     } catch (error) {
       console.error('Authentication error:', error);
-      return sendResponse(res, 500, false, 'Server error during authentication');
+      return sendResponse(res, 500, false, 'Server error during authentication', null, [{ message: error.message }]);
     }
   };
 };
@@ -144,11 +191,17 @@ const protect = authenticate({ required: true });
 
 const authenticateAdmin = authenticate({ 
   roles: ['admin'], 
-  required: true 
+  required: true,
+  checkApproval: false // Admins don't need approval status check
 });
 
 const authenticateTeacher = authenticate({ 
   roles: ['teacher'], 
+  required: true 
+});
+
+const authenticateStudent = authenticate({ 
+  roles: ['student'], 
   required: true 
 });
 
@@ -184,7 +237,7 @@ const checkOwnershipOrAdmin = (resourceUserIdField = 'userId') => {
       }
 
       // Check if user owns the resource
-      const resourceUserId = req.params[resourceUserIdField] || req.body[resourceUserIdField];
+      const resourceUserId = req.params[resourceUserIdField] || req.body[resourceUserIdField] || req.params.id;
       const currentUserId = req.user.id;
       
       if (resourceUserId && currentUserId.toString() !== resourceUserId.toString()) {
@@ -225,6 +278,11 @@ const checkTeacherAppointmentAccess = async (req, res, next) => {
       return sendResponse(res, 400, false, 'Invalid appointment ID');
     }
 
+    // Admin can access all appointments
+    if (req.user.role === 'admin') {
+      return next();
+    }
+
     // Find the appointment
     const Appointment = require('../models/Appointment');
     const appointment = await Appointment.findById(id);
@@ -233,47 +291,77 @@ const checkTeacherAppointmentAccess = async (req, res, next) => {
       return sendResponse(res, 404, false, 'Appointment not found');
     }
 
-    // Admin can access all appointments
-    if (req.user.role === 'admin') {
-      return next();
-    }
-
     // Check if teacher owns the appointment
     const currentUserId = req.user.id;
     if (req.user.role === 'teacher' && currentUserId.toString() === appointment.teacherId.toString()) {
       return next();
     }
 
+    // Check if student owns the appointment
+    if (req.user.role === 'student' && currentUserId.toString() === appointment.studentId.toString()) {
+      return next();
+    }
+
     return sendResponse(res, 403, false, 'Access denied. You can only access your own appointments.');
 
   } catch (error) {
-    console.error('Teacher appointment access check error:', error);
+    console.error('Appointment access check error:', error);
     return sendResponse(res, 500, false, 'Server error during appointment access verification');
   }
 };
 
-// Middleware to log authentication attempts
+// Middleware to log authentication attempts (for debugging)
 const logAuthAttempt = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  const hasToken = authHeader && authHeader.startsWith('Bearer');
-  
-  console.log(`🔑 Auth attempt: ${req.method} ${req.originalUrl}`, {
-    hasToken,
-    ip: req.ip || req.connection.remoteAddress,
-    userAgent: req.headers['user-agent']?.substring(0, 50) + '...' || 'Unknown'
-  });
+  if (process.env.NODE_ENV === 'development') {
+    const authHeader = req.headers.authorization;
+    const hasToken = authHeader && authHeader.startsWith('Bearer');
+    
+    console.log(`🔑 Auth attempt: ${req.method} ${req.originalUrl}`, {
+      hasToken,
+      ip: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent']?.substring(0, 50) + '...' || 'Unknown'
+    });
+  }
 
   next();
+};
+
+// Middleware to check if user has account setup
+const requireAccountSetup = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return sendResponse(res, 401, false, 'Authentication required');
+    }
+
+    if (req.user.role === 'admin') {
+      return next(); // Admins don't need account setup
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return sendResponse(res, 404, false, 'User not found');
+    }
+
+    if (!user.hasAccount) {
+      return sendResponse(res, 403, false, 'Account setup required. Please complete your account setup first.');
+    }
+
+    next();
+  } catch (error) {
+    console.error('Account setup check error:', error);
+    return sendResponse(res, 500, false, 'Server error during account setup verification');
+  }
 };
 
 module.exports = {
   // Main authentication function
   authenticate,
   
-  // Convenience functions (for backward compatibility)
+  // Convenience functions
   protect,
   authenticateAdmin,
   authenticateTeacher,
+  authenticateStudent,
   authorize,
   restrictTo,
   optionalAuth,
@@ -283,7 +371,8 @@ module.exports = {
   validateObjectId,
   checkTeacherAppointmentAccess,
   logAuthAttempt,
+  requireAccountSetup,
   
-  // Response utility (can be used in controllers)
+  // Response utility
   sendResponse
 };
