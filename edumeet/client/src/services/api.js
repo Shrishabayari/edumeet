@@ -164,58 +164,78 @@ export const endpoints = {
     profile: '/auth/profile',
     updateProfile: '/auth/profile',
     verifyToken: '/auth/verify-token',
+    
     // Admin functions accessible through auth controller
-    getPendingRegistrations: '/auth/pending-registrations',
-    approveUser: (id) => `/auth/approve/${id}`,
-    rejectUser: (id) => `/auth/reject/${id}`,
-    getAllUsers: '/auth/users',
-    getUserStats: '/auth/stats',
+    getPendingRegistrations: '/auth/admin/pending',
+    getAllUsers: '/auth/admin/users',
+    getUserStats: '/auth/admin/stats',
+    approveUser: (id) => `/auth/admin/approve/${id}`,
+    rejectUser: (id) => `/auth/admin/reject/${id}`,
   },
 
-  // Teacher endpoints - CORRECTED
+  // Teacher endpoints - CORRECTED to match your backend
   teachers: {
     // Public endpoints
     getAll: '/teachers',
     getById: (id) => `/teachers/${id}`,
     getByDepartment: (department) => `/teachers/department/${department}`,
-    getStats: '/teachers/stats',
     
-    // Admin-only endpoints
-    create: '/teachers',
-    update: (id) => `/teachers/${id}`,
-    delete: (id) => `/teachers/${id}`,
-    permanentDelete: (id) => `/teachers/${id}/permanent`,
-    
-    // Teacher Authentication routes
+    // Authentication routes
     login: '/teachers/login',
     logout: '/teachers/logout',
-    profile: '/teachers/profile',
-    sendSetupLink: '/teachers/send-setup-link',
     setupAccount: (token) => `/teachers/setup-account/${token}`,
+    
+    // Teacher profile routes
+    getProfile: '/teachers/profile/me',
+    updateProfile: '/teachers/profile/me',
+    
+    // Admin-only endpoints - CORRECTED paths
+    getStats: '/teachers/admin/stats',
+    create: '/teachers/admin/create',
+    update: (id) => `/teachers/admin/${id}`,
+    delete: (id) => `/teachers/admin/${id}`,
+    permanentDelete: (id) => `/teachers/admin/${id}/permanent`,
+    approve: (id) => `/teachers/admin/${id}/approve`,
+    reject: (id) => `/teachers/admin/${id}/reject`,
+    sendSetupLink: '/teachers/admin/send-setup-link',
+    
+    // Legacy endpoints (for backward compatibility)
+    legacyCreate: '/teachers',
+    legacyUpdate: (id) => `/teachers/${id}`,
+    legacyDelete: (id) => `/teachers/${id}`,
+    legacyPermanentDelete: (id) => `/teachers/${id}/permanent`,
+    legacyGetStats: '/teachers/stats',
+    legacySendSetupLink: '/teachers/send-setup-link',
   },
 
   // Appointment endpoints - CORRECTED
   appointments: {
-    getAll: '/appointments',
-    getById: (id) => `/appointments/${id}`,
+    // Statistics route (comes first to avoid conflicts)
     getStats: '/appointments/stats',
     
-    // Student actions
-    request: '/appointments/request',
+    // Student and teacher actions
+    request: '/appointments/request',  // Student request appointment
+    book: '/appointments/book',        // Teacher direct booking
     
-    // Teacher actions  
-    book: '/appointments/book',
+    // Teacher-specific routes (current teacher)
+    getTeacherPending: '/appointments/teacher/pending',
+    getTeacherAppointments: '/appointments/teacher/appointments',
+    
+    // Specific teacher routes (with ID)
+    getTeacherPendingById: (teacherId) => `/appointments/teacher/${teacherId}/pending`,
+    getByTeacher: (teacherId) => `/appointments/teacher/${teacherId}`,
+    
+    // Action routes
     accept: (id) => `/appointments/${id}/accept`,
     reject: (id) => `/appointments/${id}/reject`,
     complete: (id) => `/appointments/${id}/complete`,
-    
-    // Common actions
-    update: (id) => `/appointments/${id}`,
     cancel: (id) => `/appointments/${id}/cancel`,
     
-    // Teacher-specific queries
-    getByTeacher: (teacherId) => `/appointments/teacher/${teacherId}`,
-    getTeacherPending: (teacherId) => `/appointments/teacher/${teacherId}/pending`,
+    // Generic CRUD routes
+    getAll: '/appointments',
+    getById: (id) => `/appointments/${id}`,
+    update: (id) => `/appointments/${id}`,
+    delete: (id) => `/appointments/${id}`,  // Admin only
   },
 
   // Admin endpoints - CORRECTED to match your adminRoutes
@@ -231,55 +251,39 @@ export const endpoints = {
     
     // Dashboard
     dashboardStats: '/admin/dashboard/stats',
+    dashboard: '/admin/dashboard', // Alternative endpoint
     
     // User Management  
     getUsers: '/admin/users',
-    getUserById: (id) => `/admin/users/${id}`,
-    updateUser: (id) => `/admin/users/${id}`,
-    deleteUser: (id) => `/admin/users/${id}`,
-    approveUser: (id) => `/admin/users/${id}/approve`,
-    rejectUser: (id) => `/admin/users/${id}/reject`,
-    getPendingRegistrations: '/admin/users/pending',
-    getUserStats: '/admin/users/stats',
-    
-    // Teacher Management
-    getTeachers: '/admin/teachers',
-    getTeacherById: (id) => `/admin/teachers/${id}`,
-    updateTeacher: (id) => `/admin/teachers/${id}`,
-    deleteTeacher: (id) => `/admin/teachers/${id}`,
-    updateTeacherStatus: (id) => `/admin/teachers/${id}/status`,
-    getTeacherStats: '/admin/teachers/stats',
+    deleteUser: (userId) => `/admin/users/${userId}`,
     
     // Appointment Management
     getAppointments: '/admin/appointments',
-    getAppointmentById: (id) => `/admin/appointments/${id}`,
-    updateAppointment: (id) => `/admin/appointments/${id}`,
-    deleteAppointment: (id) => `/admin/appointments/${id}`,
-    getAppointmentStats: '/admin/appointments/stats',
     
-    // System Management
-    getSystemSettings: '/admin/settings',
-    updateSystemSettings: '/admin/settings',
-    getSystemStats: '/admin/stats',
+    // Teacher Management
+    updateTeacherStatus: (teacherId) => `/admin/teachers/${teacherId}/status`,
+    
+    // Health check
+    health: '/admin/health',
   },
   
-  // Message endpoints - CORRECTED
+  // Message endpoints - CORRECTED to match your messageRoutes
   messages: {
     getByRoom: (roomId) => `/messages/room/${roomId}`,
-    delete: (id) => `/messages/${id}`,
+    delete: (messageId) => `/messages/${messageId}`,
     getRoomStats: (roomId) => `/messages/room/${roomId}/stats`,
-    create: '/messages',
-    update: (id) => `/messages/${id}`,
+    getAllRooms: '/messages/rooms',
+    searchInRoom: (roomId) => `/messages/room/${roomId}/search`,
   },
   
   // Health check
   health: '/health'
 };
 
-// Simplified token management utilities - ENHANCED
+// Token management utilities - Enhanced and corrected
 export const tokenManager = {
   // User token methods
-  setUserToken: (token, persistent = true) => { // Changed default to persistent
+  setUserToken: (token, persistent = true) => {
     console.log('🔧 Setting user token:', { hasToken: !!token, persistent });
     
     if (!token || typeof token !== 'string' || token.trim() === '') {
@@ -312,7 +316,7 @@ export const tokenManager = {
   },
   
   // Teacher token methods
-  setTeacherToken: (token, persistent = true) => { // Changed default to persistent
+  setTeacherToken: (token, persistent = true) => {
     console.log('🔧 Setting teacher token:', { 
       hasToken: !!token, 
       persistent, 
@@ -350,7 +354,7 @@ export const tokenManager = {
   },
   
   // Admin token methods
-  setAdminToken: (token, persistent = true) => { // Changed default to persistent
+  setAdminToken: (token, persistent = true) => {
     console.log('🔧 Setting admin token:', { hasToken: !!token, persistent });
     
     if (!token || typeof token !== 'string' || token.trim() === '') {
@@ -571,6 +575,14 @@ export const apiMethods = {
   logout: () => api.post(endpoints.auth.logout),
   getProfile: () => api.get(endpoints.auth.profile),
   updateProfile: (data) => api.put(endpoints.auth.updateProfile, data),
+  verifyToken: () => api.get(endpoints.auth.verifyToken),
+
+  // Auth admin functions (accessible via auth routes)
+  getPendingRegistrations: () => api.get(endpoints.auth.getPendingRegistrations),
+  getAllUsersForAdmin: (params = {}) => api.get(endpoints.auth.getAllUsers, { params }),
+  getUserStats: () => api.get(endpoints.auth.getUserStats),
+  approveUser: (id) => api.put(endpoints.auth.approveUser(id)),
+  rejectUser: (id, reason) => api.put(endpoints.auth.rejectUser(id), { reason }),
 
   // Teacher Operations - CORRECTED
   teacherLogin: async (credentials) => {
@@ -586,21 +598,32 @@ export const apiMethods = {
   },
 
   teacherLogout: () => api.post(endpoints.teachers.logout),
-  getTeacherProfile: () => api.get(endpoints.teachers.profile),
+  getTeacherProfile: () => api.get(endpoints.teachers.getProfile),
+  updateTeacherProfile: (data) => api.put(endpoints.teachers.updateProfile, data),
+  setupTeacherAccount: (token, data) => api.post(endpoints.teachers.setupAccount(token), data),
 
+  // Public teacher operations
   getAllTeachers: (params = {}) => api.get(endpoints.teachers.getAll, { params }),
   getTeacherById: (id) => api.get(endpoints.teachers.getById(id)),
   getTeachersByDepartment: (department) => api.get(endpoints.teachers.getByDepartment(department)),
-  getTeacherStats: () => api.get(endpoints.teachers.getStats),
 
-  // Admin-only teacher operations
+  // Admin-only teacher operations - CORRECTED paths
+  getTeacherStats: () => api.get(endpoints.teachers.getStats),
   createTeacher: (teacherData) => api.post(endpoints.teachers.create, teacherData),
   updateTeacher: (id, teacherData) => api.put(endpoints.teachers.update(id), teacherData),
   deleteTeacher: (id) => api.delete(endpoints.teachers.delete(id)),
   permanentDeleteTeacher: (id) => api.delete(endpoints.teachers.permanentDelete(id)),
-  
+  approveTeacher: (id) => api.patch(endpoints.teachers.approve(id)),
+  rejectTeacher: (id) => api.patch(endpoints.teachers.reject(id)),
   sendTeacherSetupLink: (data) => api.post(endpoints.teachers.sendSetupLink, data),
-  setupTeacherAccount: (token, data) => api.post(endpoints.teachers.setupAccount(token), data),
+
+  // Legacy teacher operations (for backward compatibility)
+  createTeacherLegacy: (teacherData) => api.post(endpoints.teachers.legacyCreate, teacherData),
+  updateTeacherLegacy: (id, teacherData) => api.put(endpoints.teachers.legacyUpdate(id), teacherData),
+  deleteTeacherLegacy: (id) => api.delete(endpoints.teachers.legacyDelete(id)),
+  permanentDeleteTeacherLegacy: (id) => api.delete(endpoints.teachers.legacyPermanentDelete(id)),
+  getTeacherStatsLegacy: () => api.get(endpoints.teachers.legacyGetStats),
+  sendTeacherSetupLinkLegacy: (data) => api.post(endpoints.teachers.legacySendSetupLink, data),
 
   // Appointment Operations - CORRECTED
   requestAppointment: async (appointmentData) => {
@@ -655,18 +678,18 @@ export const apiMethods = {
   completeAppointment: (id) => api.put(endpoints.appointments.complete(id)),
   cancelAppointment: (id, reason = '') => api.put(endpoints.appointments.cancel(id), { reason }),
 
+  // Appointment queries
   getAllAppointments: (params = {}) => api.get(endpoints.appointments.getAll, { params }),
   getAppointmentById: (id) => api.get(endpoints.appointments.getById(id)),
   updateAppointment: (id, data) => api.put(endpoints.appointments.update(id), data),
+  deleteAppointment: (id) => api.delete(endpoints.appointments.delete(id)), // Admin only
   getAppointmentStats: () => api.get(endpoints.appointments.getStats),
 
-  getTeacherAppointments: (teacherId, params = {}) => {
-    return api.get(endpoints.appointments.getByTeacher(teacherId), { params });
-  },
-
-  getTeacherPendingRequests: (teacherId) => {
-    return api.get(endpoints.appointments.getTeacherPending(teacherId));
-  },
+  // Teacher-specific appointment queries - CORRECTED
+  getTeacherPendingRequests: () => api.get(endpoints.appointments.getTeacherPending),
+  getTeacherAppointments: (params = {}) => api.get(endpoints.appointments.getTeacherAppointments, { params }),
+  getTeacherPendingRequestsById: (teacherId) => api.get(endpoints.appointments.getTeacherPendingById(teacherId)),
+  getTeacherAppointmentsById: (teacherId, params = {}) => api.get(endpoints.appointments.getByTeacher(teacherId), { params }),
 
   // Admin Operations - CORRECTED to match your adminRoutes
   adminLogin: async (credentials) => {
@@ -684,18 +707,31 @@ export const apiMethods = {
   getAdminProfile: () => api.get(endpoints.admin.profile),
   updateAdminProfile: (data) => api.put(endpoints.admin.updateProfile, data),
   getDashboardStats: () => api.get(endpoints.admin.dashboardStats),
+  getDashboard: () => api.get(endpoints.admin.dashboard),
 
-  // User management via auth controller (as per your implementation)
-  getPendingRegistrations: () => api.get(endpoints.auth.getPendingRegistrations),
-  getAllUsersForAdmin: (params = {}) => api.get(endpoints.auth.getAllUsers, { params }),
-  approveUser: (id) => api.put(endpoints.auth.approveUser(id)),
-  rejectUser: (id, reason) => api.put(endpoints.auth.rejectUser(id), { reason }),
-  getUserStats: () => api.get(endpoints.auth.getUserStats),
+  // Admin user management
+  getAdminUsers: (params = {}) => api.get(endpoints.admin.getUsers, { params }),
+  deleteAdminUser: (userId) => api.delete(endpoints.admin.deleteUser(userId)),
 
-  // Message Operations
-  getMessagesByRoom: (roomId) => api.get(endpoints.messages.getByRoom(roomId)),
-  deleteMessage: (id) => api.delete(endpoints.messages.delete(id)),
+  // Admin appointment management
+  getAdminAppointments: (params = {}) => api.get(endpoints.admin.getAppointments, { params }),
+
+  // Admin teacher management
+  updateTeacherStatus: (teacherId, data) => api.patch(endpoints.admin.updateTeacherStatus(teacherId), data),
+
+  // Admin health check
+  adminHealthCheck: () => api.get(endpoints.admin.health),
+
+  // Message Operations - CORRECTED
+  getMessagesByRoom: (roomId, params = {}) => api.get(endpoints.messages.getByRoom(roomId), { params }),
+  deleteMessage: (messageId) => api.delete(endpoints.messages.delete(messageId)),
   getRoomStats: (roomId) => api.get(endpoints.messages.getRoomStats(roomId)),
+  getAllRooms: () => api.get(endpoints.messages.getAllRooms),
+  searchMessagesInRoom: (roomId, searchQuery, params = {}) => {
+    return api.get(endpoints.messages.searchInRoom(roomId), { 
+      params: { q: searchQuery, ...params } 
+    });
+  },
 
   // Health check
   healthCheck: () => api.get(endpoints.health),
