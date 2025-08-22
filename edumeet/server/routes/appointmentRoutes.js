@@ -73,7 +73,7 @@ const appointmentValidation = [
         throw new Error('Invalid date format');
       }
       
-      // Check if date is not in the past
+      // Check if date is not in the past (allow today)
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const appointmentDate = new Date(date);
@@ -260,7 +260,9 @@ if (process.env.NODE_ENV === 'development') {
         'GET /api/appointments/stats': 'Get appointment statistics',
         'POST /api/appointments/request': 'Student request appointment',
         'POST /api/appointments/book': 'Teacher book appointment',
+        'GET /api/appointments/teacher/pending': 'Get pending requests for current teacher',
         'GET /api/appointments/teacher/:teacherId/pending': 'Get pending requests for teacher',
+        'GET /api/appointments/teacher/appointments': 'Get appointments for current teacher',
         'GET /api/appointments/teacher/:teacherId': 'Get appointments for teacher',
         'PUT /api/appointments/:id/accept': 'Accept appointment request',
         'PUT /api/appointments/:id/reject': 'Reject appointment request',
@@ -299,6 +301,18 @@ router.post('/book',
 );
 
 // TEACHER-SPECIFIC ROUTES (must come before generic /:id routes)
+// Current teacher's pending requests
+router.get('/teacher/pending', 
+  protect, 
+  authorize('teacher'), 
+  (req, res) => {
+    // Set teacherId from authenticated user
+    req.params.teacherId = req.user.id;
+    getTeacherPendingRequests(req, res);
+  }
+);
+
+// Specific teacher's pending requests (admin or the teacher themselves)
 router.get('/teacher/:teacherId/pending', 
   paramValidation,
   handleValidationErrors,
@@ -307,6 +321,20 @@ router.get('/teacher/:teacherId/pending',
   getTeacherPendingRequests
 );
 
+// Current teacher's appointments
+router.get('/teacher/appointments', 
+  queryValidation,
+  handleValidationErrors,
+  protect, 
+  authorize('teacher'), 
+  (req, res) => {
+    // Set teacherId from authenticated user
+    req.params.teacherId = req.user.id;
+    getTeacherAppointments(req, res);
+  }
+);
+
+// Specific teacher's appointments (admin or the teacher themselves)
 router.get('/teacher/:teacherId', 
   paramValidation,
   queryValidation,
@@ -323,7 +351,6 @@ router.put('/:id/accept',
   handleValidationErrors,
   protect, 
   authorize('teacher'), 
-  checkTeacherAppointmentAccess,
   acceptAppointmentRequest
 );
 
@@ -333,7 +360,6 @@ router.put('/:id/reject',
   handleValidationErrors,
   protect, 
   authorize('teacher'), 
-  checkTeacherAppointmentAccess,
   rejectAppointmentRequest
 );
 
@@ -342,7 +368,6 @@ router.put('/:id/complete',
   handleValidationErrors,
   protect, 
   authorize('teacher', 'admin'), 
-  checkTeacherAppointmentAccess,
   completeAppointment
 );
 
@@ -378,7 +403,6 @@ router.put('/:id',
   handleValidationErrors,
   protect, 
   authorize('teacher', 'admin'),
-  checkTeacherAppointmentAccess,
   updateAppointment
 );
 
@@ -427,7 +451,9 @@ router.use('*', (req, res) => {
       'GET /api/appointments/stats',
       'POST /api/appointments/request',
       'POST /api/appointments/book',
+      'GET /api/appointments/teacher/pending',
       'GET /api/appointments/teacher/:teacherId/pending',
+      'GET /api/appointments/teacher/appointments',
       'GET /api/appointments/teacher/:teacherId',
       'PUT /api/appointments/:id/accept',
       'PUT /api/appointments/:id/reject',

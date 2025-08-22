@@ -114,7 +114,10 @@ const acceptAppointmentRequest = async (req, res) => {
       await appointment.save({ session });
 
       // Populate teacher details for response
-      await appointment.populate('teacherId', 'name email phone subject department');
+      await appointment.populate({
+        path: 'teacherId',
+        select: 'name email phone subject department'
+      });
 
       console.log('✅ Appointment accepted successfully:', appointment._id);
       
@@ -221,7 +224,10 @@ const rejectAppointmentRequest = async (req, res) => {
       await appointment.save({ session });
 
       // Populate teacher details for response
-      await appointment.populate('teacherId', 'name email phone subject department');
+      await appointment.populate({
+        path: 'teacherId',
+        select: 'name email phone subject department'
+      });
 
       console.log('✅ Appointment rejected successfully:', {
         id: appointment._id,
@@ -280,17 +286,29 @@ const getAllAppointments = async (req, res) => {
     const { status, createdBy, teacherId, page = 1, limit = 10 } = req.query;
     const filter = {};
     
+    // Apply filters based on user role
+    if (req.user.role === 'teacher') {
+      // Teachers can only see their own appointments
+      filter.teacherId = req.user.id;
+    }
+    
     if (status) filter.status = status;
     if (createdBy) filter.createdBy = createdBy;
     if (teacherId && mongoose.Types.ObjectId.isValid(teacherId)) {
-      filter.teacherId = teacherId;
+      // Only admins can filter by different teacher IDs
+      if (req.user.role === 'admin') {
+        filter.teacherId = teacherId;
+      }
     }
     
     // Pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const appointments = await Appointment.find(filter)
-      .populate('teacherId', 'name email phone subject department')
+      .populate({
+        path: 'teacherId',
+        select: 'name email phone subject department'
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -330,12 +348,23 @@ const getAppointmentById = async (req, res) => {
     }
     
     const appointment = await Appointment.findById(id)
-      .populate('teacherId', 'name email phone subject department');
+      .populate({
+        path: 'teacherId',
+        select: 'name email phone subject department'
+      });
     
     if (!appointment) {
       return res.status(404).json({
         success: false,
         message: 'Appointment not found'
+      });
+    }
+    
+    // Check authorization
+    if (req.user.role === 'teacher' && req.user.id.toString() !== appointment.teacherId._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You can only view your own appointments.'
       });
     }
     
@@ -443,7 +472,10 @@ const requestAppointment = async (req, res) => {
     await appointment.save();
     
     // Populate teacher details for response
-    await appointment.populate('teacherId', 'name email phone subject department');
+    await appointment.populate({
+      path: 'teacherId',
+      select: 'name email phone subject department'
+    });
     
     console.log('Appointment request created successfully:', appointment._id);
     
@@ -555,7 +587,10 @@ const teacherBookAppointment = async (req, res) => {
     const appointment = new Appointment(appointmentData);
     await appointment.save();
     
-    await appointment.populate('teacherId', 'name email phone subject department');
+    await appointment.populate({
+      path: 'teacherId',
+      select: 'name email phone subject department'
+    });
     
     console.log('Appointment booked directly by teacher:', appointment._id);
     
@@ -633,7 +668,10 @@ const updateAppointment = async (req, res) => {
       id,
       updates,
       { new: true, runValidators: true }
-    ).populate('teacherId', 'name email phone subject department');
+    ).populate({
+      path: 'teacherId',
+      select: 'name email phone subject department'
+    });
     
     res.json({
       success: true,
@@ -713,7 +751,10 @@ const cancelAppointment = async (req, res) => {
     appointment.updatedAt = new Date();
     
     await appointment.save();
-    await appointment.populate('teacherId', 'name email phone subject department');
+    await appointment.populate({
+      path: 'teacherId',
+      select: 'name email phone subject department'
+    });
     
     res.json({
       success: true,
@@ -760,7 +801,10 @@ const getTeacherPendingRequests = async (req, res) => {
       status: 'pending',
       createdBy: 'student'
     })
-    .populate('teacherId', 'name email phone subject department')
+    .populate({
+      path: 'teacherId',
+      select: 'name email phone subject department'
+    })
     .sort({ createdAt: -1 });
     
     console.log(`✅ Found ${pendingRequests.length} pending requests`);
@@ -813,7 +857,10 @@ const getTeacherAppointments = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const appointments = await Appointment.find(filter)
-      .populate('teacherId', 'name email phone subject department')
+      .populate({
+        path: 'teacherId',
+        select: 'name email phone subject department'
+      })
       .sort({ date: 1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -884,7 +931,10 @@ const completeAppointment = async (req, res) => {
     appointment.updatedAt = new Date();
     
     await appointment.save();
-    await appointment.populate('teacherId', 'name email phone subject department');
+    await appointment.populate({
+      path: 'teacherId',
+      select: 'name email phone subject department'
+    });
     
     res.json({
       success: true,
@@ -922,6 +972,9 @@ const getAppointmentStats = async (req, res) => {
           message: 'You can only view your own statistics'
         });
       }
+    } else if (req.user?.role === 'teacher') {
+      // Teachers can only see their own stats by default
+      filter.teacherId = req.user.id;
     }
     
     const totalAppointments = await Appointment.countDocuments(filter);

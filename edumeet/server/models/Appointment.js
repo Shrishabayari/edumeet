@@ -11,7 +11,8 @@ const appointmentSchema = new mongoose.Schema({
         return mongoose.Types.ObjectId.isValid(v);
       },
       message: 'Invalid teacher ID format'
-    }
+    },
+    index: true // Added index for better query performance
   },
   teacherName: {
     type: String,
@@ -37,7 +38,8 @@ const appointmentSchema = new mongoose.Schema({
           return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
         },
         message: 'Please provide a valid email address'
-      }
+      },
+      index: true // Added index for better query performance
     },
     phone: {
       type: String,
@@ -90,7 +92,8 @@ const appointmentSchema = new mongoose.Schema({
         return v instanceof Date && !isNaN(v);
       },
       message: 'Please provide a valid date'
-    }
+    },
+    index: true // Added index for better query performance
   },
   appointmentDate: {
     type: String,
@@ -184,11 +187,12 @@ const appointmentSchema = new mongoose.Schema({
   }
 });
 
-// Add compound indexes for efficient querying
+// Add compound indexes for efficient querying - FIXED: More comprehensive indexing
 appointmentSchema.index({ teacherId: 1, date: 1, time: 1 });
 appointmentSchema.index({ teacherId: 1, status: 1 });
 appointmentSchema.index({ date: 1, status: 1 });
 appointmentSchema.index({ 'student.email': 1 });
+appointmentSchema.index({ status: 1, createdBy: 1 });
 
 // Compound index for conflict checking - most important for performance
 appointmentSchema.index({ 
@@ -196,6 +200,23 @@ appointmentSchema.index({
   date: 1, 
   time: 1, 
   status: 1 
+}, { background: true });
+
+// Text search index for better searchability
+appointmentSchema.index({
+  'student.name': 'text',
+  'student.email': 'text',
+  'student.subject': 'text',
+  'teacherName': 'text',
+  'notes': 'text'
+}, {
+  weights: {
+    'student.name': 10,
+    'student.email': 8,
+    'teacherName': 5,
+    'student.subject': 3,
+    'notes': 1
+  }
 });
 
 // Pre-save middleware to update timestamps and validate data
@@ -221,7 +242,7 @@ appointmentSchema.pre('save', function(next) {
   next();
 });
 
-// Pre-validate middleware for additional checks
+// Pre-validate middleware for additional checks - ENHANCED
 appointmentSchema.pre('validate', function(next) {
   // Validate date is not in the past (only for new appointments)
   if (this.isNew && this.date) {
@@ -238,7 +259,7 @@ appointmentSchema.pre('validate', function(next) {
     }
   }
   
-  // Validate status transitions
+  // Validate status transitions - ENHANCED with more detailed validation
   if (!this.isNew && this.isModified('status')) {
     const validTransitions = {
       'pending': ['confirmed', 'rejected', 'cancelled'],
@@ -250,19 +271,43 @@ appointmentSchema.pre('validate', function(next) {
     };
     
     const currentStatus = this.status;
-    const originalStatus = this.isModified('status') ? this.$__.original.status : currentStatus;
+    const originalDoc = this.constructor.findOne({ _id: this._id });
     
-    if (originalStatus && !validTransitions[originalStatus]?.includes(currentStatus)) {
-      const error = new Error(`Invalid status transition from '${originalStatus}' to '${currentStatus}'`);
-      error.path = 'status';
-      return next(error);
+    if (originalDoc && this.$__.original) {
+      const originalStatus = this.$__.original.status;
+      
+      if (originalStatus && !validTransitions[originalStatus]?.includes(currentStatus)) {
+        const error = new Error(`Invalid status transition from '${originalStatus}' to '${currentStatus}'`);
+        error.path = 'status';
+        return next(error);
+      }
     }
+  }
+  
+  // Validate teacher response fields consistency
+  if (this.status === 'confirmed' || this.status === 'rejected') {
+    if (!this.teacherResponse?.respondedAt) {
+      this.teacherResponse = this.teacherResponse || {};
+      this.teacherResponse.respondedAt = new Date();
+    }
+  }
+  
+  // Validate completion fields consistency
+  if (this.status === 'completed' && !this.completedAt) {
+    this.completedAt = new Date();
+  }
+  
+  // Validate cancellation fields consistency
+  if (this.status === 'cancelled' && !this.cancellation?.cancelledAt) {
+    this.cancellation = this.cancellation || {};
+    this.cancellation.cancelledAt = new Date();
+    this.cancellation.cancelledBy = this.cancellation.cancelledBy || 'system';
   }
   
   next();
 });
 
-// Instance methods for appointment management
+// Instance methods for appointment management - ENHANCED
 appointmentSchema.methods.acceptRequest = function(responseMessage = '') {
   if (this.status !== 'pending') {
     throw new Error('Only pending appointments can be accepted');
@@ -273,8 +318,10 @@ appointmentSchema.methods.acceptRequest = function(responseMessage = '') {
   }
   
   this.status = 'confirmed';
-  this.teacherResponse.respondedAt = new Date();
-  this.teacherResponse.responseMessage = responseMessage || 'Request accepted';
+  this.teacherResponse = {
+    respondedAt: new Date(),
+    responseMessage: responseMessage || 'Request accepted'
+  };
   this.updatedAt = new Date();
   
   return this.save();
@@ -290,8 +337,10 @@ appointmentSchema.methods.rejectRequest = function(responseMessage = '') {
   }
   
   this.status = 'rejected';
-  this.teacherResponse.respondedAt = new Date();
-  this.teacherResponse.responseMessage = responseMessage || 'Request rejected';
+  this.teacherResponse = {
+    respondedAt: new Date(),
+    responseMessage: responseMessage || 'Request rejected'
+  };
   this.updatedAt = new Date();
   
   return this.save();
@@ -334,10 +383,16 @@ appointmentSchema.methods.canBeModifiedBy = function(userId, userRole) {
     return true;
   }
   
+  // Students can view appointments they created (by email)
+  if (userRole === 'student' && this.student?.email) {
+    // This would need to be checked against the user's email in the controller
+    return false; // Let controller handle this check
+  }
+  
   return false;
 };
 
-// Static methods for common queries
+// Static methods for common queries - ENHANCED
 appointmentSchema.statics.findPendingForTeacher = function(teacherId) {
   if (!mongoose.Types.ObjectId.isValid(teacherId)) {
     throw new Error('Invalid teacher ID');
@@ -347,7 +402,7 @@ appointmentSchema.statics.findPendingForTeacher = function(teacherId) {
     teacherId: new mongoose.Types.ObjectId(teacherId),
     status: 'pending',
     createdBy: 'student'
-  }).sort({ createdAt: -1 });
+  }).populate('teacherId', 'name email').sort({ createdAt: -1 });
 };
 
 appointmentSchema.statics.findTeacherBookings = function(teacherId) {
@@ -358,7 +413,7 @@ appointmentSchema.statics.findTeacherBookings = function(teacherId) {
   return this.find({
     teacherId: new mongoose.Types.ObjectId(teacherId),
     createdBy: 'teacher'
-  }).sort({ date: 1 });
+  }).populate('teacherId', 'name email').sort({ date: 1 });
 };
 
 appointmentSchema.statics.findConfirmedAppointments = function(teacherId = null) {
@@ -366,7 +421,7 @@ appointmentSchema.statics.findConfirmedAppointments = function(teacherId = null)
   if (teacherId && mongoose.Types.ObjectId.isValid(teacherId)) {
     query.teacherId = new mongoose.Types.ObjectId(teacherId);
   }
-  return this.find(query).sort({ date: 1 });
+  return this.find(query).populate('teacherId', 'name email').sort({ date: 1 });
 };
 
 appointmentSchema.statics.checkTimeSlotAvailability = function(teacherId, date, time) {
@@ -394,7 +449,9 @@ appointmentSchema.statics.findUpcomingAppointments = function(teacherId = null) 
     query.teacherId = new mongoose.Types.ObjectId(teacherId);
   }
   
-  return this.find(query).sort({ date: 1, time: 1 });
+  return this.find(query)
+    .populate('teacherId', 'name email')
+    .sort({ date: 1, time: 1 });
 };
 
 appointmentSchema.statics.getTeacherStats = async function(teacherId) {
@@ -405,33 +462,45 @@ appointmentSchema.statics.getTeacherStats = async function(teacherId) {
   const teacherObjectId = new mongoose.Types.ObjectId(teacherId);
   
   try {
-    const stats = await Promise.all([
-      this.countDocuments({ teacherId: teacherObjectId, status: 'pending' }),
-      this.countDocuments({ teacherId: teacherObjectId, status: 'confirmed' }),
-      this.countDocuments({ teacherId: teacherObjectId, status: 'booked' }),
-      this.countDocuments({ teacherId: teacherObjectId, status: 'completed' }),
-      this.countDocuments({ teacherId: teacherObjectId, status: 'cancelled' }),
-      this.countDocuments({ teacherId: teacherObjectId, status: 'rejected' })
+    // Use aggregation for better performance
+    const stats = await this.aggregate([
+      { $match: { teacherId: teacherObjectId } },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
     ]);
     
-    const [pending, confirmed, booked, completed, cancelled, rejected] = stats;
-    
-    return {
-      pending,
-      confirmed,
-      booked,
-      completed,
-      cancelled,
-      rejected,
-      total: pending + confirmed + booked + completed + cancelled + rejected,
-      active: pending + confirmed + booked
+    // Initialize all status counts
+    const result = {
+      pending: 0,
+      confirmed: 0,
+      booked: 0,
+      completed: 0,
+      cancelled: 0,
+      rejected: 0
     };
+    
+    // Fill in actual counts
+    stats.forEach(stat => {
+      if (result.hasOwnProperty(stat._id)) {
+        result[stat._id] = stat.count;
+      }
+    });
+    
+    // Calculate derived stats
+    result.total = Object.values(result).reduce((sum, count) => sum + count, 0);
+    result.active = result.pending + result.confirmed + result.booked;
+    
+    return result;
   } catch (error) {
     throw new Error(`Failed to get teacher stats: ${error.message}`);
   }
 };
 
-// Static method to get appointment conflicts
+// Static method to get appointment conflicts - ENHANCED
 appointmentSchema.statics.getConflicts = function(teacherId, date, time, excludeId = null) {
   if (!mongoose.Types.ObjectId.isValid(teacherId)) {
     throw new Error('Invalid teacher ID');
@@ -448,10 +517,10 @@ appointmentSchema.statics.getConflicts = function(teacherId, date, time, exclude
     query._id = { $ne: new mongoose.Types.ObjectId(excludeId) };
   }
   
-  return this.find(query);
+  return this.find(query).populate('teacherId', 'name email');
 };
 
-// Virtuals for computed properties
+// Virtuals for computed properties - ENHANCED
 appointmentSchema.virtual('formattedDate').get(function() {
   if (!this.date) return '';
   
@@ -536,19 +605,21 @@ appointmentSchema.set('toObject', {
   }
 });
 
-// Error handling middleware
+// Error handling middleware - ENHANCED
 appointmentSchema.post('save', function(error, doc, next) {
   if (error.name === 'MongoServerError' && error.code === 11000) {
     // Handle duplicate key errors
-    const field = Object.keys(error.keyPattern)[0];
+    const field = Object.keys(error.keyPattern || {})[0] || 'field';
     const duplicateError = new Error(`Duplicate value for ${field}`);
     duplicateError.statusCode = 400;
+    duplicateError.code = 'DUPLICATE_ERROR';
     next(duplicateError);
   } else if (error.name === 'ValidationError') {
     // Handle validation errors
     const validationError = new Error('Validation failed');
     validationError.statusCode = 400;
-    validationError.details = Object.values(error.errors).map(err => ({
+    validationError.code = 'VALIDATION_ERROR';
+    validationError.details = Object.values(error.errors || {}).map(err => ({
       field: err.path,
       message: err.message,
       value: err.value
@@ -561,14 +632,16 @@ appointmentSchema.post('save', function(error, doc, next) {
 
 appointmentSchema.post('findOneAndUpdate', function(error, doc, next) {
   if (error.name === 'MongoServerError' && error.code === 11000) {
-    const field = Object.keys(error.keyPattern)[0];
+    const field = Object.keys(error.keyPattern || {})[0] || 'field';
     const duplicateError = new Error(`Duplicate value for ${field}`);
     duplicateError.statusCode = 400;
+    duplicateError.code = 'DUPLICATE_ERROR';
     next(duplicateError);
   } else if (error.name === 'ValidationError') {
     const validationError = new Error('Validation failed');
     validationError.statusCode = 400;
-    validationError.details = Object.values(error.errors).map(err => ({
+    validationError.code = 'VALIDATION_ERROR';
+    validationError.details = Object.values(error.errors || {}).map(err => ({
       field: err.path,
       message: err.message,
       value: err.value
@@ -579,13 +652,9 @@ appointmentSchema.post('findOneAndUpdate', function(error, doc, next) {
   }
 });
 
-// Add text index for searching
-appointmentSchema.index({
-  'student.name': 'text',
-  'student.email': 'text',
-  'student.subject': 'text',
-  'teacherName': 'text',
-  'notes': 'text'
-});
+// Performance optimization: add lean() method for read-only operations
+appointmentSchema.query.lean = function() {
+  return this.setOptions({ lean: true });
+};
 
 module.exports = mongoose.model('Appointment', appointmentSchema);
