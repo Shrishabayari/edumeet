@@ -1,27 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, User, Mail, Phone, BookOpen, MessageSquare, Save, X, CheckCircle, AlertCircle } from 'lucide-react';
 
-// Mock API functions based on your backend structure
-const mockApi = {
-  teacherBookAppointment: async (appointmentData) => {
-    // Simulate API call with your backend structure
-    console.log('Booking appointment:', appointmentData);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    return {
-      data: {
-        success: true,
-        data: {
-          _id: '507f1f77bcf86cd799439011',
-          ...appointmentData,
-          status: 'booked',
-          createdBy: 'teacher',
-          createdAt: new Date().toISOString()
-        },
-        message: 'Appointment booked successfully'
-      }
-    };
-  }
-};
+// Import the real API instead of mock
+import { apiMethods, tokenManager } from '../../services/api';
 
 const TeacherScheduleAppointment = () => {
   const [formData, setFormData] = useState({
@@ -63,6 +44,14 @@ const TeacherScheduleAppointment = () => {
     'Saturday',
     'Sunday'
   ];
+
+  // Check if teacher is authenticated
+  useEffect(() => {
+    const isAuthenticated = tokenManager.isTeacherLoggedIn();
+    if (!isAuthenticated) {
+      showNotification('error', 'Please log in as a teacher to book appointments');
+    }
+  }, []);
 
   // Get minimum date (today)
   const getMinDate = () => {
@@ -155,11 +144,18 @@ const TeacherScheduleAppointment = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Handle form submission
+  // Handle form submission - FIXED to use real API
   const handleSubmit = async () => {
+    console.log('🔄 Starting appointment booking process...');
     
     if (!validateForm()) {
       showNotification('error', 'Please fix the errors below');
+      return;
+    }
+
+    // Check authentication
+    if (!tokenManager.isTeacherLoggedIn()) {
+      showNotification('error', 'Please log in as a teacher to book appointments');
       return;
     }
 
@@ -174,15 +170,20 @@ const TeacherScheduleAppointment = () => {
         student: {
           name: formData.student.name.trim(),
           email: formData.student.email.trim().toLowerCase(),
-          phone: formData.student.phone.trim(),
-          subject: formData.student.subject.trim(),
-          message: formData.student.message.trim()
+          phone: formData.student.phone.trim() || '',
+          subject: formData.student.subject.trim() || '',
+          message: formData.student.message.trim() || ''
         },
-        notes: formData.notes.trim()
+        notes: formData.notes.trim() || ''
       };
 
-      const response = await mockApi.teacherBookAppointment(appointmentData);
+      console.log('📤 Sending appointment data:', appointmentData);
+
+      // Use the real API method instead of mock
+      const response = await apiMethods.teacherBookAppointment(appointmentData);
       
+      console.log('✅ API Response:', response);
+
       if (response.data.success) {
         showNotification('success', 'Appointment booked successfully!');
         resetForm();
@@ -191,13 +192,42 @@ const TeacherScheduleAppointment = () => {
       }
       
     } catch (error) {
-      console.error('Error booking appointment:', error);
+      console.error('❌ Error booking appointment:', error);
       
-      if (error.message.includes('conflict') || error.message.includes('booked')) {
-        showNotification('error', 'This time slot is already booked. Please select a different time.');
-      } else if (error.message.includes('Validation')) {
-        showNotification('error', 'Please check your input and try again.');
+      // Handle different types of errors
+      if (error.response) {
+        const { status, data } = error.response;
+        console.error('HTTP Error:', status, data);
+        
+        switch (status) {
+          case 400:
+            if (data.message?.includes('Validation failed')) {
+              showNotification('error', 'Please check your input and try again.');
+            } else {
+              showNotification('error', data.message || 'Invalid data provided');
+            }
+            break;
+          case 401:
+            showNotification('error', 'Please log in again to continue');
+            // Optionally redirect to login
+            break;
+          case 403:
+            showNotification('error', 'You do not have permission to book appointments');
+            break;
+          case 409:
+            showNotification('error', 'This time slot is already booked. Please select a different time.');
+            break;
+          case 500:
+            showNotification('error', 'Server error. Please try again later.');
+            break;
+          default:
+            showNotification('error', data.message || 'Failed to book appointment. Please try again.');
+        }
+      } else if (error.request) {
+        console.error('Network Error:', error.request);
+        showNotification('error', 'Network error. Please check your connection and try again.');
       } else {
+        console.error('Error:', error.message);
         showNotification('error', error.message || 'Failed to book appointment. Please try again.');
       }
     } finally {
@@ -492,6 +522,18 @@ const TeacherScheduleAppointment = () => {
             <li>• You can manage booked appointments from your dashboard</li>
           </ul>
         </div>
+
+        {/* Debug Info (Development Only) */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mt-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <h4 className="text-sm font-medium text-gray-800 mb-2">🔧 Debug Info:</h4>
+            <div className="text-xs text-gray-600 space-y-1">
+              <p>Teacher Logged In: {tokenManager.isTeacherLoggedIn() ? 'Yes' : 'No'}</p>
+              <p>Teacher ID: {tokenManager.getTeacherId() || 'Not found'}</p>
+              <p>Teacher Name: {tokenManager.getTeacherName() || 'Not found'}</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

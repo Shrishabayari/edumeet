@@ -8,6 +8,7 @@ const TeacherDashboard = () => {
   const navigate = useNavigate();
   const [teacher, setTeacher] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [profileError, setProfileError] = useState(null);
 
   // Check authentication and get teacher data on component mount
   useEffect(() => {
@@ -34,35 +35,48 @@ const TeacherDashboard = () => {
 
         console.log('✅ Teacher authenticated with ID:', teacherId);
 
-        // Try to get teacher profile from API
+        // First, try to use cached teacher data
+        const cachedTeacher = tokenManager.getCurrentTeacher();
+        if (cachedTeacher) {
+          console.log('✅ Using cached teacher data:', cachedTeacher);
+          setTeacher(cachedTeacher);
+          setLoading(false);
+        }
+
+        // Then try to get fresh teacher profile from API
         try {
+          console.log('🔄 Attempting to fetch fresh teacher profile...');
           const response = await apiMethods.getTeacherProfile();
-          console.log('✅ Teacher profile loaded:', response.data);
+          console.log('✅ Fresh teacher profile loaded:', response.data);
           setTeacher(response.data);
+          setProfileError(null);
         } catch (profileError) {
           console.error('❌ Failed to load teacher profile:', profileError);
           
-          // If token is invalid, clear it and redirect
-          if (profileError?.response?.status === 401 || profileError?.message?.includes('unauthorized')) {
+          // If token is invalid (401), clear it and redirect
+          if (profileError?.response?.status === 401) {
             console.log('🔄 Token invalid, clearing and redirecting...');
             tokenManager.removeTeacherToken();
             navigate('/teacher/login');
             return;
           }
           
-          // For other errors, try to use cached teacher data from token
-          const cachedTeacher = tokenManager.getCurrentTeacher();
-          if (cachedTeacher) {
-            console.log('⚠️ Using cached teacher data from token:', cachedTeacher);
-            setTeacher(cachedTeacher);
-          } else {
-            console.warn('⚠️ No teacher profile available, continuing with basic info');
+          // For 404 errors, the endpoint might not exist
+          if (profileError?.response?.status === 404) {
+            console.warn('⚠️ Teacher profile endpoint not found (404). This endpoint might not exist on your backend.');
+            setProfileError('Profile endpoint not available');
+          }
+          
+          // For other errors, continue with cached data or basic info
+          if (!cachedTeacher) {
+            console.warn('⚠️ No cached teacher data available, using basic info');
             setTeacher({ 
               id: teacherId, 
-              name: 'Teacher', 
-              email: 'Loading...', 
+              name: tokenManager.getTeacherName() || 'Teacher', 
+              email: 'Profile not available', 
               department: 'Loading...' 
             });
+            setProfileError('Unable to load full profile');
           }
         }
 
@@ -165,6 +179,13 @@ const TeacherDashboard = () => {
             ) : (
               <p className="text-gray-500">Welcome to your dashboard</p>
             )}
+            
+            {/* Show profile error if exists */}
+            {profileError && (
+              <div className="mt-2 p-2 bg-yellow-100 border border-yellow-400 rounded text-yellow-800 text-sm">
+                ⚠️ {profileError} - Some features may be limited.
+              </div>
+            )}
           </div>
           
           {/* Teacher Profile Info */}
@@ -233,6 +254,20 @@ const TeacherDashboard = () => {
               </button>
             ))}
           </div>
+
+          {/* Backend Endpoint Notice for Developers */}
+          {process.env.NODE_ENV === 'development' && profileError && (
+            <div className="mt-8 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <h4 className="font-semibold text-red-800 mb-2">🚨 Developer Notice:</h4>
+              <p className="text-red-700 text-sm">
+                The teacher profile endpoint <code>/teachers/profile/me</code> returned a 404 error. 
+                Please check your backend API and ensure this endpoint exists and is properly configured.
+              </p>
+              <p className="text-red-600 text-xs mt-2">
+                Common endpoint alternatives: <code>/teachers/me</code>, <code>/teachers/profile</code>, <code>/api/teachers/current</code>
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

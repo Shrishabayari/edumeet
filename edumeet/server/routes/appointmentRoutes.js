@@ -83,14 +83,6 @@ const appointmentValidation = [
         throw new Error('Appointment date must be today or in the future');
       }
       
-      // Check if date is not too far in the future (1 year)
-      const oneYearFromNow = new Date();
-      oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
-      
-      if (appointmentDate > oneYearFromNow) {
-        throw new Error('Appointment date cannot be more than 1 year in the future');
-      }
-      
       return true;
     }),
     
@@ -163,53 +155,6 @@ const responseValidation = [
     .withMessage('Response message cannot exceed 500 characters')
 ];
 
-// Update appointment validation
-const updateAppointmentValidation = [
-  body('status')
-    .optional()
-    .isIn(['pending', 'confirmed', 'rejected', 'cancelled', 'completed', 'booked'])
-    .withMessage('Invalid status'),
-    
-  body('notes')
-    .optional()
-    .trim()
-    .isLength({ max: 1000 })
-    .withMessage('Notes cannot exceed 1000 characters'),
-    
-  body('time')
-    .optional()
-    .custom((value) => {
-      if (!value) return true;
-      const timeRegex = /^([0-9]{1,2}):([0-9]{2})\s?(AM|PM)(\s?-\s?([0-9]{1,2}):([0-9]{2})\s?(AM|PM))?$/i;
-      if (timeRegex.test(value)) {
-        return true;
-      }
-      throw new Error('Invalid time format');
-    }),
-    
-  body('date')
-    .optional()
-    .isISO8601()
-    .withMessage('Date must be in valid ISO format')
-    .custom((value) => {
-      if (!value) return true;
-      const date = new Date(value);
-      if (isNaN(date.getTime())) {
-        throw new Error('Invalid date format');
-      }
-      return true;
-    })
-];
-
-// Cancellation validation
-const cancellationValidation = [
-  body('reason')
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage('Cancellation reason cannot exceed 500 characters')
-];
-
 // Query parameter validation
 const queryValidation = [
   query('page')
@@ -258,26 +203,30 @@ if (process.env.NODE_ENV === 'development') {
       timestamp: new Date().toISOString(),
       routes: {
         'GET /api/appointments/stats': 'Get appointment statistics',
-        'POST /api/appointments/request': 'Student request appointment',
-        'POST /api/appointments/book': 'Teacher book appointment',
+        'POST /api/appointments/request': 'Student request appointment (no auth)',
+        'POST /api/appointments/book': 'Teacher book appointment (teacher auth)',
         'GET /api/appointments/teacher/pending': 'Get pending requests for current teacher',
-        'GET /api/appointments/teacher/:teacherId/pending': 'Get pending requests for teacher',
+        'GET /api/appointments/teacher/:teacherId/pending': 'Get pending requests for specific teacher',
         'GET /api/appointments/teacher/appointments': 'Get appointments for current teacher',
-        'GET /api/appointments/teacher/:teacherId': 'Get appointments for teacher',
-        'PUT /api/appointments/:id/accept': 'Accept appointment request',
-        'PUT /api/appointments/:id/reject': 'Reject appointment request',
-        'PUT /api/appointments/:id/complete': 'Complete appointment',
-        'PUT /api/appointments/:id/cancel': 'Cancel appointment',
-        'GET /api/appointments': 'Get all appointments',
-        'GET /api/appointments/:id': 'Get appointment by ID',
-        'PUT /api/appointments/:id': 'Update appointment',
+        'GET /api/appointments/teacher/:teacherId': 'Get appointments for specific teacher',
+        'PUT /api/appointments/:id/accept': 'Accept appointment request (teacher auth)',
+        'PUT /api/appointments/:id/reject': 'Reject appointment request (teacher auth)',
+        'PUT /api/appointments/:id/complete': 'Complete appointment (teacher/admin auth)',
+        'PUT /api/appointments/:id/cancel': 'Cancel appointment (teacher/admin auth)',
+        'GET /api/appointments': 'Get all appointments (teacher/admin auth)',
+        'GET /api/appointments/:id': 'Get appointment by ID (with access check)',
+        'PUT /api/appointments/:id': 'Update appointment (teacher/admin auth)',
         'DELETE /api/appointments/:id': 'Delete appointment (admin only)'
       }
     });
   });
 }
 
-// STATISTICS ROUTE (must be before /:id routes to avoid conflicts)
+// =============================================================================
+// ROUTE DEFINITIONS (Order is critical - most specific routes must come first)
+// =============================================================================
+
+// 1. STATISTICS ROUTE (Must be first to avoid conflicts with /:id routes)
 router.get('/stats', 
   protect, 
   queryValidation,
@@ -285,13 +234,14 @@ router.get('/stats',
   getAppointmentStats
 );
 
-// POST ROUTES - Student request and Teacher direct booking
+// 2. STUDENT REQUEST APPOINTMENT (No authentication required based on your controller)
 router.post('/request', 
   requestAppointmentValidation, 
   handleValidationErrors, 
   requestAppointment
 );
 
+// 3. TEACHER DIRECT BOOKING (Requires teacher authentication)
 router.post('/book', 
   protect, 
   authorize('teacher'), 
@@ -300,13 +250,14 @@ router.post('/book',
   teacherBookAppointment
 );
 
-// TEACHER-SPECIFIC ROUTES (must come before generic /:id routes)
+// 4. TEACHER-SPECIFIC ROUTES (Must come before generic /:id routes)
+
 // Current teacher's pending requests
 router.get('/teacher/pending', 
   protect, 
   authorize('teacher'), 
   (req, res) => {
-    // Set teacherId from authenticated user
+    // Set teacherId from authenticated user for current teacher
     req.params.teacherId = req.user.id;
     getTeacherPendingRequests(req, res);
   }
@@ -328,7 +279,7 @@ router.get('/teacher/appointments',
   protect, 
   authorize('teacher'), 
   (req, res) => {
-    // Set teacherId from authenticated user
+    // Set teacherId from authenticated user for current teacher
     req.params.teacherId = req.user.id;
     getTeacherAppointments(req, res);
   }
@@ -344,7 +295,9 @@ router.get('/teacher/:teacherId',
   getTeacherAppointments
 );
 
-// ACTION ROUTES WITH ID (must come before generic /:id to avoid conflicts)
+// 5. ACTION ROUTES WITH ID (Must come before generic /:id to avoid conflicts)
+
+// Accept appointment request (teacher only)
 router.put('/:id/accept', 
   paramValidation,
   responseValidation, 
@@ -354,6 +307,7 @@ router.put('/:id/accept',
   acceptAppointmentRequest
 );
 
+// Reject appointment request (teacher only)
 router.put('/:id/reject', 
   paramValidation,
   responseValidation, 
@@ -363,6 +317,7 @@ router.put('/:id/reject',
   rejectAppointmentRequest
 );
 
+// Complete appointment (teacher or admin)
 router.put('/:id/complete', 
   paramValidation,
   handleValidationErrors,
@@ -371,16 +326,23 @@ router.put('/:id/complete',
   completeAppointment
 );
 
+// Cancel appointment (teacher or admin)
 router.put('/:id/cancel', 
   paramValidation,
-  cancellationValidation, 
+  body('reason')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Cancellation reason cannot exceed 500 characters'),
   handleValidationErrors,
   protect,
   authorize('teacher', 'admin'),
   cancelAppointment
 );
 
-// GENERIC CRUD ROUTES (MUST BE LAST to avoid route conflicts)
+// 6. GENERIC CRUD ROUTES (MUST BE LAST to avoid route conflicts)
+
+// Get all appointments (teacher sees only their own, admin sees all)
 router.get('/', 
   queryValidation,
   handleValidationErrors,
@@ -389,24 +351,48 @@ router.get('/',
   getAllAppointments
 );
 
+// Get appointment by ID (with proper access control)
 router.get('/:id', 
   paramValidation,
   handleValidationErrors,
   protect, 
-  checkTeacherAppointmentAccess,
+  checkTeacherAppointmentAccess, // This middleware checks if user can access this appointment
   getAppointmentById
 );
 
+// Update appointment (teacher can update their own, admin can update any)
 router.put('/:id', 
   paramValidation,
-  updateAppointmentValidation, 
+  body('status')
+    .optional()
+    .isIn(['pending', 'confirmed', 'rejected', 'cancelled', 'completed', 'booked'])
+    .withMessage('Invalid status'),
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Notes cannot exceed 1000 characters'),
+  body('time')
+    .optional()
+    .custom((value) => {
+      if (!value) return true;
+      const timeRegex = /^([0-9]{1,2}):([0-9]{2})\s?(AM|PM)(\s?-\s?([0-9]{1,2}):([0-9]{2})\s?(AM|PM))?$/i;
+      if (timeRegex.test(value)) {
+        return true;
+      }
+      throw new Error('Invalid time format');
+    }),
+  body('date')
+    .optional()
+    .isISO8601()
+    .withMessage('Date must be in valid ISO format'),
   handleValidationErrors,
   protect, 
   authorize('teacher', 'admin'),
   updateAppointment
 );
 
-// DELETE route for hard deletion (admin only)
+// Delete appointment (admin only - hard deletion)
 router.delete('/:id', 
   paramValidation,
   handleValidationErrors,
@@ -416,6 +402,7 @@ router.delete('/:id',
     try {
       const { id } = req.params;
       const Appointment = require('../models/Appointment');
+      
       const appointment = await Appointment.findByIdAndDelete(id);
       
       if (!appointment) {
@@ -441,6 +428,10 @@ router.delete('/:id',
   }
 );
 
+// =============================================================================
+// ERROR HANDLING
+// =============================================================================
+
 // Error handling middleware for unmatched routes
 router.use('*', (req, res) => {
   console.log(`⚠️  Unmatched appointment route: ${req.method} ${req.originalUrl}`);
@@ -448,21 +439,21 @@ router.use('*', (req, res) => {
     success: false,
     message: `Route ${req.method} ${req.originalUrl} not found`,
     availableRoutes: [
-      'GET /api/appointments/stats',
-      'POST /api/appointments/request',
-      'POST /api/appointments/book',
-      'GET /api/appointments/teacher/pending',
-      'GET /api/appointments/teacher/:teacherId/pending',
-      'GET /api/appointments/teacher/appointments',
-      'GET /api/appointments/teacher/:teacherId',
-      'PUT /api/appointments/:id/accept',
-      'PUT /api/appointments/:id/reject',
-      'PUT /api/appointments/:id/complete',
-      'PUT /api/appointments/:id/cancel',
-      'GET /api/appointments',
-      'GET /api/appointments/:id',
-      'PUT /api/appointments/:id',
-      'DELETE /api/appointments/:id'
+      'GET /api/appointments/stats - Get statistics (auth required)',
+      'POST /api/appointments/request - Student request (no auth)',
+      'POST /api/appointments/book - Teacher book (teacher auth)',
+      'GET /api/appointments/teacher/pending - Current teacher pending',
+      'GET /api/appointments/teacher/:teacherId/pending - Specific teacher pending',
+      'GET /api/appointments/teacher/appointments - Current teacher appointments',
+      'GET /api/appointments/teacher/:teacherId - Specific teacher appointments',
+      'PUT /api/appointments/:id/accept - Accept request (teacher auth)',
+      'PUT /api/appointments/:id/reject - Reject request (teacher auth)',
+      'PUT /api/appointments/:id/complete - Complete appointment',
+      'PUT /api/appointments/:id/cancel - Cancel appointment',
+      'GET /api/appointments - Get all appointments',
+      'GET /api/appointments/:id - Get appointment by ID',
+      'PUT /api/appointments/:id - Update appointment',
+      'DELETE /api/appointments/:id - Delete appointment (admin only)'
     ]
   });
 });
