@@ -229,6 +229,32 @@ const userSchema = new mongoose.Schema({
     type: Date
   },
   
+  // Admin tracking fields - ADDED for better audit trail
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin',
+    default: null
+  },
+  approvedAt: {
+    type: Date,
+    default: null
+  },
+  rejectedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin', 
+    default: null
+  },
+  rejectedAt: {
+    type: Date,
+    default: null
+  },
+  rejectionReason: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Rejection reason cannot exceed 500 characters'],
+    default: null
+  },
+  
   // Activity tracking
   lastLogin: {
     type: Date
@@ -249,20 +275,23 @@ const userSchema = new mongoose.Schema({
   }
 });
 
-// Compound indexes for better query performance
+// Compound indexes for better query performance - ENHANCED
 userSchema.index({ email: 1, role: 1 });
 userSchema.index({ role: 1, isActive: 1, approvalStatus: 1 });
 userSchema.index({ 'teacherProfile.department': 1 });
 userSchema.index({ 'teacherProfile.subject': 1 });
+userSchema.index({ 'teacherProfile.availability': 1 });
 userSchema.index({ createdAt: -1 });
 userSchema.index({ lastLogin: -1 });
+userSchema.index({ approvalStatus: 1, role: 1 });
 
-// Text index for search functionality
+// Text index for search functionality - ENHANCED
 userSchema.index({ 
   name: 'text', 
   email: 'text',
   'teacherProfile.subject': 'text',
-  'teacherProfile.department': 'text'
+  'teacherProfile.department': 'text',
+  'studentProfile.course': 'text'
 });
 
 // Pre-save middleware
@@ -361,7 +390,49 @@ userSchema.methods.incrementLoginCount = function() {
   return this.save({ validateBeforeSave: false });
 };
 
-// Static methods
+// APPOINTMENT-SPECIFIC INSTANCE METHODS - NEW
+
+userSchema.methods.getAppointmentInfo = function() {
+  if (this.role !== 'teacher') {
+    throw new Error('Only teachers can provide appointment info');
+  }
+  
+  return {
+    id: this._id,
+    name: this.name,
+    email: this.email,
+    department: this.teacherProfile?.department || '',
+    subject: this.teacherProfile?.subject || '',
+    phone: this.teacherProfile?.phone || '',
+    availability: this.teacherProfile?.availability || [],
+    rating: this.teacherProfile?.rating || 0,
+    totalRatings: this.teacherProfile?.totalRatings || 0,
+    averageRating: this.teacherProfile?.totalRatings > 0 
+      ? Math.round((this.teacherProfile.rating / this.teacherProfile.totalRatings) * 10) / 10 
+      : 0
+  };
+};
+
+userSchema.methods.isAvailableForAppointments = function() {
+  return this.role === 'teacher' && 
+         this.isActive && 
+         this.approvalStatus === 'approved' && 
+         this.hasAccount &&
+         this.teacherProfile?.availability?.length > 0;
+};
+
+userSchema.methods.updateRating = async function(newRating) {
+  if (this.role !== 'teacher') {
+    throw new Error('Only teachers can have ratings');
+  }
+  
+  this.teacherProfile.rating = (this.teacherProfile.rating || 0) + newRating;
+  this.teacherProfile.totalRatings = (this.teacherProfile.totalRatings || 0) + 1;
+  
+  return this.save({ validateBeforeSave: false });
+};
+
+// Static methods - ENHANCED for appointment integration
 userSchema.statics.findTeachers = function(filters = {}) {
   const query = { 
     role: 'teacher', 
@@ -382,6 +453,21 @@ userSchema.statics.findTeachersByDepartment = function(department) {
     isActive: true,
     approvalStatus: 'approved'
   }).select('-password -__v -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
+};
+
+userSchema.statics.findAvailableTeachers = function(filters = {}) {
+  const query = {
+    role: 'teacher',
+    isActive: true,
+    approvalStatus: 'approved',
+    hasAccount: true,
+    'teacherProfile.availability': { $exists: true, $ne: [] },
+    ...filters
+  };
+  
+  return this.find(query)
+    .select('name email teacherProfile.department teacherProfile.subject teacherProfile.availability teacherProfile.rating teacherProfile.totalRatings')
+    .sort({ 'teacherProfile.rating': -1, createdAt: -1 });
 };
 
 userSchema.statics.findStudents = function(filters = {}) {
@@ -413,17 +499,79 @@ userSchema.statics.searchUsers = function(searchTerm, role = null) {
     .sort({ score: { $meta: 'textScore' } });
 };
 
-// Virtual for teacher's available slots
+// APPOINTMENT-SPECIFIC STATIC METHODS - NEW
+
+userSchema.statics.findTeacherForAppointment = function(teacherId) {
+  if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+    throw new Error('Invalid teacher ID');
+  }
+  
+  return this.findOne({
+    _id: teacherId,
+    role: 'teacher',
+    isActive: true,
+    approvalStatus: 'approved',
+    hasAccount: true
+  }).select('name email teacherProfile.department teacherProfile.subject teacherProfile.phone teacherProfile.availability teacherProfile.rating teacherProfile.totalRatings');
+};
+
+userSchema.statics.findTeachersWithAvailability = function(department = null, subject = null) {
+  const query = {
+    role: 'teacher',
+    isActive: true,
+    approvalStatus: 'approved',
+    hasAccount: true,
+    'teacherProfile.availability': { $exists: true, $ne: [] }
+  };
+  
+  if (department) {
+    query['teacherProfile.department'] = department;
+  }
+  
+  if (subject) {
+    query['teacherProfile.subject'] = { $regex: subject, $options: 'i' };
+  }
+  
+  return this.find(query)
+    .select('name email teacherProfile.department teacherProfile.subject teacherProfile.availability teacherProfile.rating teacherProfile.totalRatings')
+    .sort({ 'teacherProfile.rating': -1, 'teacherProfile.totalRatings': -1 });
+};
+
+userSchema.statics.getTeacherAppointmentStats = async function(teacherId) {
+  if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+    throw new Error('Invalid teacher ID');
+  }
+  
+  // This would typically require the Appointment model, but we'll return a placeholder
+  // In practice, this should be called from the Appointment model
+  const teacher = await this.findOne({ _id: teacherId, role: 'teacher' });
+  if (!teacher) {
+    throw new Error('Teacher not found');
+  }
+  
+  return {
+    teacherId: teacher._id,
+    teacherName: teacher.name,
+    department: teacher.teacherProfile?.department,
+    subject: teacher.teacherProfile?.subject,
+    availability: teacher.teacherProfile?.availability || [],
+    rating: teacher.teacherProfile?.rating || 0,
+    totalRatings: teacher.teacherProfile?.totalRatings || 0,
+    averageRating: teacher.teacherProfile?.totalRatings > 0 
+      ? Math.round((teacher.teacherProfile.rating / teacher.teacherProfile.totalRatings) * 10) / 10 
+      : 0
+  };
+};
+
+// Virtual properties - ENHANCED for appointment integration
 userSchema.virtual('availableSlots').get(function() {
   return this.role === 'teacher' ? this.teacherProfile?.availability || [] : [];
 });
 
-// Virtual for full name (if you want to add firstName/lastName later)
 userSchema.virtual('displayName').get(function() {
   return this.name;
 });
 
-// Virtual for teacher rating display
 userSchema.virtual('averageRating').get(function() {
   if (this.role === 'teacher' && this.teacherProfile?.totalRatings > 0) {
     return Math.round((this.teacherProfile.rating / this.teacherProfile.totalRatings) * 10) / 10;
@@ -431,7 +579,46 @@ userSchema.virtual('averageRating').get(function() {
   return 0;
 });
 
-// Ensure virtuals are included in JSON
+// NEW VIRTUALS FOR APPOINTMENT INTEGRATION
+
+userSchema.virtual('isAppointmentReady').get(function() {
+  if (this.role !== 'teacher') return false;
+  
+  return this.isActive && 
+         this.approvalStatus === 'approved' && 
+         this.hasAccount && 
+         this.teacherProfile?.availability?.length > 0;
+});
+
+userSchema.virtual('appointmentDisplayInfo').get(function() {
+  if (this.role !== 'teacher') return null;
+  
+  return {
+    id: this._id,
+    name: this.name,
+    email: this.email,
+    department: this.teacherProfile?.department || '',
+    subject: this.teacherProfile?.subject || '',
+    availability: this.teacherProfile?.availability || [],
+    rating: this.averageRating,
+    isAvailable: this.isAppointmentReady
+  };
+});
+
+userSchema.virtual('studentDisplayInfo').get(function() {
+  if (this.role !== 'student') return null;
+  
+  return {
+    id: this._id,
+    name: this.name,
+    email: this.email,
+    course: this.studentProfile?.course || '',
+    year: this.studentProfile?.year || '',
+    phone: this.studentProfile?.phone || ''
+  };
+});
+
+// Enhanced toJSON transformation - UPDATED for appointment compatibility
 userSchema.set('toJSON', { 
   virtuals: true,
   transform: function(doc, ret) {
@@ -444,9 +631,9 @@ userSchema.set('toJSON', {
     delete ret.passwordResetExpires;
     delete ret.emailVerificationToken;
     
-    // Flatten profiles for easier frontend access
+    // Flatten profiles for easier frontend access - ENHANCED
     if (ret.role === 'teacher' && ret.teacherProfile) {
-      // Merge teacher profile fields to root level
+      // Merge teacher profile fields to root level for backward compatibility
       ret.phone = ret.teacherProfile.phone;
       ret.department = ret.teacherProfile.department;
       ret.subject = ret.teacherProfile.subject;
@@ -457,8 +644,14 @@ userSchema.set('toJSON', {
       ret.rating = ret.teacherProfile.rating || 0;
       ret.totalRatings = ret.teacherProfile.totalRatings || 0;
       
-      // Keep original structure for backward compatibility
-      // but also provide flattened access
+      // Add computed fields for appointments
+      ret.averageRating = ret.totalRatings > 0 
+        ? Math.round((ret.rating / ret.totalRatings) * 10) / 10 
+        : 0;
+      ret.isAppointmentReady = ret.isActive && 
+                               ret.approvalStatus === 'approved' && 
+                               ret.hasAccount && 
+                               ret.availability.length > 0;
     }
     
     if (ret.role === 'student' && ret.studentProfile) {
@@ -473,7 +666,6 @@ userSchema.set('toJSON', {
   }
 });
 
-// Ensure virtuals are included in Object
 userSchema.set('toObject', { 
   virtuals: true,
   transform: function(doc, ret) {
@@ -487,5 +679,64 @@ userSchema.set('toObject', {
     return ret;
   }
 });
+
+// Error handling middleware - ENHANCED
+userSchema.post('save', function(error, doc, next) {
+  if (error.name === 'MongoServerError' && error.code === 11000) {
+    const field = Object.keys(error.keyPattern || {})[0] || 'field';
+    const duplicateError = new Error(`User with this ${field} already exists`);
+    duplicateError.statusCode = 400;
+    duplicateError.code = 'DUPLICATE_ERROR';
+    next(duplicateError);
+  } else if (error.name === 'ValidationError') {
+    const validationError = new Error('User validation failed');
+    validationError.statusCode = 400;
+    validationError.code = 'VALIDATION_ERROR';
+    validationError.details = Object.values(error.errors || {}).map(err => ({
+      field: err.path,
+      message: err.message,
+      value: err.value
+    }));
+    next(validationError);
+  } else {
+    next(error);
+  }
+});
+
+// Performance optimization hooks
+userSchema.query.lean = function() {
+  return this.setOptions({ lean: true });
+};
+
+// Add method to get user data formatted for appointment creation
+userSchema.methods.getAppointmentUserData = function() {
+  const baseData = {
+    id: this._id,
+    name: this.name,
+    email: this.email,
+    role: this.role
+  };
+  
+  if (this.role === 'teacher') {
+    return {
+      ...baseData,
+      department: this.teacherProfile?.department || '',
+      subject: this.teacherProfile?.subject || '',
+      phone: this.teacherProfile?.phone || '',
+      availability: this.teacherProfile?.availability || []
+    };
+  }
+  
+  if (this.role === 'student') {
+    return {
+      ...baseData,
+      course: this.studentProfile?.course || '',
+      year: this.studentProfile?.year || '',
+      phone: this.studentProfile?.phone || ''
+    };
+  }
+  
+  return baseData;
+};
 
 module.exports = mongoose.model('User', userSchema);
