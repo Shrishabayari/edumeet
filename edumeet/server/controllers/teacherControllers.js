@@ -28,7 +28,7 @@ const handleValidationErrors = (req) => {
   return { hasErrors: false };
 };
 
-// @desc    Teacher login
+// @desc    Teacher login - CORRECTED for User model integration
 // @route   POST /api/teachers/login
 // @access  Public
 const teacherLogin = async (req, res) => {
@@ -40,7 +40,7 @@ const teacherLogin = async (req, res) => {
 
     const { email, password } = req.body;
 
-    // Find teacher by email with password field included
+    // Find teacher by email with password field included - CORRECTED
     const teacher = await User.findOne({ 
       email: email.toLowerCase().trim(), 
       role: 'teacher',
@@ -72,6 +72,7 @@ const teacherLogin = async (req, res) => {
 
     // Update last login
     teacher.lastLogin = new Date();
+    teacher.loginCount = (teacher.loginCount || 0) + 1;
     await teacher.save({ validateBeforeSave: false });
 
     // Create token
@@ -82,13 +83,29 @@ const teacherLogin = async (req, res) => {
       loginTime: Date.now() 
     });
 
-    // Remove sensitive data from response
-    const teacherResponse = teacher.toObject();
-    delete teacherResponse.password;
-    delete teacherResponse.accountSetupToken;
-    delete teacherResponse.accountSetupExpires;
-    delete teacherResponse.passwordResetToken;
-    delete teacherResponse.passwordResetExpires;
+    // Prepare response data - CORRECTED for nested profile structure
+    const teacherResponse = {
+      id: teacher._id,
+      name: teacher.name,
+      email: teacher.email,
+      role: teacher.role,
+      approvalStatus: teacher.approvalStatus,
+      hasAccount: teacher.hasAccount,
+      lastLogin: teacher.lastLogin,
+      loginCount: teacher.loginCount,
+      // Flatten teacherProfile for easier frontend access
+      ...(teacher.teacherProfile && {
+        phone: teacher.teacherProfile.phone,
+        department: teacher.teacherProfile.department,
+        subject: teacher.teacherProfile.subject,
+        experience: teacher.teacherProfile.experience,
+        qualification: teacher.teacherProfile.qualification,
+        bio: teacher.teacherProfile.bio,
+        availability: teacher.teacherProfile.availability,
+        rating: teacher.teacherProfile.rating,
+        totalRatings: teacher.teacherProfile.totalRatings
+      })
+    };
 
     console.log('✅ Teacher login successful:', {
       teacherId: teacher._id.toString(),
@@ -107,7 +124,7 @@ const teacherLogin = async (req, res) => {
   }
 };
 
-// @desc    Get teacher profile
+// @desc    Get teacher profile - CORRECTED
 // @route   GET /api/teachers/profile
 // @access  Private/Teacher
 const getTeacherProfile = async (req, res) => {
@@ -128,7 +145,7 @@ const getTeacherProfile = async (req, res) => {
       return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
-    // Find teacher by ID
+    // Find teacher by ID - CORRECTED for User model
     const teacher = await User.findOne({ 
       _id: req.user.id, 
       role: 'teacher',
@@ -140,13 +157,39 @@ const getTeacherProfile = async (req, res) => {
       return sendResponse(res, 404, false, 'Teacher not found');
     }
 
+    // Prepare response with flattened profile - CORRECTED
+    const teacherProfile = {
+      id: teacher._id,
+      name: teacher.name,
+      email: teacher.email,
+      role: teacher.role,
+      approvalStatus: teacher.approvalStatus,
+      hasAccount: teacher.hasAccount,
+      isActive: teacher.isActive,
+      createdAt: teacher.createdAt,
+      lastLogin: teacher.lastLogin,
+      loginCount: teacher.loginCount,
+      // Flatten teacherProfile for easier access
+      ...(teacher.teacherProfile && {
+        phone: teacher.teacherProfile.phone,
+        department: teacher.teacherProfile.department,
+        subject: teacher.teacherProfile.subject,
+        experience: teacher.teacherProfile.experience,
+        qualification: teacher.teacherProfile.qualification,
+        bio: teacher.teacherProfile.bio,
+        availability: teacher.teacherProfile.availability,
+        rating: teacher.teacherProfile.rating,
+        totalRatings: teacher.teacherProfile.totalRatings
+      })
+    };
+
     console.log('✅ Teacher profile found:', {
       teacherId: teacher._id.toString(),
       teacherName: teacher.name,
       teacherEmail: teacher.email
     });
 
-    return sendResponse(res, 200, true, 'Profile retrieved successfully', teacher);
+    return sendResponse(res, 200, true, 'Profile retrieved successfully', teacherProfile);
 
   } catch (error) {
     console.error('❌ Profile fetch error:', error);
@@ -159,7 +202,7 @@ const getTeacherProfile = async (req, res) => {
   }
 };
 
-// @desc    Create new teacher
+// @desc    Create new teacher - CORRECTED for User model
 // @route   POST /api/teachers
 // @access  Private/Admin
 const createTeacher = async (req, res) => {
@@ -182,29 +225,26 @@ const createTeacher = async (req, res) => {
       password
     } = req.body;
 
-    // Check if user with email already exists
+    // Check if user with email already exists - CORRECTED
     const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
     if (existingUser) {
       return sendResponse(res, 400, false, 'User with this email already exists');
     }
 
-    // Create teacher profile object
-    const teacherProfile = {
-      phone,
-      department,
-      subject,
-      experience,
-      qualification,
-      bio,
-      availability: availability || []
-    };
-
-    // Create new teacher user object
+    // Create teacher user object - CORRECTED for nested profile structure
     const userData = {
       name: name.trim(),
       email: email.toLowerCase().trim(),
       role: 'teacher',
-      teacherProfile,
+      teacherProfile: {
+        phone,
+        department,
+        subject,
+        experience,
+        qualification,
+        bio: bio || '',
+        availability: availability || []
+      },
       approvalStatus: 'pending',
       isActive: true,
       hasAccount: false
@@ -221,13 +261,26 @@ const createTeacher = async (req, res) => {
     const teacher = new User(userData);
     const savedTeacher = await teacher.save();
 
-    // Remove sensitive data from response
-    const responseData = savedTeacher.toObject();
-    delete responseData.password;
-    delete responseData.accountSetupToken;
-    delete responseData.accountSetupExpires;
-    delete responseData.passwordResetToken;
-    delete responseData.passwordResetExpires;
+    // Prepare response data - CORRECTED
+    const responseData = {
+      id: savedTeacher._id,
+      name: savedTeacher.name,
+      email: savedTeacher.email,
+      role: savedTeacher.role,
+      approvalStatus: savedTeacher.approvalStatus,
+      hasAccount: savedTeacher.hasAccount,
+      createdAt: savedTeacher.createdAt,
+      // Flatten profile data
+      ...(savedTeacher.teacherProfile && {
+        phone: savedTeacher.teacherProfile.phone,
+        department: savedTeacher.teacherProfile.department,
+        subject: savedTeacher.teacherProfile.subject,
+        experience: savedTeacher.teacherProfile.experience,
+        qualification: savedTeacher.teacherProfile.qualification,
+        bio: savedTeacher.teacherProfile.bio,
+        availability: savedTeacher.teacherProfile.availability
+      })
+    };
 
     console.log('✅ Teacher created successfully:', {
       teacherId: savedTeacher._id.toString(),
@@ -259,7 +312,7 @@ const createTeacher = async (req, res) => {
   }
 };
 
-// @desc    Update teacher
+// @desc    Update teacher - CORRECTED for nested profile structure
 // @route   PUT /api/teachers/:id
 // @access  Private/Admin
 const updateTeacher = async (req, res) => {
@@ -277,7 +330,7 @@ const updateTeacher = async (req, res) => {
       return sendResponse(res, 400, false, 'Invalid teacher ID format');
     }
 
-    // Check if teacher exists
+    // Check if teacher exists - CORRECTED
     const existingTeacher = await User.findOne({ _id: teacherId, role: 'teacher' });
     if (!existingTeacher) {
       return sendResponse(res, 404, false, 'Teacher not found');
@@ -295,7 +348,7 @@ const updateTeacher = async (req, res) => {
       }
     }
 
-    // Prepare update data
+    // Prepare update data - CORRECTED for nested profile structure
     const teacherProfileFields = ['phone', 'department', 'subject', 'experience', 'qualification', 'bio', 'availability'];
     const generalFields = ['name', 'email', 'approvalStatus'];
     
@@ -320,7 +373,7 @@ const updateTeacher = async (req, res) => {
     // Merge teacher profile updates
     Object.assign(finalUpdateData, teacherProfileUpdates);
 
-    // Update teacher
+    // Update teacher - CORRECTED
     const updatedTeacher = await User.findByIdAndUpdate(
       teacherId,
       finalUpdateData,
@@ -334,12 +387,33 @@ const updateTeacher = async (req, res) => {
       return sendResponse(res, 404, false, 'Teacher not found');
     }
 
+    // Prepare response data - CORRECTED
+    const responseData = {
+      id: updatedTeacher._id,
+      name: updatedTeacher.name,
+      email: updatedTeacher.email,
+      role: updatedTeacher.role,
+      approvalStatus: updatedTeacher.approvalStatus,
+      hasAccount: updatedTeacher.hasAccount,
+      updatedAt: updatedTeacher.updatedAt,
+      // Flatten profile data
+      ...(updatedTeacher.teacherProfile && {
+        phone: updatedTeacher.teacherProfile.phone,
+        department: updatedTeacher.teacherProfile.department,
+        subject: updatedTeacher.teacherProfile.subject,
+        experience: updatedTeacher.teacherProfile.experience,
+        qualification: updatedTeacher.teacherProfile.qualification,
+        bio: updatedTeacher.teacherProfile.bio,
+        availability: updatedTeacher.teacherProfile.availability
+      })
+    };
+
     console.log('✅ Teacher updated successfully:', {
       teacherId: updatedTeacher._id.toString(),
       teacherEmail: updatedTeacher.email
     });
 
-    return sendResponse(res, 200, true, 'Teacher updated successfully', updatedTeacher);
+    return sendResponse(res, 200, true, 'Teacher updated successfully', responseData);
     
   } catch (error) {
     console.error('❌ Error updating teacher:', error);
@@ -367,7 +441,7 @@ const updateTeacher = async (req, res) => {
   }
 };
 
-// @desc    Get all teachers
+// @desc    Get all teachers - CORRECTED for User model
 // @route   GET /api/teachers
 // @access  Public
 const getAllTeachers = async (req, res) => {
@@ -383,7 +457,7 @@ const getAllTeachers = async (req, res) => {
       status = 'approved' // Filter by approval status
     } = req.query;
 
-    // Build filter object
+    // Build filter object - CORRECTED for User model
     const filter = { 
       role: 'teacher', 
       isActive: true
@@ -454,7 +528,7 @@ const getAllTeachers = async (req, res) => {
   }
 };
 
-// @desc    Get single teacher
+// @desc    Get single teacher - CORRECTED
 // @route   GET /api/teachers/:id
 // @access  Public
 const getTeacherById = async (req, res) => {
@@ -492,7 +566,7 @@ const getTeacherById = async (req, res) => {
   }
 };
 
-// @desc    Delete teacher (soft delete)
+// @desc    Delete teacher (soft delete) - CORRECTED
 // @route   DELETE /api/teachers/:id
 // @access  Private/Admin
 const deleteTeacher = async (req, res) => {
@@ -509,7 +583,7 @@ const deleteTeacher = async (req, res) => {
       return sendResponse(res, 404, false, 'Teacher not found');
     }
 
-    // Soft delete - set isActive to false
+    // Soft delete - set isActive to false - CORRECTED
     const updatedTeacher = await User.findByIdAndUpdate(
       teacherId, 
       { 
@@ -537,7 +611,7 @@ const deleteTeacher = async (req, res) => {
   }
 };
 
-// @desc    Permanently delete teacher
+// @desc    Permanently delete teacher - CORRECTED
 // @route   DELETE /api/teachers/:id/permanent
 // @access  Private/Admin
 const permanentDeleteTeacher = async (req, res) => {
@@ -574,7 +648,7 @@ const permanentDeleteTeacher = async (req, res) => {
   }
 };
 
-// @desc    Get teachers by department
+// @desc    Get teachers by department - CORRECTED
 // @route   GET /api/teachers/department/:department
 // @access  Public
 const getTeachersByDepartment = async (req, res) => {
@@ -622,7 +696,7 @@ const getTeachersByDepartment = async (req, res) => {
   }
 };
 
-// @desc    Get teacher statistics
+// @desc    Get teacher statistics - CORRECTED for User model
 // @route   GET /api/teachers/stats
 // @access  Private/Admin
 const getTeacherStats = async (req, res) => {
@@ -700,7 +774,7 @@ const getTeacherStats = async (req, res) => {
   }
 };
 
-// @desc    Send account setup link to teacher
+// @desc    Send account setup link to teacher - CORRECTED
 // @route   POST /api/teachers/send-setup-link
 // @access  Private/Admin
 const sendAccountSetupLink = async (req, res) => {
@@ -756,7 +830,7 @@ const sendAccountSetupLink = async (req, res) => {
   }
 };
 
-// @desc    Setup teacher account
+// @desc    Setup teacher account - CORRECTED
 // @route   POST /api/teachers/setup-account/:token
 // @access  Public
 const setupTeacherAccount = async (req, res) => {
@@ -779,7 +853,7 @@ const setupTeacherAccount = async (req, res) => {
       .update(token)
       .digest('hex');
 
-    // Find teacher with valid token
+    // Find teacher with valid token - CORRECTED
     const teacher = await User.findOne({
       role: 'teacher',
       accountSetupToken: hashedToken,
@@ -813,13 +887,25 @@ const setupTeacherAccount = async (req, res) => {
       loginTime: Date.now()
     });
 
-    // Remove sensitive data from response
-    const teacherResponse = teacher.toObject();
-    delete teacherResponse.password;
-    delete teacherResponse.accountSetupToken;
-    delete teacherResponse.accountSetupExpires;
-    delete teacherResponse.passwordResetToken;
-    delete teacherResponse.passwordResetExpires;
+    // Prepare response data - CORRECTED
+    const teacherResponse = {
+      id: teacher._id,
+      name: teacher.name,
+      email: teacher.email,
+      role: teacher.role,
+      approvalStatus: teacher.approvalStatus,
+      hasAccount: teacher.hasAccount,
+      // Flatten profile data
+      ...(teacher.teacherProfile && {
+        phone: teacher.teacherProfile.phone,
+        department: teacher.teacherProfile.department,
+        subject: teacher.teacherProfile.subject,
+        experience: teacher.teacherProfile.experience,
+        qualification: teacher.teacherProfile.qualification,
+        bio: teacher.teacherProfile.bio,
+        availability: teacher.teacherProfile.availability
+      })
+    };
 
     console.log('✅ Teacher account setup completed:', {
       teacherId: teacher._id.toString(),
@@ -837,9 +923,7 @@ const setupTeacherAccount = async (req, res) => {
   }
 };
 
-// Add this after the approveTeacher function (around line 940)
-
-// @desc    Approve teacher
+// @desc    Approve teacher - CORRECTED
 // @route   PATCH /api/teachers/:id/approve
 // @access  Private/Admin
 const approveTeacher = async (req, res) => {
@@ -876,7 +960,7 @@ const approveTeacher = async (req, res) => {
   }
 };
 
-// @desc    Reject teacher
+// @desc    Reject teacher - CORRECTED
 // @route   PATCH /api/teachers/:id/reject
 // @access  Private/Admin
 const rejectTeacher = async (req, res) => {
@@ -912,6 +996,7 @@ const rejectTeacher = async (req, res) => {
     return sendResponse(res, 500, false, 'Server error while rejecting teacher', null, [{ message: error.message }]);
   }
 };
+
 // @desc    Teacher logout
 // @route   POST /api/teachers/logout
 // @access  Private/Teacher
@@ -930,7 +1015,7 @@ const teacherLogout = (req, res) => {
   return sendResponse(res, 200, true, 'Logged out successfully');
 };
 
-// @desc    Update teacher profile (by teacher themselves)
+// @desc    Update teacher profile (by teacher themselves) - CORRECTED
 // @route   PUT /api/teachers/profile
 // @access  Private/Teacher
 const updateTeacherProfile = async (req, res) => {
@@ -943,12 +1028,12 @@ const updateTeacherProfile = async (req, res) => {
     const teacherId = req.user.id;
     const updateData = req.body;
 
-    // Fields that teachers can update themselves
+    // Fields that teachers can update themselves - CORRECTED
     const allowedFields = ['bio', 'availability', 'phone'];
     const teacherProfileUpdates = {};
     const generalUpdates = { updatedAt: new Date() };
 
-    // Filter allowed fields
+    // Filter allowed fields and prepare nested updates
     Object.keys(updateData).forEach(key => {
       if (allowedFields.includes(key)) {
         teacherProfileUpdates[`teacherProfile.${key}`] = updateData[key];
@@ -962,7 +1047,7 @@ const updateTeacherProfile = async (req, res) => {
     // Merge updates
     Object.assign(generalUpdates, teacherProfileUpdates);
 
-    // Update teacher
+    // Update teacher - CORRECTED
     const updatedTeacher = await User.findByIdAndUpdate(
       teacherId,
       generalUpdates,
@@ -976,12 +1061,34 @@ const updateTeacherProfile = async (req, res) => {
       return sendResponse(res, 404, false, 'Teacher not found');
     }
 
+    // Prepare response data - CORRECTED
+    const responseData = {
+      id: updatedTeacher._id,
+      name: updatedTeacher.name,
+      email: updatedTeacher.email,
+      role: updatedTeacher.role,
+      approvalStatus: updatedTeacher.approvalStatus,
+      updatedAt: updatedTeacher.updatedAt,
+      // Flatten profile data
+      ...(updatedTeacher.teacherProfile && {
+        phone: updatedTeacher.teacherProfile.phone,
+        department: updatedTeacher.teacherProfile.department,
+        subject: updatedTeacher.teacherProfile.subject,
+        experience: updatedTeacher.teacherProfile.experience,
+        qualification: updatedTeacher.teacherProfile.qualification,
+        bio: updatedTeacher.teacherProfile.bio,
+        availability: updatedTeacher.teacherProfile.availability,
+        rating: updatedTeacher.teacherProfile.rating,
+        totalRatings: updatedTeacher.teacherProfile.totalRatings
+      })
+    };
+
     console.log('✅ Teacher profile updated by teacher:', {
       teacherId: updatedTeacher._id.toString(),
       teacherEmail: updatedTeacher.email
     });
 
-    return sendResponse(res, 200, true, 'Profile updated successfully', updatedTeacher);
+    return sendResponse(res, 200, true, 'Profile updated successfully', responseData);
     
   } catch (error) {
     console.error('❌ Error updating teacher profile:', error);
@@ -1000,11 +1107,105 @@ const updateTeacherProfile = async (req, res) => {
   }
 };
 
+// ADDITIONAL HELPER FUNCTIONS FOR APPOINTMENT INTEGRATION
+
+// @desc    Get teacher for appointment creation - optimized for appointment model
+// @route   GET /api/teachers/:id/appointment-info
+// @access  Public (for appointment creation)
+const getTeacherForAppointment = async (req, res) => {
+  try {
+    const teacherId = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+      return sendResponse(res, 400, false, 'Invalid teacher ID format');
+    }
+
+    // Get teacher with only necessary fields for appointments
+    const teacher = await User.findOne({
+      _id: teacherId,
+      role: 'teacher',
+      isActive: true,
+      approvalStatus: 'approved'
+    }).select('name email teacherProfile.department teacherProfile.subject teacherProfile.phone teacherProfile.availability');
+
+    if (!teacher) {
+      return sendResponse(res, 404, false, 'Teacher not found or not available for appointments');
+    }
+
+    // Format response for appointment integration
+    const appointmentTeacherData = {
+      id: teacher._id,
+      name: teacher.name,
+      email: teacher.email,
+      department: teacher.teacherProfile?.department || '',
+      subject: teacher.teacherProfile?.subject || '',
+      phone: teacher.teacherProfile?.phone || '',
+      availability: teacher.teacherProfile?.availability || []
+    };
+
+    return sendResponse(res, 200, true, 'Teacher appointment info retrieved successfully', appointmentTeacherData);
+
+  } catch (error) {
+    console.error('❌ Error fetching teacher for appointment:', error);
+    return sendResponse(res, 500, false, 'Server error while fetching teacher appointment info', null, [{ message: error.message }]);
+  }
+};
+
+// @desc    Get teachers with availability for appointment booking
+// @route   GET /api/teachers/available
+// @access  Public
+const getAvailableTeachers = async (req, res) => {
+  try {
+    const { department, subject } = req.query;
+
+    const filter = {
+      role: 'teacher',
+      isActive: true,
+      approvalStatus: 'approved',
+      'teacherProfile.availability': { $exists: true, $ne: [] }
+    };
+
+    if (department) {
+      filter['teacherProfile.department'] = department;
+    }
+
+    if (subject) {
+      filter['teacherProfile.subject'] = { $regex: subject, $options: 'i' };
+    }
+
+    const availableTeachers = await User.find(filter)
+      .select('name email teacherProfile.department teacherProfile.subject teacherProfile.availability teacherProfile.rating teacherProfile.totalRatings')
+      .sort({ 'teacherProfile.rating': -1, createdAt: -1 });
+
+    const formattedTeachers = availableTeachers.map(teacher => ({
+      id: teacher._id,
+      name: teacher.name,
+      email: teacher.email,
+      department: teacher.teacherProfile?.department || '',
+      subject: teacher.teacherProfile?.subject || '',
+      availability: teacher.teacherProfile?.availability || [],
+      rating: teacher.teacherProfile?.rating || 0,
+      totalRatings: teacher.teacherProfile?.totalRatings || 0,
+      averageRating: teacher.teacherProfile?.totalRatings > 0 
+        ? Math.round((teacher.teacherProfile.rating / teacher.teacherProfile.totalRatings) * 10) / 10 
+        : 0
+    }));
+
+    return sendResponse(res, 200, true, 'Available teachers retrieved successfully', formattedTeachers);
+
+  } catch (error) {
+    console.error('❌ Error fetching available teachers:', error);
+    return sendResponse(res, 500, false, 'Server error while fetching available teachers', null, [{ message: error.message }]);
+  }
+};
+
 module.exports = {
   // Public routes
   getAllTeachers,
   getTeacherById,
   getTeachersByDepartment,
+  getAvailableTeachers,
+  getTeacherForAppointment,
   
   // Authentication routes
   teacherLogin,

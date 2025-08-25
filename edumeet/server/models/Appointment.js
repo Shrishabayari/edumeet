@@ -20,6 +20,19 @@ const appointmentSchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Teacher name cannot exceed 100 characters']
   },
+  // NEW: Track which authenticated user made the request
+  requesterId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false, // Optional for backward compatibility with public requests
+    validate: {
+      validator: function(v) {
+        return !v || mongoose.Types.ObjectId.isValid(v);
+      },
+      message: 'Invalid requester ID format'
+    },
+    index: true
+  },
   student: {
     name: {
       type: String,
@@ -187,12 +200,13 @@ const appointmentSchema = new mongoose.Schema({
   }
 });
 
-// Add compound indexes for efficient querying - FIXED: More comprehensive indexing
+// Add compound indexes for efficient querying - ENHANCED with requesterId
 appointmentSchema.index({ teacherId: 1, date: 1, time: 1 });
 appointmentSchema.index({ teacherId: 1, status: 1 });
 appointmentSchema.index({ date: 1, status: 1 });
 appointmentSchema.index({ 'student.email': 1 });
 appointmentSchema.index({ status: 1, createdBy: 1 });
+appointmentSchema.index({ requesterId: 1, status: 1 }); // NEW: For student queries
 
 // Compound index for conflict checking - most important for performance
 appointmentSchema.index({ 
@@ -383,10 +397,10 @@ appointmentSchema.methods.canBeModifiedBy = function(userId, userRole) {
     return true;
   }
   
-  // Students can view appointments they created (by email)
-  if (userRole === 'student' && this.student?.email) {
-    // This would need to be checked against the user's email in the controller
-    return false; // Let controller handle this check
+  // Students can modify appointments they created
+  if (userRole === 'student') {
+    return this.requesterId?.toString() === userId.toString() ||
+           this.student?.email?.toLowerCase() === userId.toLowerCase(); // fallback
   }
   
   return false;
@@ -403,6 +417,28 @@ appointmentSchema.statics.findPendingForTeacher = function(teacherId) {
     status: 'pending',
     createdBy: 'student'
   }).populate('teacherId', 'name email').sort({ createdAt: -1 });
+};
+
+appointmentSchema.statics.findStudentAppointments = function(studentId, studentEmail) {
+  const query = {
+    $or: []
+  };
+  
+  if (studentId && mongoose.Types.ObjectId.isValid(studentId)) {
+    query.$or.push({ requesterId: new mongoose.Types.ObjectId(studentId) });
+  }
+  
+  if (studentEmail) {
+    query.$or.push({ 'student.email': studentEmail.toLowerCase() });
+  }
+  
+  if (query.$or.length === 0) {
+    throw new Error('Either student ID or email must be provided');
+  }
+  
+  return this.find(query)
+    .populate('teacherId', 'name email phone subject department')
+    .sort({ createdAt: -1 });
 };
 
 appointmentSchema.statics.findTeacherBookings = function(teacherId) {
@@ -500,6 +536,62 @@ appointmentSchema.statics.getTeacherStats = async function(teacherId) {
   }
 };
 
+appointmentSchema.statics.getStudentStats = async function(studentId, studentEmail) {
+  try {
+    const query = {
+      $or: []
+    };
+    
+    if (studentId && mongoose.Types.ObjectId.isValid(studentId)) {
+      query.$or.push({ requesterId: new mongoose.Types.ObjectId(studentId) });
+    }
+    
+    if (studentEmail) {
+      query.$or.push({ 'student.email': studentEmail.toLowerCase() });
+    }
+    
+    if (query.$or.length === 0) {
+      throw new Error('Either student ID or email must be provided');
+    }
+    
+    // Use aggregation for better performance
+    const stats = await this.aggregate([
+      { $match: query },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    // Initialize all status counts
+    const result = {
+      pending: 0,
+      confirmed: 0,
+      booked: 0,
+      completed: 0,
+      cancelled: 0,
+      rejected: 0
+    };
+    
+    // Fill in actual counts
+    stats.forEach(stat => {
+      if (result.hasOwnProperty(stat._id)) {
+        result[stat._id] = stat.count;
+      }
+    });
+    
+    // Calculate derived stats
+    result.total = Object.values(result).reduce((sum, count) => sum + count, 0);
+    result.active = result.pending + result.confirmed + result.booked;
+    
+    return result;
+  } catch (error) {
+    throw new Error(`Failed to get student stats: ${error.message}`);
+  }
+};
+
 // Static method to get appointment conflicts - ENHANCED
 appointmentSchema.statics.getConflicts = function(teacherId, date, time, excludeId = null) {
   if (!mongoose.Types.ObjectId.isValid(teacherId)) {
@@ -584,6 +676,24 @@ appointmentSchema.virtual('daysUntilAppointment').get(function() {
   appointmentDate.setHours(0, 0, 0, 0);
   const diffTime = appointmentDate - now;
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+});
+
+// Virtual to check if user owns this appointment
+appointmentSchema.virtual('isOwnedBy').get(function() {
+  return (userId, userRole, userEmail) => {
+    if (userRole === 'admin') return true;
+    
+    if (userRole === 'teacher') {
+      return this.teacherId.toString() === userId.toString();
+    }
+    
+    if (userRole === 'student') {
+      return this.requesterId?.toString() === userId.toString() ||
+             this.student?.email?.toLowerCase() === userEmail?.toLowerCase();
+    }
+    
+    return false;
+  };
 });
 
 // Ensure virtuals are included when converting to JSON

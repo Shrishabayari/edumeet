@@ -368,6 +368,19 @@ const getAppointmentById = async (req, res) => {
       });
     }
     
+    // Check if student owns this appointment
+    if (req.user.role === 'student') {
+      const isOwner = appointment.requesterId?.toString() === req.user.id.toString() ||
+                     appointment.student?.email?.toLowerCase() === req.user.email?.toLowerCase();
+      
+      if (!isOwner) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. You can only view your own appointments.'
+        });
+      }
+    }
+    
     res.json({
       success: true,
       data: appointment
@@ -382,27 +395,50 @@ const getAppointmentById = async (req, res) => {
   }
 };
 
-// Student requests appointment
+// Student requests appointment - ENHANCED WITH AUTHENTICATION
 const requestAppointment = async (req, res) => {
   try {
     console.log('Student requesting appointment with data:', req.body);
     
-    const { teacherId, day, time, date, student } = req.body;
+    const { teacherId, day, time, date, subject, message } = req.body;
+    
+    // Get student info from authenticated user or request body
+    let studentInfo;
+    if (req.user && req.user.role === 'student') {
+      // Authenticated student
+      studentInfo = {
+        name: req.user.name,
+        email: req.user.email,
+        phone: req.user.phone || '',
+        subject: subject?.trim() || '',
+        message: message?.trim() || ''
+      };
+    } else {
+      // Public request (fallback for existing functionality)
+      const { student } = req.body;
+      if (!student || !student.name || !student.email) {
+        return res.status(400).json({
+          success: false,
+          message: 'Student information is required',
+          required: ['student.name', 'student.email']
+        });
+      }
+      
+      studentInfo = {
+        name: student.name?.trim(),
+        email: student.email?.trim()?.toLowerCase(),
+        phone: student.phone?.trim() || '',
+        subject: student.subject?.trim() || '',
+        message: student.message?.trim() || ''
+      };
+    }
     
     // Validate required fields
-    if (!teacherId || !day || !time || !date || !student) {
+    if (!teacherId || !day || !time || !date) {
       return res.status(400).json({
         success: false,
         message: 'Missing required fields',
-        required: ['teacherId', 'day', 'time', 'date', 'student']
-      });
-    }
-    
-    // Validate student required fields
-    if (!student.name || !student.email) {
-      return res.status(400).json({
-        success: false,
-        message: 'Student name and email are required'
+        required: ['teacherId', 'day', 'time', 'date']
       });
     }
     
@@ -420,6 +456,14 @@ const requestAppointment = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Teacher not found or invalid role'
+      });
+    }
+    
+    // Check if teacher is approved and active
+    if (teacher.approvalStatus !== 'approved' || !teacher.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Teacher is not available for appointments'
       });
     }
     
@@ -451,13 +495,7 @@ const requestAppointment = async (req, res) => {
     const appointmentData = {
       teacherId,
       teacherName: teacher.name,
-      student: {
-        name: student.name?.trim(),
-        email: student.email?.trim()?.toLowerCase(),
-        phone: student.phone?.trim() || '',
-        subject: student.subject?.trim() || '',
-        message: student.message?.trim() || ''
-      },
+      student: studentInfo,
       day,
       time: normalizedTime,
       date: new Date(date),
@@ -465,6 +503,11 @@ const requestAppointment = async (req, res) => {
       status: 'pending',
       createdBy: 'student'
     };
+    
+    // Add requesterId if authenticated
+    if (req.user && req.user.role === 'student') {
+      appointmentData.requesterId = req.user.id;
+    }
     
     console.log('Creating appointment request with data:', appointmentData);
     
@@ -496,6 +539,130 @@ const requestAppointment = async (req, res) => {
         message: 'Validation failed',
         errors: validationErrors,
         details: error.message
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to request appointment',
+      error: error.message
+    });
+  }
+};
+
+// NEW: Authenticated student request (cleaner implementation)
+const requestAppointmentAuthenticated = async (req, res) => {
+  try {
+    console.log('Authenticated student requesting appointment:', req.user.email);
+    
+    const { teacherId, day, time, date, subject, message } = req.body;
+    
+    // Student info comes from authenticated user
+    const studentInfo = {
+      name: req.user.name,
+      email: req.user.email,
+      phone: req.user.phone || '',
+      subject: subject?.trim() || '',
+      message: message?.trim() || ''
+    };
+    
+    // Validate required fields
+    if (!teacherId || !day || !time || !date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields',
+        required: ['teacherId', 'day', 'time', 'date']
+      });
+    }
+    
+    // Validate teacherId format
+    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
+    }
+    
+    // Find teacher
+    const teacher = await User.findById(teacherId);
+    if (!teacher || teacher.role !== 'teacher') {
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found or invalid role'
+      });
+    }
+    
+    // Check if teacher is approved and active
+    if (teacher.approvalStatus !== 'approved' || !teacher.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Teacher is not available for appointments'
+      });
+    }
+    
+    // Normalize time format
+    const normalizedTime = normalizeTimeFormat(time);
+    
+    // Check for conflicts
+    const conflictingAppointment = await Appointment.findOne({
+      teacherId, 
+      date: new Date(date),
+      time: normalizedTime,
+      status: { $in: ['pending', 'confirmed', 'booked'] }
+    });
+    
+    if (conflictingAppointment) {
+      return res.status(409).json({
+        success: false,
+        message: 'This time slot is already booked or has a pending request',
+        conflictingAppointment: {
+          id: conflictingAppointment._id,
+          status: conflictingAppointment.status,
+          studentName: conflictingAppointment.student.name
+        }
+      });
+    }
+    
+    // Create appointment request
+    const appointmentData = {
+      teacherId,
+      teacherName: teacher.name,
+      student: studentInfo,
+      day,
+      time: normalizedTime,
+      date: new Date(date),
+      appointmentDate: new Date(date).toISOString(),
+      status: 'pending',
+      createdBy: 'student',
+      requesterId: req.user.id // Track which user made the request
+    };
+    
+    const appointment = new Appointment(appointmentData);
+    await appointment.save();
+    
+    // Populate teacher details
+    await appointment.populate({
+      path: 'teacherId',
+      select: 'name email phone subject department'
+    });
+    
+    console.log('Authenticated appointment request created:', appointment._id);
+    
+    res.status(201).json({
+      success: true,
+      data: appointment,
+      message: 'Appointment request sent to teacher successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error in authenticated appointment request:', error);
+    
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors
       });
     }
     
@@ -620,6 +787,126 @@ const teacherBookAppointment = async (req, res) => {
   }
 };
 
+// NEW: Get student's own appointments
+const getStudentAppointments = async (req, res) => {
+  try {
+    const { status, page = 1, limit = 10 } = req.query;
+    const studentId = req.user.id;
+    
+    console.log('Getting appointments for student:', req.user.email);
+    
+    const filter = {
+      $or: [
+        { requesterId: studentId }, // Appointments requested by this student
+        { 'student.email': req.user.email.toLowerCase() } // Fallback for email match
+      ]
+    };
+    
+    if (status) filter.status = status;
+    
+    // Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const appointments = await Appointment.find(filter)
+      .populate({
+        path: 'teacherId',
+        select: 'name email phone subject department'
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+    
+    const total = await Appointment.countDocuments(filter);
+    
+    console.log(`Found ${appointments.length} appointments for student`);
+    
+    res.json({
+      success: true,
+      data: appointments,
+      count: appointments.length,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit))
+    });
+    
+  } catch (error) {
+    console.error('Error fetching student appointments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch appointments',
+      error: error.message
+    });
+  }
+};
+
+// NEW: Student can cancel their own pending requests
+const cancelStudentRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID'
+      });
+    }
+    
+    const appointment = await Appointment.findById(id);
+    
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+    
+    // Check if student owns this request
+    const isOwner = appointment.requesterId?.toString() === req.user.id.toString() ||
+                   appointment.student?.email?.toLowerCase() === req.user.email?.toLowerCase();
+    
+    if (!isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only cancel your own appointment requests'
+      });
+    }
+    
+    // Only allow cancellation of pending requests by students
+    if (appointment.status !== 'pending' || appointment.createdBy !== 'student') {
+      return res.status(400).json({
+        success: false,
+        message: 'You can only cancel pending requests that you created'
+      });
+    }
+    
+    // Cancel the appointment
+    appointment.status = 'cancelled';
+    appointment.cancellation = {
+      cancelledBy: 'student',
+      cancelledAt: new Date(),
+      cancellationReason: reason || 'Cancelled by student'
+    };
+    appointment.updatedAt = new Date();
+    
+    await appointment.save();
+    
+    res.json({
+      success: true,
+      data: appointment,
+      message: 'Appointment request cancelled successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error cancelling student request:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to cancel appointment request',
+      error: error.message
+    });
+  }
+};
+
 // Update appointment
 const updateAppointment = async (req, res) => {
   try {
@@ -663,6 +950,7 @@ const updateAppointment = async (req, res) => {
     delete updates._id;
     delete updates.teacherId;
     delete updates.createdAt;
+    delete updates.requesterId; // Don't allow changing the requester
     
     const appointment = await Appointment.findByIdAndUpdate(
       id,
@@ -724,10 +1012,13 @@ const cancelAppointment = async (req, res) => {
     
     // Check permissions - FIXED to be more permissive
     const currentUserId = req.user?.id;
-    const isOwner = currentUserId && currentUserId.toString() === appointment.teacherId.toString();
+    const isTeacherOwner = currentUserId && currentUserId.toString() === appointment.teacherId.toString();
+    const isStudentOwner = req.user?.role === 'student' && 
+                          (appointment.requesterId?.toString() === currentUserId.toString() ||
+                           appointment.student?.email?.toLowerCase() === req.user.email?.toLowerCase());
     const isAdmin = req.user?.role === 'admin';
     
-    if (!isOwner && !isAdmin) {
+    if (!isTeacherOwner && !isStudentOwner && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: 'You can only cancel your own appointments'
@@ -975,6 +1266,12 @@ const getAppointmentStats = async (req, res) => {
     } else if (req.user?.role === 'teacher') {
       // Teachers can only see their own stats by default
       filter.teacherId = req.user.id;
+    } else if (req.user?.role === 'student') {
+      // Students can only see their own stats
+      filter.$or = [
+        { requesterId: req.user.id },
+        { 'student.email': req.user.email.toLowerCase() }
+      ];
     }
     
     const totalAppointments = await Appointment.countDocuments(filter);
@@ -1056,16 +1353,24 @@ const getAppointmentStats = async (req, res) => {
 };
 
 module.exports = {
+  // Core appointment management
   getAllAppointments,
   getAppointmentById,
-  requestAppointment,
-  teacherBookAppointment,
-  acceptAppointmentRequest,
-  rejectAppointmentRequest,
   updateAppointment,
   cancelAppointment,
   completeAppointment,
+  getAppointmentStats,
+  
+  // Student functions
+  requestAppointment, // Works for both authenticated and public requests
+  requestAppointmentAuthenticated, // Clean authenticated-only version
+  getStudentAppointments,
+  cancelStudentRequest,
+  
+  // Teacher functions
+  teacherBookAppointment,
+  acceptAppointmentRequest,
+  rejectAppointmentRequest,
   getTeacherPendingRequests,
-  getTeacherAppointments,
-  getAppointmentStats
+  getTeacherAppointments
 };

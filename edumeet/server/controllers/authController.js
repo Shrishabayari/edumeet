@@ -21,7 +21,7 @@ const handleValidationErrors = (req) => {
   return { hasErrors: false };
 };
 
-// Register new user
+// Register new user - CORRECTED for consistent profile structure
 exports.register = async (req, res) => {
   try {
     // Check for validation errors
@@ -33,42 +33,115 @@ exports.register = async (req, res) => {
     const { name, email, password, role, profile } = req.body;
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
     if (existingUser) {
       return sendResponse(res, 400, false, 'User already exists with this email');
     }
 
-    // Create new user
+    // Create base user data - CORRECTED
     const userData = {
-      name,
-      email,
-      password,
-      role: role || 'student',
-      profile: profile || {}
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      role: role || 'student'
     };
+
+    // Handle password for students (optional initially)
+    if (password) {
+      userData.password = password;
+      userData.hasAccount = true;
+    } else if (role === 'student') {
+      // Students can register without password initially
+      userData.hasAccount = false;
+    }
+
+    // Handle role-specific profiles - CORRECTED to match User model structure
+    if (role === 'teacher' && profile) {
+      // For teachers, create teacherProfile object
+      userData.teacherProfile = {
+        phone: profile.phone || '',
+        department: profile.department || '',
+        subject: profile.subject || '',
+        experience: profile.experience || '',
+        qualification: profile.qualification || '',
+        bio: profile.bio || '',
+        availability: profile.availability || []
+      };
+      userData.approvalStatus = 'pending'; // Teachers need approval
+      userData.hasAccount = !!password; // Only if password provided
+    } else if (role === 'student' && profile) {
+      // For students, create studentProfile object
+      userData.studentProfile = {
+        phone: profile.phone || '',
+        course: profile.course || profile.grade || '', // Handle both course and grade
+        year: profile.year || '',
+        interests: profile.interests || []
+      };
+      userData.approvalStatus = 'approved'; // Students auto-approved
+      userData.hasAccount = true; // Students have accounts by default
+    } else {
+      // Default for students without profile
+      if (role === 'student') {
+        userData.studentProfile = {};
+        userData.approvalStatus = 'approved';
+        userData.hasAccount = true;
+      }
+    }
 
     const user = new User(userData);
     await user.save();
 
+    // Prepare response data - CORRECTED to handle nested profiles
     const responseData = {
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
-        approvalStatus: user.approvalStatus
+        approvalStatus: user.approvalStatus,
+        hasAccount: user.hasAccount,
+        // Flatten profile data for easier frontend access
+        ...(user.role === 'teacher' && user.teacherProfile && {
+          department: user.teacherProfile.department,
+          subject: user.teacherProfile.subject,
+          phone: user.teacherProfile.phone
+        }),
+        ...(user.role === 'student' && user.studentProfile && {
+          course: user.studentProfile.course,
+          year: user.studentProfile.year,
+          phone: user.studentProfile.phone
+        })
       }
     };
 
-    return sendResponse(res, 201, true, 'Registration successful. Please wait for admin approval.', responseData);
+    const message = role === 'teacher' 
+      ? 'Registration successful. Please wait for admin approval.'
+      : 'Registration successful. Welcome to EduMeet!';
+
+    return sendResponse(res, 201, true, message, responseData);
 
   } catch (error) {
     console.error('Registration error:', error);
+    
+    // Handle specific MongoDB errors
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(err => ({
+        field: err.path,
+        message: err.message,
+        value: err.value
+      }));
+      return sendResponse(res, 400, false, 'Validation failed', null, validationErrors);
+    }
+    
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyValue)[0];
+      return sendResponse(res, 400, false, `User with this ${field} already exists`);
+    }
+    
     return sendResponse(res, 500, false, 'Server error during registration', null, [{ message: error.message }]);
   }
 };
 
-// Login user
+// Login user - CORRECTED for consistent user handling
 exports.login = async (req, res) => {
   try {
     // Check for validation errors
@@ -79,29 +152,41 @@ exports.login = async (req, res) => {
 
     const { email, password } = req.body;
 
-    // Find user and include password
-    const user = await User.findOne({ email }).select('+password');
+    // Find user and include password - CORRECTED to handle all user types
+    const user = await User.findOne({ 
+      email: email.toLowerCase().trim(),
+      isActive: true 
+    }).select('+password');
+    
     if (!user) {
       return sendResponse(res, 401, false, 'Invalid credentials');
     }
 
-    // Check password
+    // Check password - handle cases where password might not be set
+    if (!user.password) {
+      if (user.role === 'teacher') {
+        return sendResponse(res, 401, false, 'Account not set up. Please contact admin for setup link.');
+      } else {
+        return sendResponse(res, 401, false, 'Please set up your password first.');
+      }
+    }
+
     const isMatch = await user.correctPassword(password);
     if (!isMatch) {
       return sendResponse(res, 401, false, 'Invalid credentials');
     }
 
-    // Check if user is active and approved
-    if (!user.isActive) {
-      return sendResponse(res, 401, false, 'Account is deactivated. Please contact support.');
-    }
-
-    if (user.approvalStatus !== 'approved') {
-      return sendResponse(res, 401, false, 'Account is not approved or pending approval');
+    // Check approval status for non-students
+    if (user.role !== 'student' && user.approvalStatus !== 'approved') {
+      const statusMessage = user.approvalStatus === 'rejected' 
+        ? 'Account has been rejected. Please contact admin.'
+        : 'Account pending approval. Please contact admin.';
+      return sendResponse(res, 401, false, statusMessage);
     }
 
     // Update last login
     user.lastLogin = new Date();
+    user.loginCount = (user.loginCount || 0) + 1;
     await user.save({ validateBeforeSave: false });
 
     // Generate token
@@ -111,13 +196,32 @@ exports.login = async (req, res) => {
       role: user.role
     });
 
+    // Prepare response data - CORRECTED to handle nested profiles
     const responseData = {
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
-        profile: user.profile
+        approvalStatus: user.approvalStatus,
+        hasAccount: user.hasAccount,
+        lastLogin: user.lastLogin,
+        // Flatten profile data based on role
+        ...(user.role === 'teacher' && user.teacherProfile && {
+          department: user.teacherProfile.department,
+          subject: user.teacherProfile.subject,
+          phone: user.teacherProfile.phone,
+          bio: user.teacherProfile.bio,
+          availability: user.teacherProfile.availability,
+          experience: user.teacherProfile.experience,
+          qualification: user.teacherProfile.qualification
+        }),
+        ...(user.role === 'student' && user.studentProfile && {
+          course: user.studentProfile.course,
+          year: user.studentProfile.year,
+          phone: user.studentProfile.phone,
+          interests: user.studentProfile.interests
+        })
       },
       token
     };
@@ -135,7 +239,7 @@ exports.logout = (req, res) => {
   return sendResponse(res, 200, true, 'Logout successful');
 };
 
-// Get user profile
+// Get user profile - CORRECTED for nested profile structure
 exports.getProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -143,7 +247,39 @@ exports.getProfile = async (req, res) => {
       return sendResponse(res, 404, false, 'User not found');
     }
 
-    return sendResponse(res, 200, true, 'Profile retrieved successfully', { user });
+    // Prepare profile data with flattened structure - CORRECTED
+    const userProfile = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      approvalStatus: user.approvalStatus,
+      hasAccount: user.hasAccount,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+      lastLogin: user.lastLogin,
+      loginCount: user.loginCount,
+      // Include role-specific profile data
+      ...(user.role === 'teacher' && user.teacherProfile && {
+        department: user.teacherProfile.department,
+        subject: user.teacherProfile.subject,
+        phone: user.teacherProfile.phone,
+        bio: user.teacherProfile.bio,
+        availability: user.teacherProfile.availability,
+        experience: user.teacherProfile.experience,
+        qualification: user.teacherProfile.qualification,
+        rating: user.teacherProfile.rating,
+        totalRatings: user.teacherProfile.totalRatings
+      }),
+      ...(user.role === 'student' && user.studentProfile && {
+        course: user.studentProfile.course,
+        year: user.studentProfile.year,
+        phone: user.studentProfile.phone,
+        interests: user.studentProfile.interests
+      })
+    };
+
+    return sendResponse(res, 200, true, 'Profile retrieved successfully', { user: userProfile });
 
   } catch (error) {
     console.error('Get profile error:', error);
@@ -151,7 +287,7 @@ exports.getProfile = async (req, res) => {
   }
 };
 
-// Update user profile
+// Update user profile - CORRECTED for nested profile structure
 exports.updateProfile = async (req, res) => {
   try {
     // Check for validation errors
@@ -161,32 +297,112 @@ exports.updateProfile = async (req, res) => {
     }
 
     const updates = req.body;
-    // Remove sensitive fields
+    
+    // Remove sensitive fields that shouldn't be updated here
     delete updates.password;
     delete updates.role;
     delete updates.approvalStatus;
+    delete updates.isActive;
+    delete updates.hasAccount;
 
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      updates,
-      { new: true, runValidators: true }
-    );
-
+    const user = await User.findById(req.user.id);
     if (!user) {
       return sendResponse(res, 404, false, 'User not found');
     }
 
-    return sendResponse(res, 200, true, 'Profile updated successfully', { user });
+    // Prepare update object - CORRECTED for nested profiles
+    const updateData = { updatedAt: new Date() };
+    
+    // Handle general fields
+    const generalFields = ['name'];
+    generalFields.forEach(field => {
+      if (updates[field] !== undefined) {
+        updateData[field] = field === 'name' ? updates[field].trim() : updates[field];
+      }
+    });
+
+    // Handle role-specific profile updates - CORRECTED
+    if (user.role === 'teacher') {
+      const teacherFields = ['phone', 'bio', 'availability'];
+      const teacherProfileUpdates = {};
+      
+      teacherFields.forEach(field => {
+        if (updates[field] !== undefined) {
+          teacherProfileUpdates[`teacherProfile.${field}`] = updates[field];
+        }
+      });
+      
+      Object.assign(updateData, teacherProfileUpdates);
+    } else if (user.role === 'student') {
+      const studentFields = ['phone', 'course', 'year', 'interests'];
+      const studentProfileUpdates = {};
+      
+      studentFields.forEach(field => {
+        if (updates[field] !== undefined) {
+          studentProfileUpdates[`studentProfile.${field}`] = updates[field];
+        }
+      });
+      
+      Object.assign(updateData, studentProfileUpdates);
+    }
+
+    // Perform update
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedUser) {
+      return sendResponse(res, 404, false, 'User not found');
+    }
+
+    // Prepare response data - CORRECTED
+    const responseData = {
+      user: {
+        id: updatedUser._id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        approvalStatus: updatedUser.approvalStatus,
+        // Include flattened profile data
+        ...(updatedUser.role === 'teacher' && updatedUser.teacherProfile && {
+          department: updatedUser.teacherProfile.department,
+          subject: updatedUser.teacherProfile.subject,
+          phone: updatedUser.teacherProfile.phone,
+          bio: updatedUser.teacherProfile.bio,
+          availability: updatedUser.teacherProfile.availability
+        }),
+        ...(updatedUser.role === 'student' && updatedUser.studentProfile && {
+          course: updatedUser.studentProfile.course,
+          year: updatedUser.studentProfile.year,
+          phone: updatedUser.studentProfile.phone,
+          interests: updatedUser.studentProfile.interests
+        })
+      }
+    };
+
+    return sendResponse(res, 200, true, 'Profile updated successfully', responseData);
 
   } catch (error) {
     console.error('Update profile error:', error);
+    
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(err => ({
+        field: err.path,
+        message: err.message,
+        value: err.value
+      }));
+      return sendResponse(res, 400, false, 'Validation failed', null, validationErrors);
+    }
+    
     return sendResponse(res, 500, false, 'Server error while updating profile', null, [{ message: error.message }]);
   }
 };
 
-// ADMIN FUNCTIONS
+// ADMIN FUNCTIONS - Updated to work with User model structure
 
-// Get pending registrations (Admin only)
+// Get pending registrations (Admin only) - CORRECTED
 exports.getPendingRegistrations = async (req, res) => {
   try {
     console.log('Getting pending registrations...');
@@ -197,8 +413,15 @@ exports.getPendingRegistrations = async (req, res) => {
       page = 1,
       limit = 10,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      role // Add role filter
     } = req.query;
+
+    // Build query - CORRECTED to handle role filtering
+    const query = { approvalStatus: 'pending' };
+    if (role && ['student', 'teacher'].includes(role)) {
+      query.role = role;
+    }
 
     // Build sort object
     const sort = {};
@@ -207,14 +430,13 @@ exports.getPendingRegistrations = async (req, res) => {
     // Execute query with pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    const pendingUsers = await User.find({ 
-      approvalStatus: 'pending' 
-    })
-    .sort(sort)
-    .skip(skip)
-    .limit(parseInt(limit));
+    const pendingUsers = await User.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .select('-password -__v -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
 
-    const totalPending = await User.countDocuments({ approvalStatus: 'pending' });
+    const totalPending = await User.countDocuments(query);
     const totalPages = Math.ceil(totalPending / parseInt(limit));
 
     console.log('Found pending users:', pendingUsers.length);
@@ -237,7 +459,7 @@ exports.getPendingRegistrations = async (req, res) => {
   }
 };
 
-// Approve user (Admin only)
+// Approve user (Admin only) - CORRECTED
 exports.approveUser = async (req, res) => {
   try {
     console.log('Approving user...');
@@ -255,15 +477,33 @@ exports.approveUser = async (req, res) => {
       return sendResponse(res, 400, false, 'User is already approved');
     }
 
-    // Update approval status
+    // Update approval status - CORRECTED to include admin tracking
     user.approvalStatus = 'approved';
     user.approvedBy = req.admin._id;
     user.approvedAt = new Date();
+    user.updatedAt = new Date();
     await user.save();
 
     console.log('User approved successfully');
 
-    return sendResponse(res, 200, true, 'User approved successfully', { user });
+    // Prepare response data with flattened profile
+    const responseData = {
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        approvalStatus: user.approvalStatus,
+        approvedAt: user.approvedAt,
+        // Include role-specific data
+        ...(user.role === 'teacher' && user.teacherProfile && {
+          department: user.teacherProfile.department,
+          subject: user.teacherProfile.subject
+        })
+      }
+    };
+
+    return sendResponse(res, 200, true, 'User approved successfully', responseData);
 
   } catch (error) {
     console.error('Approve user error:', error);
@@ -271,7 +511,7 @@ exports.approveUser = async (req, res) => {
   }
 };
 
-// Reject user (Admin only)
+// Reject user (Admin only) - CORRECTED
 exports.rejectUser = async (req, res) => {
   try {
     // Check for validation errors
@@ -296,10 +536,11 @@ exports.rejectUser = async (req, res) => {
       return sendResponse(res, 400, false, 'User is already rejected');
     }
 
-    // Update rejection status
+    // Update rejection status - CORRECTED
     user.approvalStatus = 'rejected';
     user.rejectedBy = req.admin._id;
     user.rejectedAt = new Date();
+    user.updatedAt = new Date();
     if (reason) {
       user.rejectionReason = reason;
     }
@@ -307,7 +548,20 @@ exports.rejectUser = async (req, res) => {
 
     console.log('User rejected successfully');
 
-    return sendResponse(res, 200, true, 'User rejected successfully', { user });
+    // Prepare response data
+    const responseData = {
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        approvalStatus: user.approvalStatus,
+        rejectedAt: user.rejectedAt,
+        rejectionReason: user.rejectionReason
+      }
+    };
+
+    return sendResponse(res, 200, true, 'User rejected successfully', responseData);
 
   } catch (error) {
     console.error('Reject user error:', error);
@@ -315,7 +569,7 @@ exports.rejectUser = async (req, res) => {
   }
 };
 
-// Get all users (Admin only)
+// Get all users (Admin only) - CORRECTED for better filtering
 exports.getAllUsers = async (req, res) => {
   try {
     console.log('Getting all users...');
@@ -331,16 +585,23 @@ exports.getAllUsers = async (req, res) => {
       search 
     } = req.query;
     
-    // Build query
-    const query = {};
-    if (status) query.approvalStatus = status;
-    if (role) query.role = role;
+    // Build query - CORRECTED
+    const query = { isActive: true }; // Only active users by default
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      query.approvalStatus = status;
+    }
+    if (role && ['student', 'teacher', 'admin'].includes(role)) {
+      query.role = role;
+    }
     
-    // Add search functionality
+    // Add search functionality - CORRECTED for nested profiles
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
+        { email: { $regex: search, $options: 'i' } },
+        { 'teacherProfile.department': { $regex: search, $options: 'i' } },
+        { 'teacherProfile.subject': { $regex: search, $options: 'i' } },
+        { 'studentProfile.course': { $regex: search, $options: 'i' } }
       ];
     }
 
@@ -354,7 +615,8 @@ exports.getAllUsers = async (req, res) => {
     const users = await User.find(query)
       .sort(sort)
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .select('-password -__v -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
 
     const totalUsers = await User.countDocuments(query);
     const totalPages = Math.ceil(totalUsers / parseInt(limit));
@@ -379,40 +641,74 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-// Get user statistics (Admin only)
+// Get user statistics (Admin only) - CORRECTED for User model
 exports.getUserStats = async (req, res) => {
   try {
-    const totalUsers = await User.countDocuments();
-    const approvedUsers = await User.countDocuments({ approvalStatus: 'approved' });
-    const pendingUsers = await User.countDocuments({ approvalStatus: 'pending' });
-    const rejectedUsers = await User.countDocuments({ approvalStatus: 'rejected' });
+    // Get basic counts - CORRECTED
+    const totalUsers = await User.countDocuments({ isActive: true });
+    const approvedUsers = await User.countDocuments({ isActive: true, approvalStatus: 'approved' });
+    const pendingUsers = await User.countDocuments({ isActive: true, approvalStatus: 'pending' });
+    const rejectedUsers = await User.countDocuments({ isActive: true, approvalStatus: 'rejected' });
     
+    // Role statistics - CORRECTED
     const roleStats = await User.aggregate([
+      { $match: { isActive: true } },
       { $group: { _id: '$role', count: { $sum: 1 } } },
       { $sort: { count: -1 } }
     ]);
 
+    // Teacher department statistics - CORRECTED for nested profile
+    const teacherDepartmentStats = await User.aggregate([
+      { 
+        $match: { 
+          role: 'teacher', 
+          isActive: true, 
+          approvalStatus: 'approved',
+          'teacherProfile.department': { $exists: true, $ne: null }
+        } 
+      },
+      { $group: { _id: '$teacherProfile.department', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }
+    ]);
+
+    // Monthly registrations - CORRECTED
     const monthlyRegistrations = await User.aggregate([
+      { $match: { isActive: true } },
       {
         $group: {
           _id: {
             year: { $year: '$createdAt' },
-            month: { $month: '$createdAt' }
+            month: { $month: '$createdAt' },
+            role: '$role'
           },
           count: { $sum: 1 }
         }
       },
       { $sort: { '_id.year': -1, '_id.month': -1 } },
-      { $limit: 12 }
+      { $limit: 24 } // Last 2 years
     ]);
 
     const stats = {
-      totalUsers,
-      approvedUsers,
-      pendingUsers,
-      rejectedUsers,
-      roleStats,
-      monthlyRegistrations
+      overview: {
+        totalUsers,
+        approvedUsers,
+        pendingUsers,
+        rejectedUsers
+      },
+      roleStats: roleStats.map(stat => ({
+        role: stat._id || 'Unknown',
+        count: stat.count
+      })),
+      teacherDepartmentStats: teacherDepartmentStats.map(stat => ({
+        department: stat._id || 'Unknown',
+        count: stat.count
+      })),
+      monthlyRegistrations: monthlyRegistrations.map(stat => ({
+        year: stat._id.year,
+        month: stat._id.month,
+        role: stat._id.role,
+        count: stat.count
+      }))
     };
 
     return sendResponse(res, 200, true, 'User statistics retrieved successfully', stats);

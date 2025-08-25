@@ -11,6 +11,7 @@ const {
   getAllAppointments,
   getAppointmentById,
   requestAppointment,
+  requestAppointmentAuthenticated,
   teacherBookAppointment,
   acceptAppointmentRequest,
   rejectAppointmentRequest,
@@ -19,6 +20,8 @@ const {
   completeAppointment,
   getTeacherPendingRequests,
   getTeacherAppointments,
+  getStudentAppointments,
+  cancelStudentRequest,
   getAppointmentStats
 } = require('../controllers/appointmentController');
 
@@ -84,18 +87,21 @@ const appointmentValidation = [
       }
       
       return true;
-    }),
-    
+    })
+];
+
+// Student info validation for public requests
+const studentInfoValidation = [
   body('student.name')
+    .optional()
     .trim()
-    .notEmpty()
-    .withMessage('Student name is required')
     .isLength({ min: 2, max: 100 })
     .withMessage('Student name must be between 2 and 100 characters')
     .matches(/^[a-zA-Z\s'-]+$/)
     .withMessage('Student name can only contain letters, spaces, hyphens and apostrophes'),
     
   body('student.email')
+    .optional()
     .isEmail()
     .normalizeEmail()
     .withMessage('Valid email is required')
@@ -126,9 +132,42 @@ const appointmentValidation = [
     .withMessage('Message cannot exceed 1000 characters')
 ];
 
-// Student appointment request validation
-const requestAppointmentValidation = [
+// Authenticated student validation (simpler since info comes from user)
+const authenticatedStudentValidation = [
+  body('subject')
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('Subject cannot exceed 200 characters'),
+    
+  body('message')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Message cannot exceed 1000 characters')
+];
+
+// Public student appointment request validation
+const publicRequestValidation = [
   ...appointmentValidation,
+  ...studentInfoValidation,
+  body('teacherId')
+    .notEmpty()
+    .withMessage('Teacher ID is required')
+    .isMongoId()
+    .withMessage('Valid teacher ID is required'),
+  body('student.name')
+    .notEmpty()
+    .withMessage('Student name is required'),
+  body('student.email')
+    .notEmpty()
+    .withMessage('Student email is required')
+];
+
+// Authenticated student appointment request validation
+const authenticatedRequestValidation = [
+  ...appointmentValidation,
+  ...authenticatedStudentValidation,
   body('teacherId')
     .notEmpty()
     .withMessage('Teacher ID is required')
@@ -139,6 +178,13 @@ const requestAppointmentValidation = [
 // Teacher direct booking validation
 const teacherBookingValidation = [
   ...appointmentValidation,
+  ...studentInfoValidation,
+  body('student.name')
+    .notEmpty()
+    .withMessage('Student name is required'),
+  body('student.email')
+    .notEmpty()
+    .withMessage('Student email is required'),
   body('notes')
     .optional()
     .trim()
@@ -202,8 +248,18 @@ if (process.env.NODE_ENV === 'development') {
       message: 'Appointment routes active',
       timestamp: new Date().toISOString(),
       routes: {
+        // Statistics
         'GET /api/appointments/stats': 'Get appointment statistics',
-        'POST /api/appointments/request': 'Student request appointment (no auth)',
+        
+        // Student routes (public)
+        'POST /api/appointments/request': 'Public student request appointment (no auth)',
+        
+        // Student routes (authenticated)
+        'POST /api/appointments/student/request': 'Authenticated student request appointment',
+        'GET /api/appointments/student/appointments': 'Get student\'s own appointments',
+        'PUT /api/appointments/student/:id/cancel': 'Student cancel their own request',
+        
+        // Teacher routes
         'POST /api/appointments/book': 'Teacher book appointment (teacher auth)',
         'GET /api/appointments/teacher/pending': 'Get pending requests for current teacher',
         'GET /api/appointments/teacher/:teacherId/pending': 'Get pending requests for specific teacher',
@@ -213,6 +269,8 @@ if (process.env.NODE_ENV === 'development') {
         'PUT /api/appointments/:id/reject': 'Reject appointment request (teacher auth)',
         'PUT /api/appointments/:id/complete': 'Complete appointment (teacher/admin auth)',
         'PUT /api/appointments/:id/cancel': 'Cancel appointment (teacher/admin auth)',
+        
+        // General routes
         'GET /api/appointments': 'Get all appointments (teacher/admin auth)',
         'GET /api/appointments/:id': 'Get appointment by ID (with access check)',
         'PUT /api/appointments/:id': 'Update appointment (teacher/admin auth)',
@@ -234,14 +292,44 @@ router.get('/stats',
   getAppointmentStats
 );
 
-// 2. STUDENT REQUEST APPOINTMENT (No authentication required based on your controller)
+// 2. STUDENT ROUTES (Authenticated) - Must come before generic routes
+router.post('/student/request', 
+  protect,
+  authorize('student'),
+  authenticatedRequestValidation, 
+  handleValidationErrors, 
+  requestAppointmentAuthenticated
+);
+
+router.get('/student/appointments', 
+  protect,
+  authorize('student'),
+  queryValidation,
+  handleValidationErrors,
+  getStudentAppointments
+);
+
+router.put('/student/:id/cancel',
+  protect,
+  authorize('student'),
+  paramValidation,
+  body('reason')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Cancellation reason cannot exceed 500 characters'),
+  handleValidationErrors,
+  cancelStudentRequest
+);
+
+// 3. PUBLIC STUDENT REQUEST (No authentication - for backward compatibility)
 router.post('/request', 
-  requestAppointmentValidation, 
+  publicRequestValidation, 
   handleValidationErrors, 
   requestAppointment
 );
 
-// 3. TEACHER DIRECT BOOKING (Requires teacher authentication)
+// 4. TEACHER DIRECT BOOKING (Requires teacher authentication)
 router.post('/book', 
   protect, 
   authorize('teacher'), 
@@ -250,7 +338,7 @@ router.post('/book',
   teacherBookAppointment
 );
 
-// 4. TEACHER-SPECIFIC ROUTES (Must come before generic /:id routes)
+// 5. TEACHER-SPECIFIC ROUTES (Must come before generic /:id routes)
 
 // Current teacher's pending requests
 router.get('/teacher/pending', 
@@ -295,7 +383,7 @@ router.get('/teacher/:teacherId',
   getTeacherAppointments
 );
 
-// 5. ACTION ROUTES WITH ID (Must come before generic /:id to avoid conflicts)
+// 6. ACTION ROUTES WITH ID (Must come before generic /:id to avoid conflicts)
 
 // Accept appointment request (teacher only)
 router.put('/:id/accept', 
@@ -326,7 +414,7 @@ router.put('/:id/complete',
   completeAppointment
 );
 
-// Cancel appointment (teacher or admin)
+// Cancel appointment (teacher, student owner, or admin)
 router.put('/:id/cancel', 
   paramValidation,
   body('reason')
@@ -336,18 +424,18 @@ router.put('/:id/cancel',
     .withMessage('Cancellation reason cannot exceed 500 characters'),
   handleValidationErrors,
   protect,
-  authorize('teacher', 'admin'),
+  authorize('teacher', 'student', 'admin'),
   cancelAppointment
 );
 
-// 6. GENERIC CRUD ROUTES (MUST BE LAST to avoid route conflicts)
+// 7. GENERIC CRUD ROUTES (MUST BE LAST to avoid route conflicts)
 
-// Get all appointments (teacher sees only their own, admin sees all)
+// Get all appointments (role-based access)
 router.get('/', 
   queryValidation,
   handleValidationErrors,
   protect, 
-  authorize('teacher', 'admin'),
+  authorize('teacher', 'admin', 'student'),
   getAllAppointments
 );
 
@@ -356,6 +444,7 @@ router.get('/:id',
   paramValidation,
   handleValidationErrors,
   protect, 
+  authorize('teacher', 'admin', 'student'),
   checkTeacherAppointmentAccess, // This middleware checks if user can access this appointment
   getAppointmentById
 );
@@ -440,7 +529,10 @@ router.use('*', (req, res) => {
     message: `Route ${req.method} ${req.originalUrl} not found`,
     availableRoutes: [
       'GET /api/appointments/stats - Get statistics (auth required)',
-      'POST /api/appointments/request - Student request (no auth)',
+      'POST /api/appointments/request - Public student request (no auth)',
+      'POST /api/appointments/student/request - Authenticated student request',
+      'GET /api/appointments/student/appointments - Student\'s appointments',
+      'PUT /api/appointments/student/:id/cancel - Student cancel request',
       'POST /api/appointments/book - Teacher book (teacher auth)',
       'GET /api/appointments/teacher/pending - Current teacher pending',
       'GET /api/appointments/teacher/:teacherId/pending - Specific teacher pending',
@@ -458,6 +550,10 @@ router.use('*', (req, res) => {
   });
 });
 
-console.log('✅ Appointment routes setup complete with proper ordering, validation, and authentication');
+console.log('✅ Appointment routes setup complete with:');
+console.log('   - Student authentication for secure requests');
+console.log('   - Public requests for backward compatibility');
+console.log('   - Proper access control for all routes');
+console.log('   - Enhanced validation and error handling');
 
 module.exports = router;
