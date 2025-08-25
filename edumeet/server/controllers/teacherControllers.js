@@ -3,7 +3,7 @@ const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
-const { sendResponse } = require('../utils/responceHandler');
+const { sendResponse } = require('../utils/responseHandler');
 
 // Helper function to sign JWT token
 const signToken = (payload) => {
