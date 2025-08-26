@@ -304,7 +304,7 @@ router.post('/setup-account/:token', setupValidation, setupTeacherAccount);
 // Teacher logout
 router.post('/logout', authenticateTeacher, teacherLogout);
 
-// Get teacher's own profile
+// Get teacher's own profileteachers
 router.get('/profile/me', authenticateTeacher, getTeacherProfile);
 
 // Update teacher's own profile (limited fields)
