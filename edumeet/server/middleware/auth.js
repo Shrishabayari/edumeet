@@ -269,7 +269,7 @@ const validateObjectId = (paramName = 'id') => {
   };
 };
 
-// Enhanced middleware for checking teacher appointment access - FIXED
+// Enhanced middleware for checking teacher appointment access
 const checkTeacherAppointmentAccess = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -283,7 +283,7 @@ const checkTeacherAppointmentAccess = async (req, res, next) => {
       return next();
     }
 
-    // Find the appointment - FIXED: Import Appointment model correctly
+    // Find the appointment
     const Appointment = require('../models/Appointment');
     const appointment = await Appointment.findById(id);
     
@@ -297,12 +297,9 @@ const checkTeacherAppointmentAccess = async (req, res, next) => {
       return next();
     }
 
-    // FIXED: For students - check if they made the appointment request
-    if (req.user.role === 'student') {
-      // Students can view appointments they requested (by email match)
-      if (appointment.student?.email?.toLowerCase() === req.user.email?.toLowerCase()) {
-        return next();
-      }
+    // Check if student owns the appointment
+    if (req.user.role === 'student' && currentUserId.toString() === appointment.studentId.toString()) {
+      return next();
     }
 
     return sendResponse(res, 403, false, 'Access denied. You can only access your own appointments.');

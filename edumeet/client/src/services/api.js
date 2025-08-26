@@ -4,17 +4,18 @@ import axios from 'axios';
 const API_BASE_URL = process.env.REACT_APP_API_URL || 
   (process.env.NODE_ENV === 'production' ? 'https://edumeet.onrender.com/api' : 'http://localhost:5000/api');
 
-const apiInstance = axios.create({
+const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: true,
+  withCredentials: true, // Important for cookie-based auth if used
 });
 
-// Token retrieval helper
+// Simplified token retrieval helper
 const getTokenFromStorage = (tokenType = 'userToken') => {
+  // Check localStorage first (persistent storage)
   let token = localStorage.getItem(tokenType);
   if (token) {
     if (process.env.NODE_ENV === 'development') {
@@ -23,6 +24,7 @@ const getTokenFromStorage = (tokenType = 'userToken') => {
     return token;
   }
   
+  // Fallback to sessionStorage (temporary storage)
   token = sessionStorage.getItem(tokenType);
   if (token && process.env.NODE_ENV === 'development') {
     console.log(`🔍 Found ${tokenType} in sessionStorage`);
@@ -31,34 +33,30 @@ const getTokenFromStorage = (tokenType = 'userToken') => {
   return token;
 };
 
-// Request interceptor with proper token handling based on your auth middleware
-apiInstance.interceptors.request.use(
+// Request interceptor with proper token handling
+api.interceptors.request.use(
   (config) => {
     let token = null;
 
-    // Determine which token to use based on the URL - matching your backend routes
+    // Determine which token to use based on the URL - CORRECTED LOGIC
     if (config.url.startsWith('/admin') || config.url.includes('/admin/')) {
       token = getTokenFromStorage('adminToken');
     } else if (config.url.startsWith('/teachers') || config.url.includes('/teachers/')) {
-      // Teachers routes - check if it's a protected route
-      if (config.url.includes('/profile/me') || config.url.includes('/logout') || 
-          config.url.includes('/admin/') || config.url === '/teachers/stats' ||
-          config.url.includes('/send-setup-link')) {
-        token = getTokenFromStorage('teacherToken') || getTokenFromStorage('adminToken');
-      }
-    } else if (config.url.startsWith('/appointments') || config.url.includes('/appointments/')) {
-      // Appointments - most routes require authentication
-      if (config.url !== '/appointments/request') { // Only public route
-        token = getTokenFromStorage('teacherToken') || getTokenFromStorage('userToken') || getTokenFromStorage('adminToken');
-      }
+      token = getTokenFromStorage('teacherToken');
     } else if (config.url.startsWith('/auth') || config.url.includes('/auth/')) {
-      if (config.url.includes('/profile') || config.url.includes('/verify-token') || 
-          config.url.includes('/admin/')) {
-        token = getTokenFromStorage('userToken') || getTokenFromStorage('adminToken');
+      // For auth routes, use appropriate token or none for login/register
+      if (config.url.includes('/profile') || config.url.includes('/verify-token')) {
+        token = getTokenFromStorage('userToken');
       }
+      // No token needed for login/register/logout
+    } else if (config.url.startsWith('/appointments') || config.url.includes('/appointments/')) {
+      // For appointments, prioritize teacher token, then user token
+      token = getTokenFromStorage('teacherToken') || getTokenFromStorage('userToken');
     } else if (config.url.startsWith('/messages') || config.url.includes('/messages/')) {
+      // For messages, use any available token
       token = getTokenFromStorage('teacherToken') || getTokenFromStorage('userToken') || getTokenFromStorage('adminToken');
     } else {
+      // Default fallback
       token = getTokenFromStorage('userToken');
     }
 
@@ -67,6 +65,8 @@ apiInstance.interceptors.request.use(
       if (process.env.NODE_ENV === 'development') {
         console.log(`🔑 Token added to request: ${config.method?.toUpperCase()} ${config.url}`);
       }
+    } else if (process.env.NODE_ENV === 'development') {
+      console.log(`⚠️  No token found for request: ${config.method?.toUpperCase()} ${config.url}`);
     }
 
     if (process.env.NODE_ENV === 'development') {
@@ -81,11 +81,14 @@ apiInstance.interceptors.request.use(
   }
 );
 
-// Response interceptor with proper error handling
-apiInstance.interceptors.response.use(
+// Response interceptor with proper error handling and redirects
+api.interceptors.response.use(
   (response) => {
     if (process.env.NODE_ENV === 'development') {
       console.log(`✅ API Response: ${response.status} ${response.config.url}`);
+      if (response.data?.success === false) {
+        console.warn(`   Response indicates failure:`, response.data);
+      }
     }
     return response;
   },
@@ -94,16 +97,18 @@ apiInstance.interceptors.response.use(
 
     if (error.response) {
       const { status, data, config } = error.response;
-      
+      console.error(`HTTP Error ${status} for ${config.method?.toUpperCase()} ${config.url}:`, data);
+
       switch (status) {
         case 401:
-          console.warn('🔒 Unauthorized: Token expired or invalid');
+          console.warn('🔒 Unauthorized: Token expired or invalid. Clearing tokens and redirecting.');
+          // Determine which tokens to clear based on the failed request URL
           if (config.url.includes('/admin/')) {
             tokenManager.removeAdminToken();
             if (window.location.pathname.includes('/admin')) {
               window.location.href = '/admin/login';
             }
-          } else if (config.url.includes('/teachers/') || config.url.includes('/appointments/')) {
+          } else if (config.url.includes('/teachers/')) {
             tokenManager.removeTeacherToken();
             if (window.location.pathname.includes('/teacher')) {
               window.location.href = '/teacher/login';
@@ -135,16 +140,23 @@ apiInstance.interceptors.response.use(
         case 500:
           console.error('💥 Internal server error');
           break;
+          
+        default:
+          console.error(`❓ Unexpected error status: ${status}`);
       }
+    } else if (error.request) {
+      console.error('🌐 Network Error: No response received');
+    } else {
+      console.error('⚙️ Request Setup Error:', error.message);
     }
     
     return Promise.reject(error);
   }
 );
 
-// CORRECTED API endpoints matching your exact backend routes
+// CORRECTED API endpoints based on your backend routes
 export const endpoints = {
-  // Auth endpoints - matching authRoutes.js
+  // Auth endpoints (for regular users) - CORRECTED
   auth: {
     register: '/auth/register',
     login: '/auth/login',
@@ -152,7 +164,8 @@ export const endpoints = {
     profile: '/auth/profile',
     updateProfile: '/auth/profile',
     verifyToken: '/auth/verify-token',
-    // Admin routes within auth
+    
+    // Admin functions accessible through auth controller
     getPendingRegistrations: '/auth/admin/pending',
     getAllUsers: '/auth/admin/users',
     getUserStats: '/auth/admin/stats',
@@ -160,100 +173,101 @@ export const endpoints = {
     rejectUser: (id) => `/auth/admin/reject/${id}`,
   },
 
-  // Teacher endpoints - matching teacherRoutes.js structure
+  // Teacher endpoints - CORRECTED to match your backend
   teachers: {
-    // Public routes (no auth required)
+    // Public endpoints
     getAll: '/teachers',
     getById: (id) => `/teachers/${id}`,
     getByDepartment: (department) => `/teachers/department/${department}`,
     
     // Authentication routes
     login: '/teachers/login',
+    logout: '/teachers/logout',
     setupAccount: (token) => `/teachers/setup-account/${token}`,
     
-    // Teacher protected routes (authenticateTeacher)
-    logout: '/teachers/logout',
+    // Teacher profile routes
     getProfile: '/teachers/profile/me',
     updateProfile: '/teachers/profile/me',
     
-    // Admin protected routes (authenticateAdmin) with /admin prefix
+    // Admin-only endpoints - CORRECTED paths
     getStats: '/teachers/admin/stats',
-    sendSetupLink: '/teachers/admin/send-setup-link',
     create: '/teachers/admin/create',
     update: (id) => `/teachers/admin/${id}`,
-    approve: (id) => `/teachers/admin/${id}/approve`,
-    reject: (id) => `/teachers/admin/${id}/reject`,
     delete: (id) => `/teachers/admin/${id}`,
     permanentDelete: (id) => `/teachers/admin/${id}/permanent`,
+    approve: (id) => `/teachers/admin/${id}/approve`,
+    reject: (id) => `/teachers/admin/${id}/reject`,
+    sendSetupLink: '/teachers/admin/send-setup-link',
     
-    // Legacy routes (backward compatibility)
-    legacyStats: '/teachers/stats',
+    // Legacy endpoints (for backward compatibility)
     legacyCreate: '/teachers',
     legacyUpdate: (id) => `/teachers/${id}`,
     legacyDelete: (id) => `/teachers/${id}`,
     legacyPermanentDelete: (id) => `/teachers/${id}/permanent`,
+    legacyGetStats: '/teachers/stats',
     legacySendSetupLink: '/teachers/send-setup-link',
-    legacyProfile: '/teachers/profile',
   },
 
-  // Appointment endpoints - matching appointmentRoutes.js EXACT structure
+  // Appointment endpoints - CORRECTED
   appointments: {
-    // 1. Statistics route (must be first to avoid conflicts)
-    stats: '/appointments/stats',
+    // Statistics route (comes first to avoid conflicts)
+    getStats: '/appointments/stats',
     
-    // 2. Student routes (authenticated)
-    studentRequest: '/appointments/student/request',
-    studentAppointments: '/appointments/student/appointments',
-    studentCancel: (id) => `/appointments/student/${id}/cancel`,
+    // Student and teacher actions
+    request: '/appointments/request',  // Student request appointment
+    book: '/appointments/book',        // Teacher direct booking
     
-    // 3. Public student request (no auth - backward compatibility)
-    request: '/appointments/request',
+    // Teacher-specific routes (current teacher)
+    getTeacherPending: '/appointments/teacher/pending',
+    getTeacherAppointments: '/appointments/teacher/appointments',
     
-    // 4. Teacher direct booking
-    book: '/appointments/book',
+    // Specific teacher routes (with ID)
+    getTeacherPendingById: (teacherId) => `/appointments/teacher/${teacherId}/pending`,
+    getByTeacher: (teacherId) => `/appointments/teacher/${teacherId}`,
     
-    // 5. Teacher-specific routes
-    // Current teacher's routes
-    teacherPending: '/appointments/teacher/pending',
-    teacherAppointments: '/appointments/teacher/appointments',
-    
-    // Specific teacher's routes (with teacherId parameter)
-    teacherPendingById: (teacherId) => `/appointments/teacher/${teacherId}/pending`,
-    teacherAppointmentsById: (teacherId) => `/appointments/teacher/${teacherId}`,
-    
-    // 6. Action routes with ID
+    // Action routes
     accept: (id) => `/appointments/${id}/accept`,
     reject: (id) => `/appointments/${id}/reject`,
     complete: (id) => `/appointments/${id}/complete`,
     cancel: (id) => `/appointments/${id}/cancel`,
     
-    // 7. Generic CRUD routes (must be last)
+    // Generic CRUD routes
     getAll: '/appointments',
     getById: (id) => `/appointments/${id}`,
     update: (id) => `/appointments/${id}`,
-    delete: (id) => `/appointments/${id}`,
+    delete: (id) => `/appointments/${id}`,  // Admin only
   },
 
-  // Admin endpoints - matching adminRoutes.js
+  // Admin endpoints - CORRECTED to match your adminRoutes
   admin: {
-    // Public routes
+    // Auth
     register: '/admin/register',
     login: '/admin/login',
+    logout: '/admin/logout',
     
-    // Protected routes (all require authenticateAdmin)
+    // Profile
     profile: '/admin/profile',
     updateProfile: '/admin/profile',
+    
+    // Dashboard
     dashboardStats: '/admin/dashboard/stats',
-    dashboard: '/admin/dashboard',
+    dashboard: '/admin/dashboard', // Alternative endpoint
+    
+    // User Management  
     getUsers: '/admin/users',
     deleteUser: (userId) => `/admin/users/${userId}`,
-    getAllAppointments: '/admin/appointments',
+    
+    // Appointment Management
+    getAppointments: '/admin/appointments',
+    
+    // Teacher Management
     updateTeacherStatus: (teacherId) => `/admin/teachers/${teacherId}/status`,
+    
+    // Health check
     health: '/admin/health',
-    logout: '/admin/logout',
   },
   
-  // Message endpoints - matching messageRoutes.js
+  // Message endpoints - CORRECTED to match your messageRoutes
   messages: {
     getByRoom: (roomId) => `/messages/room/${roomId}`,
     delete: (messageId) => `/messages/${messageId}`,
@@ -266,11 +280,14 @@ export const endpoints = {
   health: '/health'
 };
 
-// Token management utilities (unchanged as they were correct)
+// Token management utilities - Enhanced and corrected
 export const tokenManager = {
+  // User token methods
   setUserToken: (token, persistent = true) => {
+    console.log('🔧 Setting user token:', { hasToken: !!token, persistent });
+    
     if (!token || typeof token !== 'string' || token.trim() === '') {
-      console.error('❌ Invalid token provided');
+      console.error('❌ Invalid token provided to setUserToken');
       return false;
     }
     
@@ -283,6 +300,7 @@ export const tokenManager = {
       sessionStorage.setItem('userToken', cleanToken);
       localStorage.removeItem('userToken');
     }
+    
     return true;
   },
   
@@ -293,11 +311,20 @@ export const tokenManager = {
     sessionStorage.removeItem('userToken');
     localStorage.removeItem('userData');
     sessionStorage.removeItem('userData');
+    localStorage.removeItem('userRole');
+    sessionStorage.removeItem('userRole');
   },
   
+  // Teacher token methods
   setTeacherToken: (token, persistent = true) => {
+    console.log('🔧 Setting teacher token:', { 
+      hasToken: !!token, 
+      persistent, 
+      preview: token?.substring(0, 20) + '...' 
+    });
+    
     if (!token || typeof token !== 'string' || token.trim() === '') {
-      console.error('❌ Invalid token provided');
+      console.error('❌ Invalid token provided to setTeacherToken');
       return false;
     }
     
@@ -306,25 +333,32 @@ export const tokenManager = {
     if (persistent) {
       localStorage.setItem('teacherToken', cleanToken);
       sessionStorage.removeItem('teacherToken');
+      console.log('✅ Teacher token stored in localStorage (persistent)');
     } else {
       sessionStorage.setItem('teacherToken', cleanToken);
       localStorage.removeItem('teacherToken');
+      console.log('✅ Teacher token stored in sessionStorage (temporary)');
     }
+    
     return true;
   },
   
   getTeacherToken: () => getTokenFromStorage('teacherToken'),
   
   removeTeacherToken: () => {
+    console.log('🗑️ Removing teacher token from all storage');
     localStorage.removeItem('teacherToken');
     sessionStorage.removeItem('teacherToken');
     localStorage.removeItem('teacher');
     sessionStorage.removeItem('teacher');
   },
   
+  // Admin token methods
   setAdminToken: (token, persistent = true) => {
+    console.log('🔧 Setting admin token:', { hasToken: !!token, persistent });
+    
     if (!token || typeof token !== 'string' || token.trim() === '') {
-      console.error('❌ Invalid token provided');
+      console.error('❌ Invalid token provided to setAdminToken');
       return false;
     }
     
@@ -337,6 +371,7 @@ export const tokenManager = {
       sessionStorage.setItem('adminToken', cleanToken);
       localStorage.removeItem('adminToken');
     }
+    
     return true;
   },
   
@@ -349,15 +384,37 @@ export const tokenManager = {
     sessionStorage.removeItem('adminData');
   },
   
+  // Clear all tokens and data
   clearAllTokens: () => {
-    localStorage.clear();
-    sessionStorage.clear();
+    console.log('🧹 Clearing all tokens and user data');
+    
+    // Clear all tokens
+    localStorage.removeItem('userToken');
+    localStorage.removeItem('teacherToken');
+    localStorage.removeItem('adminToken');
+    sessionStorage.removeItem('userToken');
+    sessionStorage.removeItem('teacherToken');
+    sessionStorage.removeItem('adminToken');
+    
+    // Clear all user data
+    localStorage.removeItem('userData');
+    localStorage.removeItem('teacher');
+    localStorage.removeItem('adminData');
+    localStorage.removeItem('userRole');
+    sessionStorage.removeItem('userData');
+    sessionStorage.removeItem('teacher');
+    sessionStorage.removeItem('adminData');
+    sessionStorage.removeItem('userRole');
+    
+    console.log('✅ All tokens and data cleared');
   },
 
+  // Helper methods for authentication status
   isUserLoggedIn: () => !!getTokenFromStorage('userToken'),
   isTeacherLoggedIn: () => !!getTokenFromStorage('teacherToken'),
   isAdminLoggedIn: () => !!getTokenFromStorage('adminToken'),
 
+  // Get current user data
   getCurrentUser: () => {
     try {
       let userData = localStorage.getItem('userData') || sessionStorage.getItem('userData');
@@ -388,6 +445,7 @@ export const tokenManager = {
     }
   },
 
+  // Get IDs
   getTeacherId: () => {
     try {
       const teacher = tokenManager.getCurrentTeacher();
@@ -398,6 +456,40 @@ export const tokenManager = {
     }
   },
 
+  getUserId: () => {
+    try {
+      const user = tokenManager.getCurrentUser();
+      return user?._id || user?.id || null;
+    } catch (error) {
+      console.error('Error getting user ID:', error);
+      return null;
+    }
+  },
+
+  getAdminId: () => {
+    try {
+      const admin = tokenManager.getCurrentAdmin();
+      return admin?._id || admin?.id || null;
+    } catch (error) {
+      console.error('Error getting admin ID:', error);
+      return null;
+    }
+  },
+
+  // Get authentication status
+  getAuthenticationStatus: () => {
+    return {
+      isTeacherLoggedIn: tokenManager.isTeacherLoggedIn(),
+      isUserLoggedIn: tokenManager.isUserLoggedIn(),
+      isAdminLoggedIn: tokenManager.isAdminLoggedIn(),
+      hasAnyAuth: tokenManager.isTeacherLoggedIn() || tokenManager.isUserLoggedIn() || tokenManager.isAdminLoggedIn(),
+      currentTeacher: tokenManager.getCurrentTeacher(),
+      currentUser: tokenManager.getCurrentUser(),
+      currentAdmin: tokenManager.getCurrentAdmin(),
+    };
+  },
+
+  // Enhanced utility methods
   getTeacherName: () => {
     try {
       const teacher = tokenManager.getCurrentTeacher();
@@ -408,59 +500,95 @@ export const tokenManager = {
     }
   },
 
+  getTeacherEmail: () => {
+    try {
+      const teacher = tokenManager.getCurrentTeacher();
+      return teacher?.email || null;
+    } catch (error) {
+      console.error('Error getting teacher email:', error);
+      return null;
+    }
+  },
+
+  // Validation methods
+  validateTokenFormat: (token) => {
+    if (!token || typeof token !== 'string') {
+      return { valid: false, error: 'Token must be a non-empty string' };
+    }
+    
+    if (token.trim() === '') {
+      return { valid: false, error: 'Token cannot be empty or whitespace only' };
+    }
+    
+    // Basic JWT format check (3 parts separated by dots)
+    const parts = token.trim().split('.');
+    if (parts.length !== 3) {
+      return { valid: false, error: 'Invalid JWT format (should have 3 parts)' };
+    }
+    
+    return { valid: true, error: null };
+  },
+
+  // Debug methods (development only)
   debugTokenState: () => {
     if (process.env.NODE_ENV === 'development') {
-      console.log('🔍 Token Debug State:');
-      console.log('- User Token:', !!getTokenFromStorage('userToken') ? 'Present' : 'Missing');
-      console.log('- Teacher Token:', !!getTokenFromStorage('teacherToken') ? 'Present' : 'Missing');
-      console.log('- Admin Token:', !!getTokenFromStorage('adminToken') ? 'Present' : 'Missing');
+      const state = {
+        hasUserToken: !!getTokenFromStorage('userToken'),
+        hasTeacherToken: !!getTokenFromStorage('teacherToken'),
+        hasAdminToken: !!getTokenFromStorage('adminToken'),
+        currentTeacher: tokenManager.getCurrentTeacher(),
+        currentUser: tokenManager.getCurrentUser(),
+        currentAdmin: tokenManager.getCurrentAdmin(),
+        authStatus: tokenManager.getAuthenticationStatus()
+      };
       
-      const teacherData = tokenManager.getCurrentTeacher();
-      console.log('- Teacher Data:', teacherData ? 'Present' : 'Missing');
-      if (teacherData) {
-        console.log('  - Teacher ID:', teacherData._id || teacherData.id || 'Missing');
-        console.log('  - Teacher Name:', teacherData.name || 'Missing');
-        console.log('  - Teacher Email:', teacherData.email || 'Missing');
-      }
-      
-      console.log('- Current Path:', window.location.pathname);
+      console.log('🔍 Token Debug State:', state);
+      return state;
     }
+    return null;
   }
 };
 
-// CORRECTED API methods matching your backend routes exactly
+// CORRECTED API methods to match backend implementation
 export const apiMethods = {
-  // =============================================================================
-  // AUTH OPERATIONS - matching authRoutes.js
-  // =============================================================================
-  register: (userData) => apiInstance.post(endpoints.auth.register, userData),
-  login: (credentials) => apiInstance.post(endpoints.auth.login, credentials),
-  logout: () => apiInstance.post(endpoints.auth.logout),
-  getProfile: () => apiInstance.get(endpoints.auth.profile),
-  updateProfile: (data) => apiInstance.put(endpoints.auth.updateProfile, data),
-  verifyToken: () => apiInstance.get(endpoints.auth.verifyToken),
-  
-  // Admin auth operations
-  getPendingRegistrations: () => apiInstance.get(endpoints.auth.getPendingRegistrations),
-  getAllUsers: () => apiInstance.get(endpoints.auth.getAllUsers),
-  getUserStats: () => apiInstance.get(endpoints.auth.getUserStats),
-  approveUser: (id) => apiInstance.put(endpoints.auth.approveUser(id)),
-  rejectUser: (id, reason) => apiInstance.put(endpoints.auth.rejectUser(id), { reason }),
+  // Enhanced Auth Operations - CORRECTED
+  register: async (userData) => {
+    try {
+      const response = await api.post(endpoints.auth.register, userData);
+      return response;
+    } catch (error) {
+      console.error('Registration error:', error);
+      throw error;
+    }
+  },
 
-  // =============================================================================
-  // TEACHER OPERATIONS - matching teacherRoutes.js structure
-  // =============================================================================
-  
-  // Public teacher operations (no auth required)
-  getAllTeachers: (params = {}) => apiInstance.get(endpoints.teachers.getAll, { params }),
-  getTeacherById: (id) => apiInstance.get(endpoints.teachers.getById(id)),
-  getTeachersByDepartment: (department) => apiInstance.get(endpoints.teachers.getByDepartment(department)),
-  
-  // Teacher authentication
+  login: async (credentials) => {
+    try {
+      const response = await api.post(endpoints.auth.login, credentials);
+      return response;
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
+    }
+  },
+
+  logout: () => api.post(endpoints.auth.logout),
+  getProfile: () => api.get(endpoints.auth.profile),
+  updateProfile: (data) => api.put(endpoints.auth.updateProfile, data),
+  verifyToken: () => api.get(endpoints.auth.verifyToken),
+
+  // Auth admin functions (accessible via auth routes)
+  getPendingRegistrations: () => api.get(endpoints.auth.getPendingRegistrations),
+  getAllUsersForAdmin: (params = {}) => api.get(endpoints.auth.getAllUsers, { params }),
+  getUserStats: () => api.get(endpoints.auth.getUserStats),
+  approveUser: (id) => api.put(endpoints.auth.approveUser(id)),
+  rejectUser: (id, reason) => api.put(endpoints.auth.rejectUser(id), { reason }),
+
+  // Teacher Operations - CORRECTED
   teacherLogin: async (credentials) => {
     try {
       console.log('🔄 Attempting teacher login');
-      const response = await apiInstance.post(endpoints.teachers.login, credentials);
+      const response = await api.post(endpoints.teachers.login, credentials);
       console.log('✅ Teacher login response received');
       return response;
     } catch (error) {
@@ -468,159 +596,62 @@ export const apiMethods = {
       throw error;
     }
   },
-  
-  setupTeacherAccount: (token, data) => apiInstance.post(endpoints.teachers.setupAccount(token), data),
-  
-  // Teacher protected operations
-  teacherLogout: () => apiInstance.post(endpoints.teachers.logout),
-  getTeacherProfile: () => apiInstance.get(endpoints.teachers.getProfile),
-  updateTeacherProfile: (data) => apiInstance.put(endpoints.teachers.updateProfile, data),
-  
-  // Admin operations on teachers (require admin token)
-  getTeacherStats: () => apiInstance.get(endpoints.teachers.getStats),
-  createTeacher: (data) => apiInstance.post(endpoints.teachers.create, data),
-  updateTeacher: (id, data) => apiInstance.put(endpoints.teachers.update(id), data),
-  approveTeacher: (id) => apiInstance.patch(endpoints.teachers.approve(id)),
-  rejectTeacher: (id) => apiInstance.patch(endpoints.teachers.reject(id)),
-  deleteTeacher: (id) => apiInstance.delete(endpoints.teachers.delete(id)),
-  permanentDeleteTeacher: (id) => apiInstance.delete(endpoints.teachers.permanentDelete(id)),
-  sendTeacherSetupLink: (teacherId) => apiInstance.post(endpoints.teachers.sendSetupLink, { teacherId }),
 
-  // =============================================================================
-  // APPOINTMENT OPERATIONS - matching appointmentRoutes.js EXACT structure
-  // =============================================================================
-  
-  // 1. Statistics
-  getAppointmentStats: async (params = {}) => {
-    try {
-      console.log('🔄 Fetching appointment statistics');
-      const response = await apiInstance.get(endpoints.appointments.stats, { params });
-      console.log('✅ Statistics fetched successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching statistics:', error);
-      throw error;
-    }
-  },
+  teacherLogout: () => api.post(endpoints.teachers.logout),
+  getTeacherProfile: () => api.get(endpoints.teachers.getProfile),
+  updateTeacherProfile: (data) => api.put(endpoints.teachers.updateProfile, data),
+  setupTeacherAccount: (token, data) => api.post(endpoints.teachers.setupAccount(token), data),
 
-  // 2. Authenticated student operations
-  studentRequestAppointment: async (appointmentData) => {
-    try {
-      console.log('🔄 Authenticated student requesting appointment:', appointmentData);
-      const response = await apiInstance.post(endpoints.appointments.studentRequest, appointmentData);
-      console.log('✅ Student appointment request sent successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error in student appointment request:', error);
-      throw error;
-    }
-  },
+  // Public teacher operations
+  getAllTeachers: (params = {}) => api.get(endpoints.teachers.getAll, { params }),
+  getTeacherById: (id) => api.get(endpoints.teachers.getById(id)),
+  getTeachersByDepartment: (department) => api.get(endpoints.teachers.getByDepartment(department)),
 
-  getStudentAppointments: async (params = {}) => {
-    try {
-      console.log('🔄 Fetching student appointments');
-      const response = await apiInstance.get(endpoints.appointments.studentAppointments, { params });
-      console.log('✅ Student appointments fetched successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching student appointments:', error);
-      throw error;
-    }
-  },
+  // Admin-only teacher operations - CORRECTED paths
+  getTeacherStats: () => api.get(endpoints.teachers.getStats),
+  createTeacher: (teacherData) => api.post(endpoints.teachers.create, teacherData),
+  updateTeacher: (id, teacherData) => api.put(endpoints.teachers.update(id), teacherData),
+  deleteTeacher: (id) => api.delete(endpoints.teachers.delete(id)),
+  permanentDeleteTeacher: (id) => api.delete(endpoints.teachers.permanentDelete(id)),
+  approveTeacher: (id) => api.patch(endpoints.teachers.approve(id)),
+  rejectTeacher: (id) => api.patch(endpoints.teachers.reject(id)),
+  sendTeacherSetupLink: (data) => api.post(endpoints.teachers.sendSetupLink, data),
 
-  cancelStudentAppointment: async (id, reason = '') => {
-    try {
-      console.log('🔄 Student cancelling appointment:', id);
-      const response = await apiInstance.put(endpoints.appointments.studentCancel(id), { reason });
-      console.log('✅ Student appointment cancelled successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error cancelling student appointment:', error);
-      throw error;
-    }
-  },
+  // Legacy teacher operations (for backward compatibility)
+  createTeacherLegacy: (teacherData) => api.post(endpoints.teachers.legacyCreate, teacherData),
+  updateTeacherLegacy: (id, teacherData) => api.put(endpoints.teachers.legacyUpdate(id), teacherData),
+  deleteTeacherLegacy: (id) => api.delete(endpoints.teachers.legacyDelete(id)),
+  permanentDeleteTeacherLegacy: (id) => api.delete(endpoints.teachers.legacyPermanentDelete(id)),
+  getTeacherStatsLegacy: () => api.get(endpoints.teachers.legacyGetStats),
+  sendTeacherSetupLinkLegacy: (data) => api.post(endpoints.teachers.legacySendSetupLink, data),
 
-  // 3. Public student request (backward compatibility)
+  // Appointment Operations - CORRECTED
   requestAppointment: async (appointmentData) => {
     try {
-      console.log('🔄 Public student requesting appointment:', appointmentData);
-      const response = await apiInstance.post(endpoints.appointments.request, appointmentData);
-      console.log('✅ Public appointment request sent successfully');
+      console.log('🔄 Student requesting appointment:', appointmentData);
+      const response = await api.post(endpoints.appointments.request, appointmentData);
       return response;
     } catch (error) {
-      console.error('❌ Error in public appointment request:', error);
+      console.error('❌ Error requesting appointment:', error);
       throw error;
     }
   },
 
-  // 4. Teacher direct booking
   teacherBookAppointment: async (appointmentData) => {
     try {
       console.log('🔄 Teacher booking appointment directly:', appointmentData);
-      const response = await apiInstance.post(endpoints.appointments.book, appointmentData);
-      console.log('✅ Teacher appointment booked successfully');
+      const response = await api.post(endpoints.appointments.book, appointmentData);
       return response;
     } catch (error) {
-      console.error('❌ Error in teacher booking appointment:', error);
+      console.error('❌ Error booking appointment:', error);
       throw error;
     }
   },
 
-  // 5. Teacher pending requests
-  getTeacherPendingRequests: async () => {
-    try {
-      console.log('🔄 Fetching current teacher pending requests');
-      const response = await apiInstance.get(endpoints.appointments.teacherPending);
-      console.log('✅ Teacher pending requests fetched successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching teacher pending requests:', error);
-      throw error;
-    }
-  },
-
-  getTeacherPendingRequestsById: async (teacherId) => {
-    try {
-      console.log('🔄 Fetching pending requests for teacher:', teacherId);
-      const response = await apiInstance.get(endpoints.appointments.teacherPendingById(teacherId));
-      console.log('✅ Teacher pending requests by ID fetched successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching teacher pending requests by ID:', error);
-      throw error;
-    }
-  },
-
-  // 6. Teacher appointments
-  getTeacherAppointments: async (params = {}) => {
-    try {
-      console.log('🔄 Fetching current teacher appointments');
-      const response = await apiInstance.get(endpoints.appointments.teacherAppointments, { params });
-      console.log('✅ Teacher appointments fetched successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching teacher appointments:', error);
-      throw error;
-    }
-  },
-
-  getTeacherAppointmentsById: async (teacherId, params = {}) => {
-    try {
-      console.log('🔄 Fetching appointments for teacher:', teacherId);
-      const response = await apiInstance.get(endpoints.appointments.teacherAppointmentsById(teacherId), { params });
-      console.log('✅ Teacher appointments by ID fetched successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching teacher appointments by ID:', error);
-      throw error;
-    }
-  },
-
-  // 7. Appointment actions
   acceptAppointmentRequest: async (id, responseMessage = '') => {
     try {
       console.log('🔄 Accepting appointment request:', id);
-      const response = await apiInstance.put(endpoints.appointments.accept(id), { 
+      const response = await api.put(endpoints.appointments.accept(id), { 
         responseMessage: responseMessage.trim() 
       });
       console.log('✅ Appointment accepted successfully');
@@ -634,10 +665,9 @@ export const apiMethods = {
   rejectAppointmentRequest: async (id, responseMessage = '') => {
     try {
       console.log('🔄 Rejecting appointment request:', id);
-      const response = await apiInstance.put(endpoints.appointments.reject(id), { 
+      const response = await api.put(endpoints.appointments.reject(id), { 
         responseMessage: responseMessage.trim() 
       });
-      console.log('✅ Appointment rejected successfully');
       return response;
     } catch (error) {
       console.error('❌ Error rejecting appointment:', error);
@@ -645,107 +675,68 @@ export const apiMethods = {
     }
   },
 
-  completeAppointment: async (id) => {
+  completeAppointment: (id) => api.put(endpoints.appointments.complete(id)),
+  cancelAppointment: (id, reason = '') => api.put(endpoints.appointments.cancel(id), { reason }),
+
+  // Appointment queries
+  getAllAppointments: (params = {}) => api.get(endpoints.appointments.getAll, { params }),
+  getAppointmentById: (id) => api.get(endpoints.appointments.getById(id)),
+  updateAppointment: (id, data) => api.put(endpoints.appointments.update(id), data),
+  deleteAppointment: (id) => api.delete(endpoints.appointments.delete(id)), // Admin only
+  getAppointmentStats: () => api.get(endpoints.appointments.getStats),
+
+  // Teacher-specific appointment queries - CORRECTED
+  getTeacherPendingRequests: () => api.get(endpoints.appointments.getTeacherPending),
+  getTeacherAppointments: (params = {}) => api.get(endpoints.appointments.getTeacherAppointments, { params }),
+  getTeacherPendingRequestsById: (teacherId) => api.get(endpoints.appointments.getTeacherPendingById(teacherId)),
+  getTeacherAppointmentsById: (teacherId, params = {}) => api.get(endpoints.appointments.getByTeacher(teacherId), { params }),
+
+  // Admin Operations - CORRECTED to match your adminRoutes
+  adminLogin: async (credentials) => {
     try {
-      console.log('🔄 Completing appointment:', id);
-      const response = await apiInstance.put(endpoints.appointments.complete(id));
-      console.log('✅ Appointment completed successfully');
+      const response = await api.post(endpoints.admin.login, credentials);
       return response;
     } catch (error) {
-      console.error('❌ Error completing appointment:', error);
+      console.error('❌ Admin login error:', error);
       throw error;
     }
   },
 
-  cancelAppointment: async (id, reason = '') => {
-    try {
-      console.log('🔄 Cancelling appointment:', id);
-      const response = await apiInstance.put(endpoints.appointments.cancel(id), { reason });
-      console.log('✅ Appointment cancelled successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error cancelling appointment:', error);
-      throw error;
-    }
+  adminRegister: (adminData) => api.post(endpoints.admin.register, adminData),
+  adminLogout: () => api.post(endpoints.admin.logout),
+  getAdminProfile: () => api.get(endpoints.admin.profile),
+  updateAdminProfile: (data) => api.put(endpoints.admin.updateProfile, data),
+  getDashboardStats: () => api.get(endpoints.admin.dashboardStats),
+  getDashboard: () => api.get(endpoints.admin.dashboard),
+
+  // Admin user management
+  getAdminUsers: (params = {}) => api.get(endpoints.admin.getUsers, { params }),
+  deleteAdminUser: (userId) => api.delete(endpoints.admin.deleteUser(userId)),
+
+  // Admin appointment management
+  getAdminAppointments: (params = {}) => api.get(endpoints.admin.getAppointments, { params }),
+
+  // Admin teacher management
+  updateTeacherStatus: (teacherId, data) => api.patch(endpoints.admin.updateTeacherStatus(teacherId), data),
+
+  // Admin health check
+  adminHealthCheck: () => api.get(endpoints.admin.health),
+
+  // Message Operations - CORRECTED
+  getMessagesByRoom: (roomId, params = {}) => api.get(endpoints.messages.getByRoom(roomId), { params }),
+  deleteMessage: (messageId) => api.delete(endpoints.messages.delete(messageId)),
+  getRoomStats: (roomId) => api.get(endpoints.messages.getRoomStats(roomId)),
+  getAllRooms: () => api.get(endpoints.messages.getAllRooms),
+  searchMessagesInRoom: (roomId, searchQuery, params = {}) => {
+    return api.get(endpoints.messages.searchInRoom(roomId), { 
+      params: { q: searchQuery, ...params } 
+    });
   },
 
-  // 8. Generic appointment operations
-  getAllAppointments: async (params = {}) => {
-    try {
-      console.log('🔄 Fetching all appointments with params:', params);
-      const response = await apiInstance.get(endpoints.appointments.getAll, { params });
-      console.log('✅ All appointments fetched successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching all appointments:', error);
-      throw error;
-    }
-  },
+  // Health check
+  healthCheck: () => api.get(endpoints.health),
 
-  getAppointmentById: async (id) => {
-    try {
-      console.log('🔄 Fetching appointment by ID:', id);
-      const response = await apiInstance.get(endpoints.appointments.getById(id));
-      console.log('✅ Appointment fetched by ID successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching appointment by ID:', error);
-      throw error;
-    }
-  },
-
-  updateAppointment: async (id, data) => {
-    try {
-      console.log('🔄 Updating appointment:', id, data);
-      const response = await apiInstance.put(endpoints.appointments.update(id), data);
-      console.log('✅ Appointment updated successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error updating appointment:', error);
-      throw error;
-    }
-  },
-
-  deleteAppointment: async (id) => {
-    try {
-      console.log('🔄 Deleting appointment:', id);
-      const response = await apiInstance.delete(endpoints.appointments.delete(id));
-      console.log('✅ Appointment deleted successfully');
-      return response;
-    } catch (error) {
-      console.error('❌ Error deleting appointment:', error);
-      throw error;
-    }
-  },
-
-  // =============================================================================
-  // ADMIN OPERATIONS - matching adminRoutes.js
-  // =============================================================================
-  adminLogin: (credentials) => apiInstance.post(endpoints.admin.login, credentials),
-  adminLogout: () => apiInstance.post(endpoints.admin.logout),
-  getAdminProfile: () => apiInstance.get(endpoints.admin.profile),
-  updateAdminProfile: (data) => apiInstance.put(endpoints.admin.updateProfile, data),
-  getDashboardStats: () => apiInstance.get(endpoints.admin.dashboardStats),
-  getAdminUsers: () => apiInstance.get(endpoints.admin.getUsers),
-  deleteAdminUser: (userId) => apiInstance.delete(endpoints.admin.deleteUser(userId)),
-  getAdminAppointments: () => apiInstance.get(endpoints.admin.getAllAppointments),
-  updateTeacherStatus: (teacherId, data) => apiInstance.patch(endpoints.admin.updateTeacherStatus(teacherId), data),
-
-  // =============================================================================
-  // MESSAGE OPERATIONS - matching messageRoutes.js
-  // =============================================================================
-  getMessagesByRoom: (roomId, params = {}) => apiInstance.get(endpoints.messages.getByRoom(roomId), { params }),
-  deleteMessage: (messageId) => apiInstance.delete(endpoints.messages.delete(messageId)),
-  getRoomStats: (roomId) => apiInstance.get(endpoints.messages.getRoomStats(roomId)),
-  getAllRooms: () => apiInstance.get(endpoints.messages.getAllRooms),
-  searchMessagesInRoom: (roomId, params = {}) => apiInstance.get(endpoints.messages.searchInRoom(roomId), { params }),
-
-  // =============================================================================
-  // UTILITY OPERATIONS
-  // =============================================================================
-  healthCheck: () => apiInstance.get(endpoints.health),
-
-  // Appointment data validation helper
+  // Enhanced appointment utilities
   validateAppointmentData: (appointmentData, isTeacherBooking = false) => {
     const errors = [];
     
@@ -761,11 +752,8 @@ export const apiMethods = {
       errors.push('Date is required');
     } else {
       const appointmentDate = new Date(appointmentData.date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      if (appointmentDate < today) {
-        errors.push('Appointment date must be today or in the future');
+      if (appointmentDate < new Date()) {
+        errors.push('Appointment date must be in the future');
       }
     }
     
@@ -778,7 +766,7 @@ export const apiMethods = {
     }
     
     if (!isTeacherBooking && !appointmentData.teacherId) {
-      errors.push('Teacher ID is required for student requests');
+      errors.push('Teacher ID is required');
     }
     
     return {
@@ -788,7 +776,7 @@ export const apiMethods = {
   }
 };
 
-// Constants matching your backend validation
+// Constants
 export const constants = {
   DEPARTMENTS: [
     'Computer Science',
@@ -823,187 +811,22 @@ export const constants = {
     'booked'
   ],
 
+  APPOINTMENT_TYPES: {
+    STUDENT_REQUEST: 'student_request',
+    TEACHER_BOOKING: 'teacher_booking'
+  },
+
   USER_ROLES: ['student', 'teacher', 'admin'],
-  APPROVAL_STATUSES: ['pending', 'approved', 'rejected'],
-  
-  DAYS_OF_WEEK: [
-    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
-  ],
-  
-  GRADES: [
-    'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
-    'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'
-  ]
+  APPROVAL_STATUSES: ['pending', 'approved', 'rejected']
 };
 
-// Helper functions for data processing
-export const helpers = {
-  // Format date for API consumption
-  formatDate: (date) => {
-    if (!date) return null;
-    const d = new Date(date);
-    return d.toISOString().split('T')[0]; // YYYY-MM-DD format
-  },
-  
-  // Format time for display
-  formatTime: (time) => {
-    if (!time) return '';
-    return time.trim();
-  },
-  
-  // Validate email format
-  isValidEmail: (email) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  },
-  
-  // Validate phone format
-  isValidPhone: (phone) => {
-    if (!phone || phone.trim() === '') return true; // Optional field
-    const phoneRegex = /^[\+]?[\d\s\-\(\)]{7,20}$/;
-    return phoneRegex.test(phone.trim());
-  },
-  
-  // Extract error messages from API response
-  extractErrorMessage: (error) => {
-    if (error.response?.data?.message) {
-      return error.response.data.message;
-    }
-    if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {
-      return error.response.data.errors.map(err => err.message || err).join(', ');
-    }
-    if (error.message) {
-      return error.message;
-    }
-    return 'An unexpected error occurred';
-  },
-  
-  // Extract validation errors for form display
-  extractValidationErrors: (error) => {
-    const errors = {};
-    if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {
-      error.response.data.errors.forEach(err => {
-        if (err.field) {
-          errors[err.field] = err.message;
-        }
-      });
-    }
-    return errors;
-  },
-  
-  // Format appointment status for display
-  formatStatus: (status) => {
-    const statusMap = {
-      'pending': 'Pending',
-      'confirmed': 'Confirmed',
-      'rejected': 'Rejected',
-      'cancelled': 'Cancelled',
-      'completed': 'Completed',
-      'booked': 'Booked'
-    };
-    return statusMap[status] || status;
-  },
-  
-  // Get status color for UI
-  getStatusColor: (status) => {
-    const colorMap = {
-      'pending': 'orange',
-      'confirmed': 'green',
-      'rejected': 'red',
-      'cancelled': 'gray',
-      'completed': 'blue',
-      'booked': 'purple'
-    };
-    return colorMap[status] || 'gray';
-  },
-  
-  // Check if date is in the past
-  isPastDate: (date) => {
-    if (!date) return false;
-    const today = new Date();
-    const checkDate = new Date(date);
-    today.setHours(0, 0, 0, 0);
-    checkDate.setHours(0, 0, 0, 0);
-    return checkDate < today;
-  },
-  
-  // Generate room ID for messaging
-  generateRoomId: (teacherId, studentId) => {
-    return `room_${teacherId}_${studentId}`;
-  }
-};
-
-// Enhanced error handling class
-export class ApiError extends Error {
-  constructor(message, statusCode, errors = null) {
-    super(message);
-    this.name = 'ApiError';
-    this.statusCode = statusCode;
-    this.errors = errors;
-  }
-  
-  static fromAxiosError(error) {
-    const message = helpers.extractErrorMessage(error);
-    const statusCode = error.response?.status || 500;
-    const errors = helpers.extractValidationErrors(error);
-    return new ApiError(message, statusCode, errors);
-  }
-}
-
-// DEFAULT EXPORT - This is what your components are importing
-const api = {
-  // Axios instance
-  instance: apiInstance,
-  
-  // All the methods from apiMethods
-  ...apiMethods,
-  
-  // Token management
-  tokenManager,
-  
-  // Endpoints
-  endpoints,
-  
-  // Constants
-  constants,
-  
-  // Helper functions
-  helpers,
-  
-  // Error class
-  ApiError
-};
-
-export default api;
-
-// Development helper - only available in development mode
+// Development helper
 if (process.env.NODE_ENV === 'development') {
   window.tokenManager = tokenManager;
   window.apiMethods = apiMethods;
   window.api = api;
-  window.endpoints = endpoints;
-  window.helpers = helpers;
   
-  // Add debug functions to window
-  window.debugAPI = {
-    checkTokens: tokenManager.debugTokenState,
-    testEndpoint: async (endpoint, method = 'GET', data = null) => {
-      try {
-        const response = await apiInstance({
-          method,
-          url: endpoint,
-          data
-        });
-        console.log('Test response:', response);
-        return response;
-      } catch (error) {
-        console.error('Test error:', error);
-        throw error;
-      }
-    },
-    clearAllData: () => {
-      tokenManager.clearAllTokens();
-      console.log('All tokens and data cleared');
-    }
-  };
+  console.log('🛠️ Development mode: API utilities available on window object');
 }
+
+export default api;
