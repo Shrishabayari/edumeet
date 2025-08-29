@@ -22,7 +22,7 @@ const {
   globalErrorHandler, 
   notFoundHandler, 
   sendResponse 
-} = require('./utils/responseHandler');
+} = require('./utils/responceHandler');
 
 // Import database connection
 const connectDB = require('./config/db');
