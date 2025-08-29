@@ -38,7 +38,7 @@ const verifyToken = (token) => {
   });
 };
 
-// Consolidated authentication middleware
+// FIXED: Consolidated authentication middleware
 const authenticate = (options = {}) => {
   const {
     roles = [], // Array of allowed roles
@@ -124,13 +124,13 @@ const authenticate = (options = {}) => {
       
       // Check if user exists
       if (!user) {
-        console.error('❌ User not found:', userId);
+        console.error('User not found:', userId);
         return sendResponse(res, 401, false, 'User not found. Token may be invalid or user may have been deleted.');
       }
 
       // Check if user is active
       if (user.isActive === false) {
-        console.error('❌ User account deactivated:', userId);
+        console.error('User account deactivated:', userId);
         return sendResponse(res, 401, false, 'Account is deactivated. Please contact support.');
       }
 
@@ -152,7 +152,7 @@ const authenticate = (options = {}) => {
 
       // Check role authorization
       if (roles.length > 0 && !roles.includes(userRole)) {
-        console.log(`❌ Authorization failed: User role '${userRole}' not in required roles:`, roles);
+        console.log(`Authorization failed: User role '${userRole}' not in required roles:`, roles);
         return sendResponse(res, 403, false, `Access denied. Role '${userRole}' is not authorized for this resource.`);
       }
 
@@ -176,7 +176,7 @@ const authenticate = (options = {}) => {
         req.student = req.user;
       }
       
-      console.log(`✅ User authenticated: ${user.name} (${userRole})`);
+      console.log(`User authenticated: ${user.name} (${userRole})`);
       next();
 
     } catch (error) {
@@ -319,7 +319,7 @@ const logAuthAttempt = (req, res, next) => {
     const authHeader = req.headers.authorization;
     const hasToken = authHeader && authHeader.startsWith('Bearer');
     
-    console.log(`🔑 Auth attempt: ${req.method} ${req.originalUrl}`, {
+    console.log(`Auth attempt: ${req.method} ${req.originalUrl}`, {
       hasToken,
       ip: req.ip || req.connection.remoteAddress,
       userAgent: req.headers['user-agent']?.substring(0, 50) + '...' || 'Unknown'

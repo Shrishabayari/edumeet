@@ -14,8 +14,8 @@ const AdminLogin = () => {
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
-  // Use the same API base URL structure as your api.js
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet-server.onrender.com' || 'http://localhost:5000';
+  // Fixed API URL configuration - should match your server
+  const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com/api';
 
   const validateForm = () => {
     if (!email || !password) {
@@ -53,9 +53,10 @@ const AdminLogin = () => {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include', // Include cookies for potential session management
         body: JSON.stringify({
-          email,
-          password,
+          email: email.trim().toLowerCase(),
+          password: password.trim(),
         }),
       });
 
@@ -63,8 +64,7 @@ const AdminLogin = () => {
       console.log("Admin Login Response:", data);
 
       if (!response.ok) {
-        // Fixed: Create proper Error object instead of throwing plain object
-        const errorMessage = data.message || data.error || `Request failed with status ${response.status}`;
+        const errorMessage = data.message || data.error || `Login failed with status ${response.status}`;
         const error = new Error(errorMessage);
         error.status = response.status;
         error.data = data;
@@ -74,17 +74,21 @@ const AdminLogin = () => {
       // Store admin token specifically
       if (data.token) {
         localStorage.setItem("adminToken", data.token);
-        console.log("Admin token stored:", data.token);
+        console.log("Admin token stored successfully");
+      } else {
+        console.warn("No token received in response");
       }
 
       // Store admin user data if available
-      if (data.admin) {
-        localStorage.setItem("admin", JSON.stringify(data.admin));
-        console.log("Admin data stored:", data.admin);
+      if (data.admin || data.data) {
+        const adminData = data.admin || data.data;
+        localStorage.setItem("admin", JSON.stringify(adminData));
+        console.log("Admin data stored:", adminData);
       }
 
       setMessage("Login successful! Redirecting to admin dashboard...");
 
+      // Clear any existing error and redirect
       setTimeout(() => {
         navigate("/admin/dashboard");
       }, 1500);
@@ -92,14 +96,20 @@ const AdminLogin = () => {
     } catch (err) {
       console.error("Admin login error:", err);
       
-      if (err.status === 401) {
+      if (err.status === 400) {
+        setError('Invalid email or password format');
+      } else if (err.status === 401) {
         setError('Invalid email or password. Please try again.');
       } else if (err.status === 403) {
         setError('Account access is restricted. Please contact support.');
+      } else if (err.status === 404) {
+        setError('Admin not found. Please check your credentials.');
       } else if (err.status === 429) {
         setError('Too many login attempts. Please try again later.');
-      } else if (err.status === 0 || !err.status) {
-        setError('Network error. Please check your connection and server status.');
+      } else if (!err.status || err.status === 0 || err.name === 'TypeError') {
+        setError('Network error. Please check your connection and try again.');
+      } else if (err.status >= 500) {
+        setError('Server error. Please try again later.');
       } else {
         setError(err.message || 'Login failed. Please try again.');
       }
@@ -192,6 +202,7 @@ const AdminLogin = () => {
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="admin@school.edu"
                       required
+                      disabled={loading}
                     />
                   </div>
                 </div>
@@ -211,11 +222,13 @@ const AdminLogin = () => {
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter your password"
                       required
+                      disabled={loading}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-300 hover:text-white"
+                      className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-300 hover:text-white disabled:opacity-50"
+                      disabled={loading}
                     >
                       {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
@@ -226,7 +239,7 @@ const AdminLogin = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-4 rounded-lg transition-all duration-300 disabled:opacity-50 hover:scale-105 shadow-lg"
+                  className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-4 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 shadow-lg"
                 >
                   {loading ? (
                     <div className="flex items-center justify-center space-x-2">
@@ -251,6 +264,14 @@ const AdminLogin = () => {
                   </Link>
                 </div>
               </div>
+
+              {/* Debug Info - Only in development */}
+              {process.env.NODE_ENV === 'development' && (
+                <div className="mt-4 p-2 bg-black bg-opacity-20 rounded text-xs text-gray-300">
+                  <p>Debug: API URL - {API_BASE_URL}</p>
+                  <p>Debug: Token in Storage - {localStorage.getItem('adminToken') ? 'Yes' : 'No'}</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

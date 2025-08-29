@@ -1,10 +1,11 @@
-// utils/responseHandler.js - FIXED SPELLING AND ENHANCED
+// utils/responseHandler.js - FIXED AND ENHANCED
+
 const sendResponse = (res, statusCode, success, message, data = null, errors = null, meta = null) => {
   const response = {
     success,
     message,
     timestamp: new Date().toISOString(),
-    requestId: res.locals?.requestId
+    requestId: res.locals?.requestId || res.req?.id || 'unknown'
   };
 
   // Add data if provided
@@ -13,8 +14,10 @@ const sendResponse = (res, statusCode, success, message, data = null, errors = n
   }
 
   // Add errors if provided
-  if (errors && errors.length > 0) {
+  if (errors && Array.isArray(errors) && errors.length > 0) {
     response.errors = errors;
+  } else if (errors && typeof errors === 'object' && !Array.isArray(errors)) {
+    response.errors = [errors];
   }
 
   // Add metadata if provided (pagination, etc.)
@@ -82,9 +85,9 @@ const globalErrorHandler = (err, req, res, next) => {
   }
 
   return sendResponse(
-    res, 
-    error.statusCode || 500, 
-    false, 
+    res,
+    error.statusCode || 500,
+    false,
     error.message || 'Internal Server Error',
     null,
     process.env.NODE_ENV === 'development' ? [{ message: err.stack }] : null
@@ -94,9 +97,9 @@ const globalErrorHandler = (err, req, res, next) => {
 // 404 handler
 const notFoundHandler = (req, res) => {
   return sendResponse(
-    res, 
-    404, 
-    false, 
+    res,
+    404,
+    false,
     `Route ${req.originalUrl} not found`,
     null,
     null,
@@ -105,8 +108,10 @@ const notFoundHandler = (req, res) => {
       url: req.originalUrl,
       availableRoutes: [
         'GET /api/health - Health check',
-        'POST /api/auth/login - User login', 
+        'POST /api/auth/login - User login',
         'POST /api/auth/register - User registration',
+        'POST /api/admin/login - Admin login',
+        'GET /api/admin/profile - Admin profile',
         'GET /api/teachers - Get all teachers',
         'GET /api/appointments - Get appointments'
       ]
@@ -119,7 +124,7 @@ const sendSuccess = (res, message, data = null, meta = null) => {
   return sendResponse(res, 200, true, message, data, null, meta);
 };
 
-// Error response helper  
+// Error response helper
 const sendError = (res, statusCode = 500, message = 'Internal Server Error', errors = null) => {
   return sendResponse(res, statusCode, false, message, null, errors);
 };
