@@ -11,7 +11,7 @@ import StudentApproval from './pages/Admin/StudentApproval';
 import TeacherLogin from './pages/Teacher/TeacherLogin';
 import TeacherDashboard from './pages/Teacher/TeacherDashboard';
 import TeacherSchedule from './pages/Teacher/SheduleAppointment';
-import TeacherAppointmentManager from './pages/Teacher/ApproveAppointment';
+import TeacherApproveAppointments from './pages/Teacher/ApproveAppointment';
 import UserDashboard from './pages/User/UserDashboard';
 import SheduleApppointment from './pages/User/SheduleAppointment';
 import AppointmentList from './pages/Teacher/AppointmentList';
@@ -49,7 +49,7 @@ function App() {
               <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
               <Route path="/teacher/shedule-appointment" element={<TeacherSchedule />} />
               <Route path="/teacher/appointment-list" element={<AppointmentList />} />
-              <Route path="/teacher/approve-appointment" element={<TeacherAppointmentManager />} />
+              <Route path="/teacher/approve-appointment" element={<TeacherApproveAppointments />} />
               
               {/* Message Board Route */}
               <Route path="/teacher/message" element={<MessageBoard />} />

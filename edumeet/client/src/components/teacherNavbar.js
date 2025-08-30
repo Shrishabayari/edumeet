@@ -30,7 +30,7 @@ const TeacherNavbar = () => {
 
         <div className="hidden md:flex space-x-6">
           <Link to="/teacher/shedule-appointment" className="hover:underline">Shedule Appointment</Link>
-          <Link to="/teacher/approval" className="hover:underline">Slot Approval</Link>
+          <Link to="/teacher/approve-appointment" className="hover:underline">Slot Approval</Link>
           <Link to="/teacher/Appointment-list" className="hover:underline">All Appointments</Link>
           <button onClick={handleLogout} className="hover:underline text-red-100">Logout</button>
         </div>
@@ -40,7 +40,7 @@ const TeacherNavbar = () => {
       {isOpen && (
         <div className="md:hidden px-4 pb-4 space-y-2 bg-blue-600 text-white flex flex-col">
           <Link to="/teacher/shedule-appointment" onClick={toggleMenu} className="block hover:underline">Shedule Appointment</Link>
-          <Link to="/teacher/approval" onClick={toggleMenu} className="block hover:underline">Slot Approval</Link>
+          <Link to="/teacher/approve-appointment" onClick={toggleMenu} className="block hover:underline">Slot Approval</Link>
           <Link to="/teacher/Appointment-list" onClick={toggleMenu} className="block hover:underline">All Appointments</Link>
           <button onClick={() => { toggleMenu(); handleLogout(); }} className=" text-left hover:underline text-red-100">Logout</button>
         </div>
