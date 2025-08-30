@@ -1,8 +1,7 @@
 import axios from 'axios';
 
 // Prioritize environment variable, then remote server, then local development server
-const API_BASE_URL = process.env.REACT_APP_API_URL || 
-  (process.env.NODE_ENV === 'production' ? 'https://edumeet.onrender.com/api' : 'http://localhost:5000/api');
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com' || 'http://localhost:5000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -12,33 +11,22 @@ const api = axios.create({
   },
 });
 
-// ✅ FIXED: Enhanced memory storage with proper initialization
-let memoryStorage = {
-  userToken: null,
-  teacherToken: null,
-  adminToken: null,
-  user: null,
-  teacher: null,
-  userRole: null
-};
-
-// ✅ CRITICAL: Make memoryStorage globally accessible for debugging
-if (typeof window !== 'undefined') {
-  window.memoryStorage = memoryStorage;
-}
-
-// Helper function to get token from memory storage
+// FIXED: Helper function to get token from either storage location
 const getTokenFromStorage = (tokenType = 'userToken') => {
-  const token = memoryStorage[tokenType];
+  // First check localStorage, then sessionStorage
+  let token = localStorage.getItem(tokenType);
+  if (!token) {
+    token = sessionStorage.getItem(tokenType);
+  }
   
   if (process.env.NODE_ENV === 'development' && token) {
-    console.log(`🔍 Found ${tokenType} in memory storage`);
+    console.log(`🔍 Found ${tokenType} in ${localStorage.getItem(tokenType) ? 'localStorage' : 'sessionStorage'}`);
   }
   
   return token;
 };
 
-// Request interceptor with proper token handling and detailed logging
+// Request interceptor - FIXED to check both storage locations
 api.interceptors.request.use(
   (config) => {
     let token = null;
@@ -49,26 +37,19 @@ api.interceptors.request.use(
     } else if (config.url.startsWith('/teachers')) {
       token = getTokenFromStorage('teacherToken');
     } else {
-      // For appointment routes and other routes, use teacherToken if available, otherwise userToken
-      token = getTokenFromStorage('teacherToken') || getTokenFromStorage('userToken');
+      token = getTokenFromStorage('userToken');
     }
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-      console.log(`🔑 Token added to request: ${config.method?.toUpperCase()} ${config.url}`);
-      console.log(`   Token: ${token.substring(0, 20)}...`);
-    } else {
-      console.log(`⚠️  No token found for request: ${config.method?.toUpperCase()} ${config.url}`);
     }
 
     if (process.env.NODE_ENV === 'development') {
       console.log(`🔄 API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
-      console.log(`   Headers:`, {
-        'Content-Type': config.headers['Content-Type'],
-        'Authorization': config.headers.Authorization ? 'Present' : 'Missing'
-      });
-      if (config.data) {
-        console.log(`   Body:`, config.data);
+      if (token) {
+        console.log(`   Token Used: ${token.substring(0, 20)}...`);
+      } else {
+        console.log('   No token sent for this request.');
       }
     }
     return config;
@@ -79,14 +60,12 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor with better error handling
+// Response interceptor - FIXED to clear tokens from both storage locations
 api.interceptors.response.use(
   (response) => {
     if (process.env.NODE_ENV === 'development') {
       console.log(`✅ API Response: ${response.status} ${response.config.url}`);
-      if (response.data?.success === false) {
-        console.warn(`   Response indicates failure:`, response.data);
-      }
+      console.log('Response data:', response.data);
     }
     return response;
   },
@@ -95,70 +74,49 @@ api.interceptors.response.use(
 
     if (error.response) {
       const { status, data, config } = error.response;
-      console.error(`HTTP Error ${status} for ${config.method?.toUpperCase()} ${config.url}:`, data);
+      console.error(`HTTP Error ${status}:`, data);
 
       switch (status) {
         case 401:
-          console.warn('🔒 Unauthorized: Token expired or invalid');
-          
-          // Clear appropriate tokens based on the request URL
+          console.warn('Unauthorized: Token expired or invalid. Attempting redirection.');
           if (config.url.startsWith('/admin')) {
             tokenManager.removeAdminToken();
-            if (window.location.pathname.startsWith('/admin')) {
-              window.location.href = '/admin/login';
-            }
-          } else if (config.url.startsWith('/teachers') || config.url.includes('/appointments/')) {
+            window.location.href = '/admin/login';
+          } else if (config.url.startsWith('/teachers')) {
             tokenManager.removeTeacherToken();
-            if (window.location.pathname.startsWith('/teacher')) {
-              window.location.href = '/teacher/login';
-            }
+            window.location.href = '/teacher/login';
           } else {
             tokenManager.removeUserToken();
-            if (!window.location.pathname.includes('/login')) {
-              window.location.href = '/login';
-            }
+            window.location.href = '/login';
           }
           break;
-          
         case 403:
-          console.error('🚫 Access forbidden: Insufficient permissions');
+          console.error('Access forbidden: You do not have permission to perform this action.');
           break;
-          
         case 404:
-          console.error('🔍 Not found:', config.url);
+          console.error('API endpoint not found:', error.config.url);
           break;
-          
-        case 409:
-          console.error('⚠️ Conflict:', data.message || 'Resource conflict');
-          break;
-          
-        case 429:
-          console.error('⏰ Rate limit exceeded');
-          break;
-          
         case 500:
-          console.error('💥 Internal server error');
+          console.error('Internal server error. Please try again later.');
           break;
-          
         default:
-          console.error(`❓ Unexpected error status: ${status}`);
+          console.error('Unexpected error status:', status);
       }
 
-      // Return a more specific error message
-      const errorMessage = data?.message || data?.error || `HTTP Error ${status}`;
+      const errorMessage = data?.message || data?.error || `HTTP Error ${status}. Please try again.`;
       return Promise.reject(new Error(errorMessage));
 
     } else if (error.request) {
-      console.error('🌐 Network Error: No response received:', error.request);
-      return Promise.reject(new Error('Network error: Unable to connect to server. Please check your internet connection.'));
+      console.error('No response received from server:', error.request);
+      return Promise.reject(new Error('Cannot connect to server. Please check your internet connection or try again later.'));
     } else {
-      console.error('⚙️ Request Setup Error:', error.message);
+      console.error('Request setup error:', error.message);
       return Promise.reject(new Error(`Request configuration error: ${error.message}`));
     }
   }
 );
 
-// CORRECTED: API endpoints with proper paths
+// API endpoints object (unchanged)
 export const endpoints = {
   // Auth endpoints (for regular users)
   auth: {
@@ -188,18 +146,29 @@ export const endpoints = {
     logout: '/teachers/logout',
   },
 
-  // Appointment endpoints
+  // Updated appointment endpoints with new workflow
   appointments: {
+    // General appointment routes
     getAll: '/appointments',
     getById: (id) => `/appointments/${id}`,
     getStats: '/appointments/stats',
+    
+    // Student workflow - request appointment (needs teacher approval)
     request: '/appointments/request',
+    
+    // Teacher workflow - direct booking (no approval needed)
     book: '/appointments/book',
+    
+    // Teacher response routes
     accept: (id) => `/appointments/${id}/accept`,
     reject: (id) => `/appointments/${id}/reject`,
     complete: (id) => `/appointments/${id}/complete`,
+    
+    // Common routes
     update: (id) => `/appointments/${id}`,
     cancel: (id) => `/appointments/${id}/cancel`,
+    
+    // Teacher-specific routes
     getByTeacher: (teacherId) => `/appointments/teacher/${teacherId}`,
     getTeacherPending: (teacherId) => `/appointments/teacher/${teacherId}/pending`,
   },
@@ -215,20 +184,19 @@ export const endpoints = {
     deleteUser: (userId) => `/admin/users/${userId}`,
     getAllAppointments: '/admin/appointments',
     updateTeacherStatus: (teacherId) => `/admin/teachers/${teacherId}/status`,
-    getPendingRegistrations: '/admin/users/pending',
-    getAllUsers: '/admin/users',
-    approveUser: (id) => `/admin/users/${id}/approve`,
-    rejectUser: (id) => `/admin/users/${id}/reject`,
+    getPendingRegistrations: '/auth/admin/pending',
+    getAllUsers: '/auth/admin/users',
+    approveUser: (id) => `/auth/admin/approve/${id}`,
+    rejectUser: (id) => `/auth/admin/reject/${id}`,
   },
-  
   messages: {
-    getByRoom: (roomId) => `/messages/room/${roomId}`,
-    delete: (id) => `/messages/${id}`,
-    getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
-  }
+  getByRoom: (roomId) => `/messages/room/${roomId}`,
+  delete: (id) => `/messages/${id}`,
+  getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
+}
 };
 
-// API methods with comprehensive error handling
+// API methods (unchanged - they'll now use the fixed token retrieval)
 export const apiMethods = {
   // Auth Operations
   register: (userData) => api.post(endpoints.auth.register, userData),
@@ -255,222 +223,72 @@ export const apiMethods = {
   getTeacherProfile: () => api.get(endpoints.teachers.profile),
   teacherLogout: () => api.post(endpoints.teachers.logout),
 
-  // Appointment Operations (keeping existing methods for compatibility)
-  requestAppointment: async (appointmentData) => {
-    try {
-      console.log('🔄 Student requesting appointment:', appointmentData);
-      const response = await api.post(endpoints.appointments.request, appointmentData);
-      console.log('✅ Appointment requested successfully:', response.data);
-      return response;
-    } catch (error) {
-      console.error('❌ Error requesting appointment:', error);
-      throw error;
-    }
+  // Appointment Operations
+  requestAppointment: (appointmentData) => {
+    console.log('🔄 Student requesting appointment:', appointmentData);
+    return api.post(endpoints.appointments.request, appointmentData);
   },
 
-  teacherBookAppointment: async (appointmentData) => {
-    try {
-      console.log('🔄 Teacher booking appointment directly:', appointmentData);
-      const response = await api.post(endpoints.appointments.book, appointmentData);
-      console.log('✅ Teacher appointment booked successfully:', response.data);
-      return response;
-    } catch (error) {
-      console.error('❌ Error booking teacher appointment:', error);
-      throw error;
-    }
+  teacherBookAppointment: (appointmentData) => {
+    console.log('🔄 Teacher booking appointment directly:', appointmentData);
+    return api.post(endpoints.appointments.book, appointmentData);
   },
 
-  // Enhanced acceptAppointmentRequest with comprehensive error handling
-  acceptAppointmentRequest: async (id, responseMessage = '') => {
-    try {
-      console.log('\n🎯 FRONTEND: Starting appointment acceptance process');
-      console.log('   Appointment ID:', id);
-      console.log('   Response Message:', responseMessage);
-      
-      if (!id) {
-        throw new Error('Appointment ID is required');
-      }
-      
-      if (typeof id !== 'string' || id.length !== 24) {
-        console.error('❌ Invalid ID format:', { id, type: typeof id, length: id?.length });
-        throw new Error('Invalid appointment ID format');
-      }
-      
-      const teacherToken = tokenManager.getTeacherToken();
-      if (!teacherToken) {
-        console.error('❌ No teacher token found');
-        throw new Error('Authentication required. Please log in as a teacher.');
-      }
-      
-      console.log('✅ Authentication token found');
-      console.log('🔄 Making API request to:', endpoints.appointments.accept(id));
-      
-      const requestPayload = { 
-        responseMessage: responseMessage?.trim() || '' 
-      };
-      
-      console.log('📤 Request payload:', requestPayload);
-      
-      const response = await api.put(endpoints.appointments.accept(id), requestPayload);
-      
-      console.log('✅ FRONTEND: Appointment accepted successfully');
-      console.log('📥 Response data:', response.data);
-      
-      return response;
-      
-    } catch (error) {
-      console.error('\n❌ FRONTEND: Error accepting appointment');
-      console.error('   Error type:', error.constructor.name);
-      console.error('   Error message:', error.message);
-      
-      if (error.response) {
-        const { status, data } = error.response;
-        console.error(`   HTTP Status: ${status}`);
-        console.error('   Response data:', data);
-        
-        switch (status) {
-          case 400:
-            if (data.message?.includes('ID format')) {
-              throw new Error('Invalid appointment ID. Please refresh the page and try again.');
-            } else if (data.message?.includes('status')) {
-              throw new Error('This appointment cannot be accepted. It may have already been processed.');
-            } else {
-              throw new Error(data.message || 'Invalid request. Please check the appointment details.');
-            }
-            
-          case 401:
-            tokenManager.removeTeacherToken();
-            throw new Error('Your session has expired. Please log in again.');
-            
-          case 403:
-            throw new Error('You do not have permission to accept this appointment.');
-            
-          case 404:
-            throw new Error('Appointment not found. It may have already been processed or deleted.');
-            
-          case 409:
-            throw new Error('This appointment has already been processed by another action.');
-            
-          case 429:
-            throw new Error('Too many requests. Please wait a moment and try again.');
-            
-          case 500:
-            throw new Error('Server error. Please try again in a few moments.');
-            
-          default:
-            throw new Error(data.message || `Server error (${status}). Please try again.`);
-        }
-      } else if (error.request) {
-        console.error('   Network error - no response received');
-        throw new Error('Unable to connect to server. Please check your internet connection and try again.');
-      } else {
-        console.error('   Request setup error:', error.message);
-        throw new Error(error.message || 'An unexpected error occurred. Please try again.');
-      }
+  // Improved acceptAppointmentRequest API method
+acceptAppointmentRequest: async (id, responseMessage = '') => {
+  try {
+    console.log('🔄 Accepting appointment request:', id);
+    console.log('Response message:', responseMessage);
+    
+    // Validate ID format on frontend too
+    if (!id || id.length !== 24) {
+      throw new Error('Invalid appointment ID format');
     }
+    
+    const response = await api.put(endpoints.appointments.accept(id), { 
+      responseMessage: responseMessage.trim() 
+    });
+    
+    console.log('✅ Appointment accepted successfully:', response.data);
+    return response;
+    
+  } catch (error) {
+    console.error('❌ Error accepting appointment:', error);
+    
+    // Enhanced error handling
+    if (error.response) {
+      const { status, data } = error.response;
+      console.error(`HTTP ${status}:`, data);
+      
+      // Provide more specific error messages
+      switch (status) {
+        case 404:
+          throw new Error('Appointment not found or may have been already processed');
+        case 400:
+          throw new Error(data.message || 'Invalid request - check appointment status');
+        case 403:
+          throw new Error('You do not have permission to accept this appointment');
+        case 409:
+          throw new Error('Appointment has already been processed');
+        default:
+          throw new Error(data.message || `Server error (${status}). Please try again.`);
+      }
+    } else if (error.request) {
+      throw new Error('Cannot connect to server. Please check your internet connection.');
+    } else {
+      throw new Error(error.message || 'An unexpected error occurred');
+    }
+  }
+},
+
+  rejectAppointmentRequest: (id, responseMessage = '') => {
+    console.log(`🔄 Teacher rejecting appointment request: ${id}`);
+    return api.put(endpoints.appointments.reject(id), { responseMessage });
   },
 
-  // Enhanced rejectAppointmentRequest
-  rejectAppointmentRequest: async (id, responseMessage = '') => {
-    try {
-      console.log('\n🎯 FRONTEND: Starting appointment rejection process');
-      console.log('   Appointment ID:', id);
-      console.log('   Response Message:', responseMessage);
-      
-      if (!id) {
-        throw new Error('Appointment ID is required');
-      }
-      
-      if (typeof id !== 'string' || id.length !== 24) {
-        console.error('❌ Invalid ID format:', { id, type: typeof id, length: id?.length });
-        throw new Error('Invalid appointment ID format');
-      }
-      
-      const teacherToken = tokenManager.getTeacherToken();
-      if (!teacherToken) {
-        console.error('❌ No teacher token found');
-        throw new Error('Authentication required. Please log in as a teacher.');
-      }
-      
-      console.log('✅ Authentication token found');
-      console.log('🔄 Making API request to:', endpoints.appointments.reject(id));
-      
-      const requestPayload = { 
-        responseMessage: responseMessage?.trim() || 'Request rejected by teacher' 
-      };
-      
-      console.log('📤 Request payload:', requestPayload);
-      
-      const response = await api.put(endpoints.appointments.reject(id), requestPayload);
-      
-      console.log('✅ FRONTEND: Appointment rejected successfully');
-      console.log('📥 Response data:', response.data);
-      
-      return response;
-      
-    } catch (error) {
-      console.error('\n❌ FRONTEND: Error rejecting appointment');
-      console.error('   Error type:', error.constructor.name);
-      console.error('   Error message:', error.message);
-      
-      if (error.response) {
-        const { status, data } = error.response;
-        console.error(`   HTTP Status: ${status}`);
-        console.error('   Response data:', data);
-        
-        // Provide user-friendly error messages
-        switch (status) {
-          case 400:
-            if (data.message?.includes('ID format')) {
-              throw new Error('Invalid appointment ID. Please refresh the page and try again.');
-            } else if (data.message?.includes('status')) {
-              throw new Error('This appointment cannot be rejected. It may have already been processed.');
-            } else {
-              throw new Error(data.message || 'Invalid request. Please check the appointment details.');
-            }
-            
-          case 401:
-            tokenManager.removeTeacherToken();
-            throw new Error('Your session has expired. Please log in again.');
-            
-          case 403:
-            throw new Error('You do not have permission to reject this appointment.');
-            
-          case 404:
-            throw new Error('Appointment not found. It may have already been processed or deleted.');
-            
-          case 409:
-            throw new Error('This appointment has already been processed by another action.');
-            
-          case 429:
-            throw new Error('Too many requests. Please wait a moment and try again.');
-            
-          case 500:
-            throw new Error('Server error. Please try again in a few moments.');
-            
-          default:
-            throw new Error(data.message || `Server error (${status}). Please try again.`);
-        }
-      } else if (error.request) {
-        console.error('   Network error - no response received');
-        throw new Error('Unable to connect to server. Please check your internet connection and try again.');
-      } else {
-        console.error('   Request setup error:', error.message);
-        throw new Error(error.message || 'An unexpected error occurred. Please try again.');
-      }
-    }
-  },
-
-  completeAppointment: async (id) => {
-    try {
-      console.log(`🔄 Completing appointment: ${id}`);
-      const response = await api.put(endpoints.appointments.complete(id));
-      console.log('✅ Appointment completed successfully:', response.data);
-      return response;
-    } catch (error) {
-      console.error('❌ Error completing appointment:', error);
-      throw error;
-    }
+  completeAppointment: (id) => {
+    console.log(`🔄 Completing appointment: ${id}`);
+    return api.put(endpoints.appointments.complete(id));
   },
 
   getAllAppointments: (params = {}) => api.get(endpoints.appointments.getAll, { params }),
@@ -479,29 +297,12 @@ export const apiMethods = {
   cancelAppointment: (id, reason = '') => api.put(endpoints.appointments.cancel(id), { reason }),
   getAppointmentStats: () => api.get(endpoints.appointments.getStats),
 
-  // Teacher appointment methods
-  getTeacherAppointments: async (teacherId, params = {}) => {
-    try {
-      console.log(`🔄 Fetching appointments for teacher: ${teacherId}`);
-      const response = await api.get(endpoints.appointments.getByTeacher(teacherId), { params });
-      console.log(`✅ Found ${response.data?.data?.length || 0} appointments for teacher`);
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching teacher appointments:', error);
-      throw error;
-    }
+  getTeacherAppointments: (teacherId, params = {}) => {
+    return api.get(endpoints.appointments.getByTeacher(teacherId), { params });
   },
 
-  getTeacherPendingRequests: async (teacherId) => {
-    try {
-      console.log(`🔄 Fetching pending requests for teacher: ${teacherId}`);
-      const response = await api.get(endpoints.appointments.getTeacherPending(teacherId));
-      console.log(`✅ Found ${response.data?.data?.length || 0} pending requests for teacher`);
-      return response;
-    } catch (error) {
-      console.error('❌ Error fetching teacher pending requests:', error);
-      throw error;
-    }
+  getTeacherPendingRequests: (teacherId) => {
+    return api.get(endpoints.appointments.getTeacherPending(teacherId));
   },
 
   getConfirmedAppointments: (params = {}) => {
@@ -538,30 +339,27 @@ export const apiMethods = {
   approveUser: (id) => api.put(endpoints.admin.approveUser(id)),
   rejectUser: (id, reason) => api.put(endpoints.admin.rejectUser(id), { reason }),
 
-  // Enhanced appointment booking with retry logic
-  requestAppointmentWithRetry: async (appointmentData, maxRetries = 3) => {
+  // Enhanced appointment booking with better error handling and retry logic
+  requestAppointmentWithRetry: async (appointmentData) => {
+    const maxRetries = 3;
     let lastError = null;
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    for (let i = 0; i < maxRetries; i++) {
       try {
-        console.log(`🔄 Requesting appointment (attempt ${attempt}/${maxRetries})`);
+        console.log(`🔄 Requesting appointment attempt ${i + 1}/${maxRetries}`);
         const response = await api.post(endpoints.appointments.request, appointmentData);
-        console.log(`✅ Appointment requested successfully on attempt ${attempt}`);
+        console.log(`✅ Appointment requested successfully on attempt ${i + 1}`);
         return response;
       } catch (error) {
         lastError = error;
-        console.log(`❌ Attempt ${attempt} failed:`, error.message);
+        console.log(`❌ Request attempt ${i + 1} failed:`, error.message);
         
-        // Don't retry on client errors (400-499)
-        if (error.response?.status >= 400 && error.response?.status < 500) {
-          throw error;
+        if (error.response?.status === 400 || error.response?.status === 409) {
+          break;
         }
         
-        // Wait before retrying (exponential backoff)
-        if (attempt < maxRetries) {
-          const delay = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
-          console.log(`⏳ Waiting ${delay}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
+        if (i < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
         }
       }
     }
@@ -569,7 +367,6 @@ export const apiMethods = {
     throw lastError || new Error('All appointment request attempts failed');
   },
 
-  // Bulk operations
   bulkUpdateAppointments: async (updates) => {
     const results = [];
     for (const update of updates) {
@@ -583,7 +380,6 @@ export const apiMethods = {
     return results;
   },
 
-  // Search operations
   searchAppointments: (query, filters = {}) => {
     const params = { search: query, ...filters };
     return api.get(endpoints.appointments.getAll, { params });
@@ -594,7 +390,6 @@ export const apiMethods = {
     return api.get(endpoints.teachers.getAll, { params });
   },
 
-  // Validation helper
   validateAppointmentData: (appointmentData, isTeacherBooking = false) => {
     const errors = [];
     
@@ -634,292 +429,100 @@ export const apiMethods = {
   }
 };
 
-// ✅ FIXED: Enhanced token manager with proper memory storage and validation
+// FIXED: Token management utilities - now handle both storage locations
 export const tokenManager = {
-  // ✅ FIXED: User token methods with enhanced error handling and validation
+  // User token methods - FIXED to handle both storage types
   setUserToken: (token, persistent = false) => {
-    console.log('🔧 setUserToken called with:', { 
-      hasToken: !!token, 
-      tokenLength: token?.length,
-      persistent,
-      timestamp: new Date().toISOString()
-    });
-    
-    if (!token || typeof token !== 'string' || token.trim() === '') {
-      console.error('❌ Invalid token provided to setUserToken');
-      return false;
-    }
-    
-    memoryStorage.userToken = token.trim();
-    console.log('✅ User token stored in memory successfully');
-    return true;
-  },
+  console.log('🔧 setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
   
-  getUserToken: () => {
-    const token = memoryStorage.userToken;
-    if (process.env.NODE_ENV === 'development' && token) {
-      console.log('🔍 Retrieved user token:', token.substring(0, 20) + '...');
-    }
-    return token;
-  },
+  if (persistent) {
+    localStorage.setItem('userToken', token);
+    sessionStorage.removeItem('userToken'); // Clear from session
+    console.log('✅ Token stored in localStorage');
+  } else {
+    sessionStorage.setItem('userToken', token);
+    localStorage.removeItem('userToken'); // Clear from localStorage  
+    console.log('✅ Token stored in sessionStorage');
+  }
+},
+  
+  getUserToken: () => getTokenFromStorage('userToken'),
   
   removeUserToken: () => {
-    console.log('🗑️ Removing user token from memory');
-    memoryStorage.userToken = null;
-    memoryStorage.user = null;
-    memoryStorage.userRole = null;
-    console.log('✅ User token and data cleared from memory');
+    localStorage.removeItem('userToken');
+    sessionStorage.removeItem('userToken');
+    localStorage.removeItem('user');
+    sessionStorage.removeItem('user');
+    localStorage.removeItem('userRole');
+    sessionStorage.removeItem('userRole');
   },
   
-  // ✅ FIXED: Enhanced teacher token methods with proper validation
-  setTeacherToken: (token, persistent = false) => {
-    console.log('🔧 setTeacherToken called with:', { 
-      hasToken: !!token, 
-      tokenLength: token?.length,
-      persistent,
-      timestamp: new Date().toISOString()
-    });
-    
-    if (!token || typeof token !== 'string' || token.trim() === '') {
-      console.error('❌ Invalid token provided to setTeacherToken');
-      return false;
-    }
-    
-    memoryStorage.teacherToken = token.trim();
-    console.log('✅ Teacher token stored in memory successfully');
-    return true;
-  },
-  
-  getTeacherToken: () => {
-    const token = memoryStorage.teacherToken;
-    if (process.env.NODE_ENV === 'development' && token) {
-      console.log('🔍 Retrieved teacher token:', token.substring(0, 20) + '...');
-    }
-    return token;
-  },
-  
-  removeTeacherToken: () => {
-    console.log('🗑️ Removing teacher token from memory');
-    memoryStorage.teacherToken = null;
-    memoryStorage.teacher = null;
-    console.log('✅ Teacher token and data cleared from memory');
-  },
-
-  // ✅ FIXED: Enhanced teacher data management with validation
-  setTeacherData: (teacherData) => {
-    console.log('💾 setTeacherData called with:', teacherData);
-    
-    if (!teacherData || typeof teacherData !== 'object') {
-      console.error('❌ Invalid teacher data provided to setTeacherData');
-      return false;
-    }
-    
-    try {
-      const teacherDataString = JSON.stringify(teacherData);
-      memoryStorage.teacher = teacherDataString;
-      console.log('✅ Teacher data stored in memory successfully');
-      return true;
-    } catch (error) {
-      console.error('❌ Error serializing teacher data:', error);
-      return false;
-    }
-  },
-
-  getTeacherData: () => {
-    try {
-      const teacherData = memoryStorage.teacher;
-      if (teacherData && typeof teacherData === 'string') {
-        const parsed = JSON.parse(teacherData);
-        if (process.env.NODE_ENV === 'development') {
-          console.log('🔍 Retrieved teacher data:', parsed);
-        }
-        return parsed;
-      }
-    } catch (error) {
-      console.error('❌ Error parsing teacher data:', error);
-      memoryStorage.teacher = null;
-    }
-    return null;
-  },
-  
-  // Admin token methods
+  // Admin token methods - FIXED to handle both storage types
   setAdminToken: (token, persistent = false) => {
-    console.log('🔧 setAdminToken called with:', { 
-      hasToken: !!token, 
-      tokenLength: token?.length,
-      persistent,
-      timestamp: new Date().toISOString()
-    });
-    
-    if (!token || typeof token !== 'string' || token.trim() === '') {
-      console.error('❌ Invalid token provided to setAdminToken');
-      return false;
+    if (persistent) {
+      localStorage.setItem('adminToken', token);
+      sessionStorage.removeItem('adminToken');
+    } else {
+      sessionStorage.setItem('adminToken', token);
+      localStorage.removeItem('adminToken');
     }
-    
-    memoryStorage.adminToken = token.trim();
-    console.log('✅ Admin token stored in memory successfully');
-    return true;
   },
   
-  getAdminToken: () => {
-    const token = memoryStorage.adminToken;
-    if (process.env.NODE_ENV === 'development' && token) {
-      console.log('🔍 Retrieved admin token:', token.substring(0, 20) + '...');
-    }
-    return token;
-  },
+  getAdminToken: () => getTokenFromStorage('adminToken'),
   
   removeAdminToken: () => {
-    console.log('🗑️ Removing admin token from memory');
-    memoryStorage.adminToken = null;
-    console.log('✅ Admin token cleared from memory');
+    localStorage.removeItem('adminToken');
+    sessionStorage.removeItem('adminToken');
+  },
+  
+  // Teacher token methods - FIXED to handle both storage types
+  setTeacherToken: (token, persistent = false) => {
+    if (persistent) {
+      localStorage.setItem('teacherToken', token);
+      sessionStorage.removeItem('teacherToken');
+    } else {
+      sessionStorage.setItem('teacherToken', token);
+      localStorage.removeItem('teacherToken');
+    }
+  },
+  
+  getTeacherToken: () => getTokenFromStorage('teacherToken'),
+  
+  removeTeacherToken: () => {
+    localStorage.removeItem('teacherToken');
+    sessionStorage.removeItem('teacherToken');
   },
   
   clearAllTokens: () => {
-    console.log('🧹 Clearing all tokens and user data');
-    memoryStorage = {
-      userToken: null,
-      teacherToken: null,
-      adminToken: null,
-      user: null,
-      teacher: null,
-      userRole: null
-    };
-    // Update the global reference
-    if (typeof window !== 'undefined') {
-      window.memoryStorage = memoryStorage;
-    }
-    console.log('✅ All tokens and data cleared from memory');
+    localStorage.clear();
+    sessionStorage.clear();
   },
 
-  // ✅ FIXED: Helper methods for user state management with proper validation
+  // ADDED: Helper method to check if user is logged in
   isUserLoggedIn: () => {
-    const hasToken = !!(memoryStorage.userToken && memoryStorage.userToken.trim());
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔍 User login status:', hasToken);
-    }
-    return hasToken;
+    return !!getTokenFromStorage('userToken');
   },
 
-  isTeacherLoggedIn: () => {
-    const hasToken = !!(memoryStorage.teacherToken && memoryStorage.teacherToken.trim());
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔍 Teacher login status:', hasToken);
-    }
-    return hasToken;
-  },
-
-  isAdminLoggedIn: () => {
-    const hasToken = !!(memoryStorage.adminToken && memoryStorage.adminToken.trim());
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔍 Admin login status:', hasToken);
-    }
-    return hasToken;
-  },
-
+  // ADDED: Helper method to get current user info from either storage
   getCurrentUser: () => {
-    try {
-      return memoryStorage.user ? JSON.parse(memoryStorage.user) : null;
-    } catch (error) {
-      console.error('Error parsing user data:', error);
-      return null;
+    let user = localStorage.getItem('user');
+    if (!user) {
+      user = sessionStorage.getItem('user');
     }
+    return user ? JSON.parse(user) : null;
   },
 
-  getCurrentTeacher: () => {
-    try {
-      return memoryStorage.teacher ? JSON.parse(memoryStorage.teacher) : null;
-    } catch (error) {
-      console.error('Error parsing teacher data:', error);
-      return null;
-    }
-  },
-
+  // ADDED: Helper method to get current user role
   getCurrentUserRole: () => {
-    return memoryStorage.userRole;
-  },
-
-  // Method to get current authenticated user info
-  getCurrentAuthenticatedUser: () => {
-    const teacher = tokenManager.getCurrentTeacher();
-    const user = tokenManager.getCurrentUser();
-    
-    if (teacher && tokenManager.isTeacherLoggedIn()) {
-      return { ...teacher, role: 'teacher', type: 'teacher' };
-    } else if (user && tokenManager.isUserLoggedIn()) {
-      return { ...user, role: user.role || 'student', type: 'user' };
+    let role = localStorage.getItem('userRole');
+    if (!role) {
+      role = sessionStorage.getItem('userRole');
     }
-    
-    return null;
-  },
-
-  // Enhanced login status checker
-  getAuthenticationStatus: () => {
-    return {
-      isTeacherLoggedIn: tokenManager.isTeacherLoggedIn(),
-      isUserLoggedIn: tokenManager.isUserLoggedIn(),
-      isAdminLoggedIn: tokenManager.isAdminLoggedIn(),
-      hasAnyAuth: tokenManager.isTeacherLoggedIn() || tokenManager.isUserLoggedIn() || tokenManager.isAdminLoggedIn(),
-      currentUser: tokenManager.getCurrentAuthenticatedUser()
-    };
-  },
-
-  // ✅ FIXED: Enhanced debug method to check storage state
-  getStorageState: () => {
-    if (process.env.NODE_ENV === 'development') {
-      const state = {
-        hasUserToken: !!(memoryStorage.userToken && memoryStorage.userToken.trim()),
-        hasTeacherToken: !!(memoryStorage.teacherToken && memoryStorage.teacherToken.trim()),
-        hasAdminToken: !!(memoryStorage.adminToken && memoryStorage.adminToken.trim()),
-        hasUserData: !!memoryStorage.user,
-        hasTeacherData: !!memoryStorage.teacher,
-        userRole: memoryStorage.userRole,
-        teacherTokenLength: memoryStorage.teacherToken ? memoryStorage.teacherToken.length : 0,
-        teacherDataKeys: memoryStorage.teacher ? Object.keys(JSON.parse(memoryStorage.teacher) || {}).length : 0,
-        memoryStorageKeys: Object.keys(memoryStorage)
-      };
-      console.log('🔍 Current storage state:', state);
-      return state;
-    }
-    return null;
-  },
-
-  // ✅ NEW: Method to validate token format
-  validateTokenFormat: (token) => {
-    if (!token || typeof token !== 'string') {
-      return { valid: false, error: 'Token must be a non-empty string' };
-    }
-    
-    if (token.trim() === '') {
-      return { valid: false, error: 'Token cannot be empty or whitespace only' };
-    }
-    
-    // Basic JWT format check (3 parts separated by dots)
-    const parts = token.trim().split('.');
-    if (parts.length !== 3) {
-      return { valid: false, error: 'Invalid JWT format (should have 3 parts)' };
-    }
-    
-    return { valid: true, error: null };
-  },
-
-  // ✅ NEW: Method to safely store token with validation
-  safeSetTeacherToken: (token, persistent = false) => {
-    const validation = tokenManager.validateTokenFormat(token);
-    if (!validation.valid) {
-      console.error('❌ Token validation failed:', validation.error);
-      return { success: false, error: validation.error };
-    }
-    
-    const result = tokenManager.setTeacherToken(token, persistent);
-    return { 
-      success: result, 
-      error: result ? null : 'Failed to store token in memory storage' 
-    };
+    return role;
   }
 };
 
-// Constants (keeping existing for compatibility)
+// Constants (unchanged)
 export const constants = {
   DEPARTMENTS: [
     'Computer Science',
@@ -958,87 +561,6 @@ export const constants = {
     STUDENT_REQUEST: 'student_request',  
     TEACHER_BOOKING: 'teacher_booking'   
   }
-};
-
-// ✅ FIXED: Create API client function for backward compatibility
-export const createApiClient = () => {
-  const handleErrors = async (response) => {
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(JSON.stringify({
-        status: response.status,
-        message: data.message || `Request failed with status ${response.status}`,
-        errors: data.errors || undefined,
-        data,
-      }));
-    }
-    return data;
-  };
-
-  const request = async (method, endpoint, body = null) => {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-
-    // Get token from memory storage instead of localStorage
-    const token = tokenManager.getTeacherToken();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const config = {
-      method,
-      headers,
-    };
-
-    if (body) {
-      config.body = JSON.stringify(body);
-    }
-
-    try {
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`🔄 API Request: ${method} ${API_BASE_URL}${endpoint}`);
-        if (token) {
-          console.log(`   Token Used: ${token.substring(0, 20)}...`);
-        } else {
-          console.log('   No token sent for this request.');
-        }
-      }
-
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-      const result = await handleErrors(response);
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`✅ API Response: ${response.status} ${endpoint}`);
-        console.log('Response data:', result);
-      }
-      return result;
-    } catch (error) {
-      console.error('❌ API Error:', error);
-
-      let parsedError = {};
-      try {
-        parsedError = JSON.parse(error.message);
-      } catch {
-        parsedError = { message: error.message || 'An unknown error occurred.' };
-      }
-
-      if (parsedError.status === 401) {
-        console.warn('Unauthorized: Token expired or invalid. Clearing tokens and redirecting to login.');
-        tokenManager.removeTeacherToken();
-        window.location.href = '/teacher/login';
-      }
-      
-      throw parsedError; 
-    }
-  };
-
-  return {
-    post: (endpoint, body) => request('POST', endpoint, body),
-    get: (endpoint) => request('GET', endpoint),
-    put: (endpoint, body) => request('PUT', endpoint, body),
-    delete: (endpoint) => request('DELETE', endpoint),
-  };
 };
 
 export default api;

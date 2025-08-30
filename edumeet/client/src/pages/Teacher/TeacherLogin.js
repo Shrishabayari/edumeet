@@ -5,7 +5,100 @@ import {
 } from 'lucide-react';
 import { useNavigate, Link } from "react-router-dom";
 import TeacherNavbar from "../../components/teacherNavbar";
-import { apiMethods, tokenManager } from "../../services/api";
+
+// ✅ API Client - Enhanced to handle authentication tokens automatically
+const createApiClient = () => {
+  const API_URL = process.env.NODE_ENV === 'production'
+    ? 'https://edumeet.onrender.com/api'
+    : 'http://localhost:5000/api';
+
+  // Helper to parse and handle API response errors
+  const handleErrors = async (response) => {
+    const data = await response.json();
+    if (!response.ok) {
+      // Throw a structured error object for easier handling in components
+      throw new Error(JSON.stringify({
+        status: response.status,
+        message: data.message || `Request failed with status ${response.status}`,
+        errors: data.errors || undefined, // Include specific validation errors if present
+        data,
+      }));
+    }
+    return data;
+  };
+
+  // Generic request handler to include headers and body
+  const request = async (method, endpoint, body = null) => {
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+
+    // Automatically attach teacherToken if available in localStorage
+    const token = localStorage.getItem('teacherToken');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const config = {
+      method,
+      headers,
+    };
+
+    if (body) {
+      config.body = JSON.stringify(body);
+    }
+
+    try {
+      // Log requests in development for debugging
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🔄 API Request: ${method} ${API_URL}${endpoint}`);
+        if (token) {
+          console.log(`   Token Used: ${token.substring(0, 20)}...`);
+        } else {
+          console.log('   No token sent for this request.');
+        }
+      }
+
+      const response = await fetch(`${API_URL}${endpoint}`, config);
+      const result = await handleErrors(response);
+
+      // Log successful responses in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`✅ API Response: ${response.status} ${endpoint}`);
+        console.log('Response data:', result);
+      }
+      return result;
+    } catch (error) {
+      console.error('❌ API Error:', error);
+
+      let parsedError = {};
+      try {
+        parsedError = JSON.parse(error.message);
+      } catch {
+        parsedError = { message: error.message || 'An unknown error occurred.' };
+      }
+
+      // Specific handling for Unauthorized errors (e.g., token expired)
+      if (parsedError.status === 401) {
+        console.warn('Unauthorized: Token expired or invalid. Clearing local storage and redirecting to login.');
+        localStorage.removeItem('teacherToken'); // Clear invalid token
+        localStorage.removeItem('teacher'); // Clear associated teacher data
+        // You might want to add a small delay or a notification here before redirecting
+        window.location.href = '/teacher/login'; // Redirect to login page
+      }
+      
+      // Re-throw the parsed error for component-level handling
+      throw parsedError; 
+    }
+  };
+
+  return {
+    post: (endpoint, body) => request('POST', endpoint, body),
+    get: (endpoint) => request('GET', endpoint), // Added GET method for fetching data
+    put: (endpoint, body) => request('PUT', endpoint, body), // Added PUT method for updates
+    delete: (endpoint) => request('DELETE', endpoint), // Added DELETE method for deletions
+  };
+};
 
 const TeacherLogin = () => {
   const [email, setEmail] = useState("");
@@ -15,6 +108,9 @@ const TeacherLogin = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
+
+  // Initialize the custom API client
+  const api = createApiClient();
 
   // Client-side form validation
   const validateForm = () => {
@@ -50,88 +146,62 @@ const TeacherLogin = () => {
         return;
       }
 
-      console.log("🔄 Attempting teacher login...");
-      const response = await apiMethods.teacherLogin({
+      const response = await api.post("/teachers/login", {
         email,
         password,
       });
 
-      console.log("✅ Login Response:", response.data);
+      console.log("✅ Login Response:", response);
 
-      // Store the authentication token using the centralized token manager
-      if (response.data.token) {
-        tokenManager.setTeacherToken(response.data.token, true); // true for persistent storage
-        console.log("✅ Teacher token stored successfully");
-      } else {
-        console.warn("No token received in login response");
-        setError("Login failed: No authentication token received");
-        setLoading(false);
-        return;
+      // ✅ CRUCIAL: Save the authentication token and teacher profile data to localStorage
+      if (response.token) {
+        localStorage.setItem("teacherToken", response.token);
       }
 
-      // Store teacher data in localStorage
-      if (response.data.data && response.data.data.teacher) {
-        localStorage.setItem("teacher", JSON.stringify(response.data.data.teacher));
-        console.log("✅ Teacher data stored successfully");
-      } else if (response.data.teacher) {
+      // Ensure 'teacher' object exists in the response before saving
+      if (response.data && response.data.teacher) { // Assuming backend sends { data: { teacher: {...} }, token: "..." }
         localStorage.setItem("teacher", JSON.stringify(response.data.teacher));
-        console.log("✅ Teacher data stored successfully (fallback structure)");
+      } else if (response.teacher) { // Fallback if backend sends { teacher: {...}, token: "..." } directly
+        localStorage.setItem("teacher", JSON.stringify(response.teacher));
       } else {
-        console.warn("Teacher data not found in login response:", response.data);
+        console.warn("Teacher data not found in login response.");
         setError("Login successful, but teacher data could not be loaded. Please try again.");
         setLoading(false);
         return;
       }
 
       setMessage("Login successful! Redirecting...");
-      
-      // Small delay to show success message before redirect
       setTimeout(() => {
-        navigate("/teacher/dashboard");
+        navigate("/teacher/dashboard"); // Redirect to the teacher's schedule page
       }, 1500);
-
     } catch (err) {
+      // Error handling from the custom API client
       console.error("❌ Teacher login error:", err);
 
-      // Enhanced error handling for different error types
+      // Check if the error object has a 'message' property or 'errors' array
       let displayMessage = 'Login failed. Please try again.';
-      
-      if (err.response) {
-        // HTTP error response
-        const { status, data } = err.response;
-        console.error(`HTTP ${status} Error:`, data);
-        
-        switch (status) {
-          case 400:
-            displayMessage = data.message || 'Invalid login credentials format';
-            break;
+      if (err.message) {
+        displayMessage = err.message;
+      } else if (err.errors && Array.isArray(err.errors) && err.errors.length > 0) {
+        displayMessage = err.errors.map(e => e.msg || e.message || 'Validation error').join(', ');
+      } else if (err.status) {
+        switch (err.status) {
           case 401:
-            displayMessage = 'Invalid email or password. Please check your credentials.';
+            displayMessage = 'Invalid email or password. Please try again.';
             break;
           case 403:
             displayMessage = 'Account access is restricted. Please contact admin.';
             break;
-          case 404:
-            displayMessage = 'Teacher account not found. Please contact admin.';
-            break;
           case 429:
             displayMessage = 'Too many login attempts. Please try again later.';
             break;
-          case 500:
-            displayMessage = 'Server error. Please try again in a few moments.';
+          case 0: // Network error from custom client
+            displayMessage = 'Network error. Please check your connection and try again.';
             break;
           default:
-            displayMessage = data.message || `Server error (${status}). Please try again.`;
+            displayMessage = err.message || `Login failed with status ${err.status}.`;
         }
-      } else if (err.request) {
-        // Network error
-        console.error("Network error - no response received");
-        displayMessage = 'Network error. Please check your internet connection and try again.';
-      } else {
-        // Other errors (validation, etc.)
-        displayMessage = err.message || 'An unexpected error occurred. Please try again.';
       }
-      
       setError(displayMessage);
     } finally {
       setLoading(false);
@@ -148,7 +218,7 @@ const TeacherLogin = () => {
           style={{
             backgroundImage: `linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?auto=format&fit=crop&w=2070&q=80')`
           }}
-          aria-hidden="true"
+          aria-hidden="true" // Hide from accessibility tree as it's decorative
         />
 
         {/* Content Container */}
@@ -180,7 +250,7 @@ const TeacherLogin = () => {
                   </div>
                   <h2 className="text-4xl font-bold text-white mb-2">Teacher Sign in</h2>
                   <p className="text-gray-200 text-sm">
-                    Don't have an account?{' '}
+                    Don’t have an account?{' '}
                     <Link to="/admin/login" className="text-blue-300 hover:text-white underline">
                       Contact Admin
                     </Link>

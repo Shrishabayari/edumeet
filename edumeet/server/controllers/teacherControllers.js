@@ -1,215 +1,57 @@
-const User = require('../models/User');
+const Teacher = require('../models/Teacher');
 const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const mongoose = require('mongoose');
-const { sendResponse } = require('../utils/responseHandler');
 
-// Helper function to sign JWT token
+// ✅ First define helper function
 const signToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '90d'
+    expiresIn: '90d'
   });
 };
 
-// Helper function to handle validation errors
-const handleValidationErrors = (req) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return {
-      hasErrors: true,
-      errors: errors.array().map(error => ({
-        field: error.param || error.path,
-        message: error.msg,
-        value: error.value
-      }))
-    };
-  }
-  return { hasErrors: false };
+// ✅ Then define this one (uses signToken)
+const createSendToken = (teacher, statusCode, req, res) => {
+  const token = signToken({
+    id: teacher._id,
+    email: teacher.email,
+    role: 'teacher',
+  loginTime: Date.now()  // 👈 this must be here
+  });
+
+  const cookieOptions = {
+    expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
+    httpOnly: true,
+    secure: req.secure || req.headers['x-forwarded-proto'] === 'https'
+  };
+
+  res.cookie('jwt', token, cookieOptions);
+
+  teacher.password = undefined;
+
+  res.status(statusCode).json({
+    success: true,
+    token,
+    data: {
+      teacher
+    }
+  });
 };
 
-// @desc    Teacher login - CORRECTED for User model integration
-// @route   POST /api/teachers/login
-// @access  Public
-const teacherLogin = async (req, res) => {
-  try {
-    const validation = handleValidationErrors(req);
-    if (validation.hasErrors) {
-      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
-    }
 
-    const { email, password } = req.body;
-
-    // Find teacher by email with password field included - CORRECTED
-    const teacher = await User.findOne({ 
-      email: email.toLowerCase().trim(), 
-      role: 'teacher',
-      isActive: true 
-    }).select('+password');
-    
-    if (!teacher) {
-      return sendResponse(res, 401, false, 'Invalid credentials');
-    }
-
-    // Check if account is set up
-    if (!teacher.hasAccount || !teacher.password) {
-      return sendResponse(res, 401, false, 'Account not set up. Please contact admin for setup link.');
-    }
-
-    // Check approval status
-    if (teacher.approvalStatus !== 'approved') {
-      const statusMessage = teacher.approvalStatus === 'rejected' 
-        ? 'Account has been rejected. Please contact admin.'
-        : 'Account pending approval. Please contact admin.';
-      return sendResponse(res, 401, false, statusMessage);
-    }
-
-    // Verify password
-    const isPasswordCorrect = await teacher.correctPassword(password);
-    if (!isPasswordCorrect) {
-      return sendResponse(res, 401, false, 'Invalid credentials');
-    }
-
-    // Update last login
-    teacher.lastLogin = new Date();
-    teacher.loginCount = (teacher.loginCount || 0) + 1;
-    await teacher.save({ validateBeforeSave: false });
-
-    // Create token
-    const token = signToken({
-      id: teacher._id.toString(),
-      email: teacher.email, 
-      role: 'teacher', 
-      loginTime: Date.now() 
-    });
-
-    // Prepare response data - CORRECTED for nested profile structure
-    const teacherResponse = {
-      id: teacher._id,
-      name: teacher.name,
-      email: teacher.email,
-      role: teacher.role,
-      approvalStatus: teacher.approvalStatus,
-      hasAccount: teacher.hasAccount,
-      lastLogin: teacher.lastLogin,
-      loginCount: teacher.loginCount,
-      // Flatten teacherProfile for easier frontend access
-      ...(teacher.teacherProfile && {
-        phone: teacher.teacherProfile.phone,
-        department: teacher.teacherProfile.department,
-        subject: teacher.teacherProfile.subject,
-        experience: teacher.teacherProfile.experience,
-        qualification: teacher.teacherProfile.qualification,
-        bio: teacher.teacherProfile.bio,
-        availability: teacher.teacherProfile.availability,
-        rating: teacher.teacherProfile.rating,
-        totalRatings: teacher.teacherProfile.totalRatings
-      })
-    };
-
-    console.log('✅ Teacher login successful:', {
-      teacherId: teacher._id.toString(),
-      teacherEmail: teacher.email,
-      tokenCreated: !!token
-    });
-
-    return sendResponse(res, 200, true, 'Login successful', { 
-      teacher: teacherResponse,
-      token
-    });
-
-  } catch (error) {
-    console.error('❌ Teacher login error:', error);
-    return sendResponse(res, 500, false, 'Server error during login', null, [{ message: error.message }]);
-  }
-};
-
-// @desc    Get teacher profile - CORRECTED
-// @route   GET /api/teachers/profile
-// @access  Private/Teacher
-const getTeacherProfile = async (req, res) => {
-  try {
-    console.log('🔍 Getting teacher profile for user:', {
-      userId: req.user?.id,
-      userRole: req.user?.role
-    });
-
-    // Validate teacher ID from JWT
-    if (!req.user?.id) {
-      return sendResponse(res, 400, false, 'No user ID found in token');
-    }
-
-    // Validate MongoDB ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(req.user.id)) {
-      console.error('❌ Invalid teacher ID format:', req.user.id);
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
-    }
-
-    // Find teacher by ID - CORRECTED for User model
-    const teacher = await User.findOne({ 
-      _id: req.user.id, 
-      role: 'teacher',
-      isActive: true 
-    }).select('-password -__v -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
-    
-    if (!teacher) {
-      console.error('❌ Teacher not found with ID:', req.user.id);
-      return sendResponse(res, 404, false, 'Teacher not found');
-    }
-
-    // Prepare response with flattened profile - CORRECTED
-    const teacherProfile = {
-      id: teacher._id,
-      name: teacher.name,
-      email: teacher.email,
-      role: teacher.role,
-      approvalStatus: teacher.approvalStatus,
-      hasAccount: teacher.hasAccount,
-      isActive: teacher.isActive,
-      createdAt: teacher.createdAt,
-      lastLogin: teacher.lastLogin,
-      loginCount: teacher.loginCount,
-      // Flatten teacherProfile for easier access
-      ...(teacher.teacherProfile && {
-        phone: teacher.teacherProfile.phone,
-        department: teacher.teacherProfile.department,
-        subject: teacher.teacherProfile.subject,
-        experience: teacher.teacherProfile.experience,
-        qualification: teacher.teacherProfile.qualification,
-        bio: teacher.teacherProfile.bio,
-        availability: teacher.teacherProfile.availability,
-        rating: teacher.teacherProfile.rating,
-        totalRatings: teacher.teacherProfile.totalRatings
-      })
-    };
-
-    console.log('✅ Teacher profile found:', {
-      teacherId: teacher._id.toString(),
-      teacherName: teacher.name,
-      teacherEmail: teacher.email
-    });
-
-    return sendResponse(res, 200, true, 'Profile retrieved successfully', teacherProfile);
-
-  } catch (error) {
-    console.error('❌ Profile fetch error:', error);
-    
-    if (error.name === 'CastError') {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
-    }
-
-    return sendResponse(res, 500, false, 'Server error while fetching profile', null, [{ message: error.message }]);
-  }
-};
-
-// @desc    Create new teacher - CORRECTED for User model
+// @desc    Create new teacher
 // @route   POST /api/teachers
 // @access  Private/Admin
 const createTeacher = async (req, res) => {
   try {
-    const validation = handleValidationErrors(req);
-    if (validation.hasErrors) {
-      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
+    // Check for validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
     }
 
     const {
@@ -222,226 +64,171 @@ const createTeacher = async (req, res) => {
       qualification,
       bio,
       availability,
-      password
+      password // Add password field
     } = req.body;
 
-    // Check if user with email already exists - CORRECTED
-    const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
-    if (existingUser) {
-      return sendResponse(res, 400, false, 'User with this email already exists');
+    // Check if teacher with email already exists
+    const existingTeacher = await Teacher.findOne({ email });
+    if (existingTeacher) {
+      return res.status(400).json({
+        success: false,
+        message: 'Teacher with this email already exists'
+      });
     }
 
-    // Create teacher user object - CORRECTED for nested profile structure
-    const userData = {
-      name: name.trim(),
-      email: email.toLowerCase().trim(),
-      role: 'teacher',
-      teacherProfile: {
-        phone,
-        department,
-        subject,
-        experience,
-        qualification,
-        bio: bio || '',
-        availability: availability || []
-      },
-      approvalStatus: 'pending',
-      isActive: true,
-      hasAccount: false
+    // Create new teacher object
+    const teacherData = {
+      name,
+      email,
+      phone,
+      department,
+      subject,
+      experience,
+      qualification,
+      bio,
+      availability: availability || []
     };
 
     // If password is provided, set it and mark account as active
-    if (password && password.trim()) {
-      userData.password = password;
-      userData.hasAccount = true;
-      userData.approvalStatus = 'approved'; // Auto-approve if created with password
+    if (password) {
+      teacherData.password = password;
+      teacherData.hasAccount = true;
+      teacherData.lastLogin = new Date();
     }
 
-    // Create new teacher user
-    const teacher = new User(userData);
+    // Create new teacher
+    const teacher = new Teacher(teacherData);
     const savedTeacher = await teacher.save();
 
-    // Prepare response data - CORRECTED
-    const responseData = {
-      id: savedTeacher._id,
-      name: savedTeacher.name,
-      email: savedTeacher.email,
-      role: savedTeacher.role,
-      approvalStatus: savedTeacher.approvalStatus,
-      hasAccount: savedTeacher.hasAccount,
-      createdAt: savedTeacher.createdAt,
-      // Flatten profile data
-      ...(savedTeacher.teacherProfile && {
-        phone: savedTeacher.teacherProfile.phone,
-        department: savedTeacher.teacherProfile.department,
-        subject: savedTeacher.teacherProfile.subject,
-        experience: savedTeacher.teacherProfile.experience,
-        qualification: savedTeacher.teacherProfile.qualification,
-        bio: savedTeacher.teacherProfile.bio,
-        availability: savedTeacher.teacherProfile.availability
-      })
-    };
+    // Remove password from response
+    const responseData = savedTeacher.toObject();
+    delete responseData.password;
 
-    console.log('✅ Teacher created successfully:', {
-      teacherId: savedTeacher._id.toString(),
-      teacherEmail: savedTeacher.email,
-      hasPassword: !!password
+    res.status(201).json({
+      success: true,
+      message: 'Teacher created successfully',
+      data: responseData
     });
-
-    return sendResponse(res, 201, true, 'Teacher created successfully', responseData);
-    
   } catch (error) {
-    console.error('❌ Error creating teacher:', error);
+    console.error('Error creating teacher:', error);
     
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => ({
         field: err.path,
-        message: err.message,
-        value: err.value
+        message: err.message
       }));
       
-      return sendResponse(res, 400, false, 'Validation failed', null, validationErrors);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors
+      });
     }
 
     if (error.code === 11000) {
-      const field = Object.keys(error.keyValue)[0];
-      return sendResponse(res, 400, false, `Teacher with this ${field} already exists`);
+      return res.status(400).json({
+        success: false,
+        message: 'Teacher with this email already exists'
+      });
     }
 
-    return sendResponse(res, 500, false, 'Server error while creating teacher', null, [{ message: error.message }]);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while creating teacher',
+      error: error.message
+    });
   }
 };
 
-// @desc    Update teacher - CORRECTED for nested profile structure
+// @desc    Update teacher
 // @route   PUT /api/teachers/:id
 // @access  Private/Admin
 const updateTeacher = async (req, res) => {
   try {
-    const validation = handleValidationErrors(req);
-    if (validation.hasErrors) {
-      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
+    // Check for validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
     }
 
     const teacherId = req.params.id;
     const updateData = req.body;
 
-    // Validate MongoDB ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
-    }
-
-    // Check if teacher exists - CORRECTED
-    const existingTeacher = await User.findOne({ _id: teacherId, role: 'teacher' });
+    // Check if teacher exists
+    const existingTeacher = await Teacher.findById(teacherId);
     if (!existingTeacher) {
-      return sendResponse(res, 404, false, 'Teacher not found');
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
     }
 
     // If email is being updated, check for duplicates
-    if (updateData.email && updateData.email.toLowerCase().trim() !== existingTeacher.email) {
-      const emailExists = await User.findOne({ 
-        email: updateData.email.toLowerCase().trim(), 
+    if (updateData.email && updateData.email !== existingTeacher.email) {
+      const emailExists = await Teacher.findOne({ 
+        email: updateData.email, 
         _id: { $ne: teacherId } 
       });
       
       if (emailExists) {
-        return sendResponse(res, 400, false, 'User with this email already exists');
+        return res.status(400).json({
+          success: false,
+          message: 'Teacher with this email already exists'
+        });
       }
     }
 
-    // Prepare update data - CORRECTED for nested profile structure
-    const teacherProfileFields = ['phone', 'department', 'subject', 'experience', 'qualification', 'bio', 'availability'];
-    const generalFields = ['name', 'email', 'approvalStatus'];
-    
-    const finalUpdateData = { updatedAt: new Date() };
-    const teacherProfileUpdates = {};
-
-    // Separate general fields from teacher profile fields
-    Object.keys(updateData).forEach(key => {
-      if (generalFields.includes(key)) {
-        if (key === 'email') {
-          finalUpdateData[key] = updateData[key].toLowerCase().trim();
-        } else if (key === 'name') {
-          finalUpdateData[key] = updateData[key].trim();
-        } else {
-          finalUpdateData[key] = updateData[key];
-        }
-      } else if (teacherProfileFields.includes(key)) {
-        teacherProfileUpdates[`teacherProfile.${key}`] = updateData[key];
-      }
-    });
-
-    // Merge teacher profile updates
-    Object.assign(finalUpdateData, teacherProfileUpdates);
-
-    // Update teacher - CORRECTED
-    const updatedTeacher = await User.findByIdAndUpdate(
+    // Update teacher
+    const updatedTeacher = await Teacher.findByIdAndUpdate(
       teacherId,
-      finalUpdateData,
+      { ...updateData, updatedAt: new Date() },
       { 
         new: true, 
         runValidators: true 
       }
-    ).select('-__v -password -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
+    ).select('-__v');
 
-    if (!updatedTeacher) {
-      return sendResponse(res, 404, false, 'Teacher not found');
-    }
-
-    // Prepare response data - CORRECTED
-    const responseData = {
-      id: updatedTeacher._id,
-      name: updatedTeacher.name,
-      email: updatedTeacher.email,
-      role: updatedTeacher.role,
-      approvalStatus: updatedTeacher.approvalStatus,
-      hasAccount: updatedTeacher.hasAccount,
-      updatedAt: updatedTeacher.updatedAt,
-      // Flatten profile data
-      ...(updatedTeacher.teacherProfile && {
-        phone: updatedTeacher.teacherProfile.phone,
-        department: updatedTeacher.teacherProfile.department,
-        subject: updatedTeacher.teacherProfile.subject,
-        experience: updatedTeacher.teacherProfile.experience,
-        qualification: updatedTeacher.teacherProfile.qualification,
-        bio: updatedTeacher.teacherProfile.bio,
-        availability: updatedTeacher.teacherProfile.availability
-      })
-    };
-
-    console.log('✅ Teacher updated successfully:', {
-      teacherId: updatedTeacher._id.toString(),
-      teacherEmail: updatedTeacher.email
+    res.status(200).json({
+      success: true,
+      message: 'Teacher updated successfully',
+      data: updatedTeacher
     });
-
-    return sendResponse(res, 200, true, 'Teacher updated successfully', responseData);
-    
   } catch (error) {
-    console.error('❌ Error updating teacher:', error);
+    console.error('Error updating teacher:', error);
     
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => ({
         field: err.path,
-        message: err.message,
-        value: err.value
+        message: err.message
       }));
       
-      return sendResponse(res, 400, false, 'Validation failed', null, validationErrors);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors
+      });
     }
 
     if (error.name === 'CastError') {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
     }
 
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyValue)[0];
-      return sendResponse(res, 400, false, `Teacher with this ${field} already exists`);
-    }
-
-    return sendResponse(res, 500, false, 'Server error while updating teacher', null, [{ message: error.message }]);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while updating teacher',
+      error: error.message
+    });
   }
 };
 
-// @desc    Get all teachers - CORRECTED for User model
+// @desc    Get all teachers
 // @route   GET /api/teachers
 // @access  Public
 const getAllTeachers = async (req, res) => {
@@ -453,35 +240,26 @@ const getAllTeachers = async (req, res) => {
       subject,
       search,
       sortBy = 'createdAt',
-      sortOrder = 'desc',
-      status = 'approved' // Filter by approval status
+      sortOrder = 'desc'
     } = req.query;
 
-    // Build filter object - CORRECTED for User model
-    const filter = { 
-      role: 'teacher', 
-      isActive: true
-    };
-    
-    // Add status filter
-    if (status && status !== 'all') {
-      filter.approvalStatus = status;
-    }
+    // Build filter object
+    const filter = { isActive: true };
     
     if (department) {
-      filter['teacherProfile.department'] = department;
+      filter.department = department;
     }
     
     if (subject) {
-      filter['teacherProfile.subject'] = { $regex: subject, $options: 'i' };
+      filter.subject = subject;
     }
     
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
-        { 'teacherProfile.subject': { $regex: search, $options: 'i' } },
-        { 'teacherProfile.department': { $regex: search, $options: 'i' } }
+        { subject: { $regex: search, $options: 'i' } },
+        { department: { $regex: search, $options: 'i' } }
       ];
     }
 
@@ -490,510 +268,397 @@ const getAllTeachers = async (req, res) => {
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
     // Execute query with pagination
-    const pageNum = Math.max(1, parseInt(page));
-    const limitNum = Math.max(1, Math.min(50, parseInt(limit))); // Max 50 items per page
-    const skip = (pageNum - 1) * limitNum;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    const [teachers, totalTeachers] = await Promise.all([
-      User.find(filter)
-        .sort(sort)
-        .skip(skip)
-        .limit(limitNum)
-        .select('-__v -password -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires'),
-      User.countDocuments(filter)
-    ]);
+    const teachers = await Teacher.find(filter)
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .select('-__v');
 
-    const totalPages = Math.ceil(totalTeachers / limitNum);
+    const totalTeachers = await Teacher.countDocuments(filter);
+    const totalPages = Math.ceil(totalTeachers / parseInt(limit));
 
-    const paginationMeta = {
-      currentPage: pageNum,
-      totalPages,
-      totalTeachers,
-      hasNext: pageNum < totalPages,
-      hasPrev: pageNum > 1,
-      limit: limitNum,
-      filters: {
-        department: department || null,
-        subject: subject || null,
-        search: search || null,
-        status: status || 'approved'
+    res.status(200).json({
+      success: true,
+      data: teachers,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalTeachers,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
       }
-    };
-
-    return sendResponse(res, 200, true, 'Teachers retrieved successfully', teachers, null, paginationMeta);
-    
+    });
   } catch (error) {
-    console.error('❌ Error fetching teachers:', error);
-    return sendResponse(res, 500, false, 'Server error while fetching teachers', null, [{ message: error.message }]);
+    console.error('Error fetching teachers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching teachers',
+      error: error.message
+    });
   }
 };
 
-// @desc    Get single teacher - CORRECTED
+// @desc    Get single teacher
 // @route   GET /api/teachers/:id
 // @access  Public
 const getTeacherById = async (req, res) => {
   try {
-    const teacherId = req.params.id;
-
-    // Validate MongoDB ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
-    }
-
-    const teacher = await User.findOne({ 
-      _id: teacherId, 
-      role: 'teacher' 
-    }).select('-__v -password -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
+    const teacher = await Teacher.findById(req.params.id).select('-__v');
     
     if (!teacher) {
-      return sendResponse(res, 404, false, 'Teacher not found');
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
     }
 
     if (!teacher.isActive) {
-      return sendResponse(res, 404, false, 'Teacher is not active');
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher is not active'
+      });
     }
 
-    return sendResponse(res, 200, true, 'Teacher retrieved successfully', teacher);
-    
+    res.status(200).json({
+      success: true,
+      data: teacher
+    });
   } catch (error) {
-    console.error('❌ Error fetching teacher:', error);
+    console.error('Error fetching teacher:', error);
     
     if (error.name === 'CastError') {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
     }
 
-    return sendResponse(res, 500, false, 'Server error while fetching teacher', null, [{ message: error.message }]);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching teacher',
+      error: error.message
+    });
   }
 };
 
-// @desc    Delete teacher (soft delete) - CORRECTED
+// @desc    Delete teacher (soft delete)
 // @route   DELETE /api/teachers/:id
 // @access  Private/Admin
 const deleteTeacher = async (req, res) => {
   try {
     const teacherId = req.params.id;
 
-    // Validate MongoDB ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
-    }
-
-    const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
+    const teacher = await Teacher.findById(teacherId);
     if (!teacher) {
-      return sendResponse(res, 404, false, 'Teacher not found');
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
     }
 
-    // Soft delete - set isActive to false - CORRECTED
-    const updatedTeacher = await User.findByIdAndUpdate(
-      teacherId, 
-      { 
-        isActive: false, 
-        updatedAt: new Date() 
-      },
-      { new: true }
-    );
-
-    console.log('✅ Teacher soft deleted:', {
-      teacherId: teacher._id.toString(),
-      teacherEmail: teacher.email
+    // Soft delete - set isActive to false
+    await Teacher.findByIdAndUpdate(teacherId, { 
+      isActive: false, 
+      updatedAt: new Date() 
     });
 
-    return sendResponse(res, 200, true, 'Teacher deleted successfully');
-    
+    res.status(200).json({
+      success: true,
+      message: 'Teacher deleted successfully'
+    });
   } catch (error) {
-    console.error('❌ Error deleting teacher:', error);
+    console.error('Error deleting teacher:', error);
     
     if (error.name === 'CastError') {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
     }
 
-    return sendResponse(res, 500, false, 'Server error while deleting teacher', null, [{ message: error.message }]);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while deleting teacher',
+      error: error.message
+    });
   }
 };
 
-// @desc    Permanently delete teacher - CORRECTED
+// @desc    Permanently delete teacher
 // @route   DELETE /api/teachers/:id/permanent
 // @access  Private/Admin
 const permanentDeleteTeacher = async (req, res) => {
   try {
     const teacherId = req.params.id;
 
-    // Validate MongoDB ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
-    }
-
-    const teacher = await User.findOne({ _id: teacherId, role: 'teacher' });
+    const teacher = await Teacher.findById(teacherId);
     if (!teacher) {
-      return sendResponse(res, 404, false, 'Teacher not found');
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
     }
 
-    await User.findByIdAndDelete(teacherId);
+    await Teacher.findByIdAndDelete(teacherId);
 
-    console.log('✅ Teacher permanently deleted:', {
-      teacherId: teacher._id.toString(),
-      teacherEmail: teacher.email
+    res.status(200).json({
+      success: true,
+      message: 'Teacher permanently deleted'
     });
-
-    return sendResponse(res, 200, true, 'Teacher permanently deleted');
-    
   } catch (error) {
-    console.error('❌ Error permanently deleting teacher:', error);
+    console.error('Error permanently deleting teacher:', error);
     
     if (error.name === 'CastError') {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid teacher ID format'
+      });
     }
 
-    return sendResponse(res, 500, false, 'Server error while permanently deleting teacher', null, [{ message: error.message }]);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while permanently deleting teacher',
+      error: error.message
+    });
   }
 };
 
-// @desc    Get teachers by department - CORRECTED
+// @desc    Get teachers by department
 // @route   GET /api/teachers/department/:department
 // @access  Public
 const getTeachersByDepartment = async (req, res) => {
   try {
     const { department } = req.params;
     
-    // Validate department
-    const validDepartments = [
-      'Computer Science',
-      'Mathematics', 
-      'Physics',
-      'Chemistry',
-      'Biology',
-      'English',
-      'History',
-      'Economics',
-      'Business Administration',
-      'Psychology'
-    ];
-
-    if (!validDepartments.includes(department)) {
-      return sendResponse(res, 400, false, 'Invalid department');
-    }
+    const teachers = await Teacher.getByDepartment(department);
     
-    const teachers = await User.find({
-      role: 'teacher',
-      'teacherProfile.department': department,
-      isActive: true,
-      approvalStatus: 'approved'
-    }).select('-__v -password -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
-    
-    return sendResponse(
-      res, 
-      200, 
-      true, 
-      `Teachers from ${department} department retrieved successfully`, 
-      teachers, 
-      null, 
-      { count: teachers.length, department }
-    );
-    
+    res.status(200).json({
+      success: true,
+      data: teachers,
+      count: teachers.length
+    });
   } catch (error) {
-    console.error('❌ Error fetching teachers by department:', error);
-    return sendResponse(res, 500, false, 'Server error while fetching teachers by department', null, [{ message: error.message }]);
+    console.error('Error fetching teachers by department:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching teachers by department',
+      error: error.message
+    });
   }
 };
 
-// @desc    Get teacher statistics - CORRECTED for User model
+// @desc    Get teacher statistics
 // @route   GET /api/teachers/stats
 // @access  Private/Admin
 const getTeacherStats = async (req, res) => {
   try {
-    const [
-      totalTeachers,
-      approvedTeachers,
-      pendingTeachers,
-      rejectedTeachers,
-      departmentStats,
-      availabilityStats
-    ] = await Promise.all([
-      User.countDocuments({ role: 'teacher', isActive: true }),
-      User.countDocuments({ role: 'teacher', isActive: true, approvalStatus: 'approved' }),
-      User.countDocuments({ role: 'teacher', isActive: true, approvalStatus: 'pending' }),
-      User.countDocuments({ role: 'teacher', isActive: true, approvalStatus: 'rejected' }),
-      User.aggregate([
-        { 
-          $match: { 
-            role: 'teacher', 
-            isActive: true,
-            approvalStatus: 'approved' 
-          } 
-        },
-        { 
-          $group: { 
-            _id: '$teacherProfile.department', 
-            count: { $sum: 1 } 
-          } 
-        },
-        { $sort: { count: -1 } }
-      ]),
-      User.aggregate([
-        { 
-          $match: { 
-            role: 'teacher', 
-            isActive: true,
-            approvalStatus: 'approved' 
-          } 
-        },
-        { $unwind: { path: '$teacherProfile.availability', preserveNullAndEmptyArrays: true } },
-        { 
-          $group: { 
-            _id: '$teacherProfile.availability', 
-            count: { $sum: 1 } 
-          } 
-        },
-        { $match: { _id: { $ne: null } } },
-        { $sort: { count: -1 } }
-      ])
+    const totalTeachers = await Teacher.countDocuments({ isActive: true });
+    const departmentStats = await Teacher.aggregate([
+      { $match: { isActive: true } },
+      { $group: { _id: '$department', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }
     ]);
 
-    const stats = {
-      overview: {
-        totalTeachers,
-        approvedTeachers,
-        pendingTeachers,
-        rejectedTeachers
-      },
-      departmentStats: departmentStats.map(stat => ({
-        department: stat._id || 'Unknown',
-        count: stat.count
-      })),
-      availabilityStats: availabilityStats.map(stat => ({
-        timeSlot: stat._id,
-        count: stat.count
-      }))
-    };
+    const availabilityStats = await Teacher.aggregate([
+      { $match: { isActive: true } },
+      { $unwind: '$availability' },
+      { $group: { _id: '$availability', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }
+    ]);
 
-    return sendResponse(res, 200, true, 'Teacher statistics retrieved successfully', stats);
-    
+    res.status(200).json({
+      success: true,
+      data: {
+        totalTeachers,
+        departmentStats,
+        availabilityStats
+      }
+    });
   } catch (error) {
-    console.error('❌ Error fetching teacher stats:', error);
-    return sendResponse(res, 500, false, 'Server error while fetching teacher statistics', null, [{ message: error.message }]);
+    console.error('Error fetching teacher stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching teacher statistics',
+      error: error.message
+    });
   }
 };
 
-// @desc    Send account setup link to teacher - CORRECTED
+const teacherLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const teacher = await Teacher.findOne({ email, isActive: true }).select('+password');
+    if (!teacher) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials or teacher not found' });
+    }
+
+    if (!teacher.hasAccount || !teacher.password) {
+      return res.status(401).json({ success: false, message: 'Account not set up. Contact admin.' });
+    }
+
+    const isPasswordCorrect = await teacher.correctPassword(password, teacher.password);
+    if (!isPasswordCorrect) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+
+    teacher.lastLogin = new Date();
+    await teacher.save({ validateBeforeSave: false });
+
+    const token = jwt.sign(
+      { id: teacher._id, email: teacher.email, role: 'teacher', loginTime: Date.now() },
+      process.env.JWT_SECRET,
+      { expiresIn: '90d' }
+    );
+
+    teacher.password = undefined;
+
+    res.status(200).json({
+      success: true,
+      token,
+      data: { teacher }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during login',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Send account setup link to teacher
 // @route   POST /api/teachers/send-setup-link
 // @access  Private/Admin
 const sendAccountSetupLink = async (req, res) => {
   try {
-    const validation = handleValidationErrors(req);
-    if (validation.hasErrors) {
-      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
-    }
-
     const { teacherId } = req.body;
 
-    // Validate MongoDB ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
-    }
-
-    const teacher = await User.findOne({ _id: teacherId, role: 'teacher', isActive: true });
+    const teacher = await Teacher.findById(teacherId);
     if (!teacher) {
-      return sendResponse(res, 404, false, 'Teacher not found');
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
     }
 
     if (teacher.hasAccount) {
-      return sendResponse(res, 400, false, 'Teacher already has an account');
+      return res.status(400).json({
+        success: false,
+        message: 'Teacher already has an account'
+      });
     }
 
     // Generate setup token
     const setupToken = teacher.createAccountSetupToken();
     await teacher.save({ validateBeforeSave: false });
 
-    // In production, send this via email instead of returning in response
+    // In a real app, you'd send an email here
+    // For now, we'll just return the setup link
     const setupURL = `${req.protocol}://${req.get('host')}/api/teachers/setup-account/${setupToken}`;
 
-    const responseData = {
-      teacherEmail: teacher.email,
-      teacherName: teacher.name,
-      // Remove setupURL in production and send via email
-      ...(process.env.NODE_ENV === 'development' && { setupURL }),
-      expiresAt: teacher.accountSetupExpires,
-      message: 'Setup link generated successfully. In production, this would be sent via email.'
-    };
-
-    console.log('✅ Setup link generated for teacher:', {
-      teacherId: teacher._id.toString(),
-      teacherEmail: teacher.email,
-      expiresAt: teacher.accountSetupExpires
+    res.status(200).json({
+      success: true,
+      message: 'Account setup link generated',
+      setupURL, // In production, remove this and send via email
+      data: {
+        teacherEmail: teacher.email,
+        teacherName: teacher.name,
+        expiresAt: teacher.accountSetupExpires
+      }
     });
-
-    return sendResponse(res, 200, true, 'Account setup link generated successfully', responseData);
-    
   } catch (error) {
-    console.error('❌ Setup link error:', error);
-    return sendResponse(res, 500, false, 'Server error while generating setup link', null, [{ message: error.message }]);
+    console.error('Setup link error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while generating setup link',
+      error: error.message
+    });
   }
 };
 
-// @desc    Setup teacher account - CORRECTED
+// @desc    Setup teacher account
 // @route   POST /api/teachers/setup-account/:token
 // @access  Public
 const setupTeacherAccount = async (req, res) => {
   try {
-    const validation = handleValidationErrors(req);
-    if (validation.hasErrors) {
-      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
     }
 
-    const { password } = req.body;
-    const { token } = req.params;
-
-    if (!token) {
-      return sendResponse(res, 400, false, 'Setup token is required');
-    }
-
-    // Hash the token
+    // Get token from URL
     const hashedToken = crypto
       .createHash('sha256')
-      .update(token)
+      .update(req.params.token)
       .digest('hex');
 
-    // Find teacher with valid token - CORRECTED
-    const teacher = await User.findOne({
-      role: 'teacher',
+    // Find teacher with valid token
+    const teacher = await Teacher.findOne({
       accountSetupToken: hashedToken,
-      accountSetupExpires: { $gt: Date.now() },
-      isActive: true
+      accountSetupExpires: { $gt: Date.now() }
     });
 
     if (!teacher) {
-      return sendResponse(res, 400, false, 'Token is invalid or has expired');
-    }
-
-    if (teacher.hasAccount) {
-      return sendResponse(res, 400, false, 'Account is already set up');
+      return res.status(400).json({
+        success: false,
+        message: 'Token is invalid or has expired'
+      });
     }
 
     // Set password and activate account
-    teacher.password = password;
+    teacher.password = req.body.password;
     teacher.hasAccount = true;
     teacher.accountSetupToken = undefined;
     teacher.accountSetupExpires = undefined;
-    teacher.approvalStatus = 'approved'; // Auto-approve on account setup
     teacher.lastLogin = new Date();
     
     await teacher.save();
 
-    // Create token
-    const jwtToken = signToken({
-      id: teacher._id.toString(),
-      email: teacher.email,
-      role: 'teacher',
-      loginTime: Date.now()
+    // Send token
+    createSendToken(teacher, 200, req, res);
+  } catch (error) {
+    console.error('Account setup error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during account setup',
+      error: error.message
     });
+  }
+};
 
-    // Prepare response data - CORRECTED
-    const teacherResponse = {
-      id: teacher._id,
-      name: teacher.name,
-      email: teacher.email,
-      role: teacher.role,
-      approvalStatus: teacher.approvalStatus,
-      hasAccount: teacher.hasAccount,
-      // Flatten profile data
-      ...(teacher.teacherProfile && {
-        phone: teacher.teacherProfile.phone,
-        department: teacher.teacherProfile.department,
-        subject: teacher.teacherProfile.subject,
-        experience: teacher.teacherProfile.experience,
-        qualification: teacher.teacherProfile.qualification,
-        bio: teacher.teacherProfile.bio,
-        availability: teacher.teacherProfile.availability
-      })
-    };
-
-    console.log('✅ Teacher account setup completed:', {
-      teacherId: teacher._id.toString(),
-      teacherEmail: teacher.email
-    });
-
-    return sendResponse(res, 200, true, 'Account setup completed successfully', {
-      teacher: teacherResponse,
-      token: jwtToken
-    });
+// @desc    Get teacher profile
+// @route   GET /api/teachers/profile
+// @access  Private/Teacher
+const getTeacherProfile = async (req, res) => {
+  try {
+    const teacher = await Teacher.findById(req.user.id);
     
-  } catch (error) {
-    console.error('❌ Account setup error:', error);
-    return sendResponse(res, 500, false, 'Server error during account setup', null, [{ message: error.message }]);
-  }
-};
-
-// @desc    Approve teacher - CORRECTED
-// @route   PATCH /api/teachers/:id/approve
-// @access  Private/Admin
-const approveTeacher = async (req, res) => {
-  try {
-    const teacherId = req.params.id;
-
-    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
-    }
-
-    const teacher = await User.findOneAndUpdate(
-      { _id: teacherId, role: 'teacher', isActive: true },
-      { 
-        approvalStatus: 'approved',
-        updatedAt: new Date()
-      },
-      { new: true }
-    ).select('-password -__v -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
-
     if (!teacher) {
-      return sendResponse(res, 404, false, 'Teacher not found');
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
     }
 
-    console.log('✅ Teacher approved:', {
-      teacherId: teacher._id.toString(),
-      teacherEmail: teacher.email
+    res.status(200).json({
+      success: true,
+      data: teacher
     });
-
-    return sendResponse(res, 200, true, 'Teacher approved successfully', teacher);
-
   } catch (error) {
-    console.error('❌ Error approving teacher:', error);
-    return sendResponse(res, 500, false, 'Server error while approving teacher', null, [{ message: error.message }]);
-  }
-};
-
-// @desc    Reject teacher - CORRECTED
-// @route   PATCH /api/teachers/:id/reject
-// @access  Private/Admin
-const rejectTeacher = async (req, res) => {
-  try {
-    const teacherId = req.params.id;
-
-    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
-    }
-
-    const teacher = await User.findOneAndUpdate(
-      { _id: teacherId, role: 'teacher', isActive: true },
-      { 
-        approvalStatus: 'rejected',
-        updatedAt: new Date()
-      },
-      { new: true }
-    ).select('-password -__v -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
-
-    if (!teacher) {
-      return sendResponse(res, 404, false, 'Teacher not found');
-    }
-
-    console.log('✅ Teacher rejected:', {
-      teacherId: teacher._id.toString(),
-      teacherEmail: teacher.email
+    console.error('Profile fetch error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching profile',
+      error: error.message
     });
-
-    return sendResponse(res, 200, true, 'Teacher rejected successfully', teacher);
-
-  } catch (error) {
-    console.error('❌ Error rejecting teacher:', error);
-    return sendResponse(res, 500, false, 'Server error while rejecting teacher', null, [{ message: error.message }]);
   }
 };
 
@@ -1001,228 +666,30 @@ const rejectTeacher = async (req, res) => {
 // @route   POST /api/teachers/logout
 // @access  Private/Teacher
 const teacherLogout = (req, res) => {
-  // Clear JWT cookie if using cookies
   res.cookie('jwt', 'loggedout', {
     expires: new Date(Date.now() + 10 * 1000),
     httpOnly: true
   });
   
-  console.log('✅ Teacher logout:', {
-    teacherId: req.user?.id,
-    teacherEmail: req.user?.email
+  res.status(200).json({
+    success: true,
+    message: 'Logged out successfully'
   });
-  
-  return sendResponse(res, 200, true, 'Logged out successfully');
-};
-
-// @desc    Update teacher profile (by teacher themselves) - CORRECTED
-// @route   PUT /api/teachers/profile
-// @access  Private/Teacher
-const updateTeacherProfile = async (req, res) => {
-  try {
-    const validation = handleValidationErrors(req);
-    if (validation.hasErrors) {
-      return sendResponse(res, 400, false, 'Validation failed', null, validation.errors);
-    }
-
-    const teacherId = req.user.id;
-    const updateData = req.body;
-
-    // Fields that teachers can update themselves - CORRECTED
-    const allowedFields = ['bio', 'availability', 'phone'];
-    const teacherProfileUpdates = {};
-    const generalUpdates = { updatedAt: new Date() };
-
-    // Filter allowed fields and prepare nested updates
-    Object.keys(updateData).forEach(key => {
-      if (allowedFields.includes(key)) {
-        teacherProfileUpdates[`teacherProfile.${key}`] = updateData[key];
-      }
-    });
-
-    if (Object.keys(teacherProfileUpdates).length === 0) {
-      return sendResponse(res, 400, false, 'No valid fields to update');
-    }
-
-    // Merge updates
-    Object.assign(generalUpdates, teacherProfileUpdates);
-
-    // Update teacher - CORRECTED
-    const updatedTeacher = await User.findByIdAndUpdate(
-      teacherId,
-      generalUpdates,
-      { 
-        new: true, 
-        runValidators: true 
-      }
-    ).select('-__v -password -accountSetupToken -accountSetupExpires -passwordResetToken -passwordResetExpires');
-
-    if (!updatedTeacher) {
-      return sendResponse(res, 404, false, 'Teacher not found');
-    }
-
-    // Prepare response data - CORRECTED
-    const responseData = {
-      id: updatedTeacher._id,
-      name: updatedTeacher.name,
-      email: updatedTeacher.email,
-      role: updatedTeacher.role,
-      approvalStatus: updatedTeacher.approvalStatus,
-      updatedAt: updatedTeacher.updatedAt,
-      // Flatten profile data
-      ...(updatedTeacher.teacherProfile && {
-        phone: updatedTeacher.teacherProfile.phone,
-        department: updatedTeacher.teacherProfile.department,
-        subject: updatedTeacher.teacherProfile.subject,
-        experience: updatedTeacher.teacherProfile.experience,
-        qualification: updatedTeacher.teacherProfile.qualification,
-        bio: updatedTeacher.teacherProfile.bio,
-        availability: updatedTeacher.teacherProfile.availability,
-        rating: updatedTeacher.teacherProfile.rating,
-        totalRatings: updatedTeacher.teacherProfile.totalRatings
-      })
-    };
-
-    console.log('✅ Teacher profile updated by teacher:', {
-      teacherId: updatedTeacher._id.toString(),
-      teacherEmail: updatedTeacher.email
-    });
-
-    return sendResponse(res, 200, true, 'Profile updated successfully', responseData);
-    
-  } catch (error) {
-    console.error('❌ Error updating teacher profile:', error);
-    
-    if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(err => ({
-        field: err.path,
-        message: err.message,
-        value: err.value
-      }));
-      
-      return sendResponse(res, 400, false, 'Validation failed', null, validationErrors);
-    }
-
-    return sendResponse(res, 500, false, 'Server error while updating profile', null, [{ message: error.message }]);
-  }
-};
-
-// ADDITIONAL HELPER FUNCTIONS FOR APPOINTMENT INTEGRATION
-
-// @desc    Get teacher for appointment creation - optimized for appointment model
-// @route   GET /api/teachers/:id/appointment-info
-// @access  Public (for appointment creation)
-const getTeacherForAppointment = async (req, res) => {
-  try {
-    const teacherId = req.params.id;
-
-    if (!mongoose.Types.ObjectId.isValid(teacherId)) {
-      return sendResponse(res, 400, false, 'Invalid teacher ID format');
-    }
-
-    // Get teacher with only necessary fields for appointments
-    const teacher = await User.findOne({
-      _id: teacherId,
-      role: 'teacher',
-      isActive: true,
-      approvalStatus: 'approved'
-    }).select('name email teacherProfile.department teacherProfile.subject teacherProfile.phone teacherProfile.availability');
-
-    if (!teacher) {
-      return sendResponse(res, 404, false, 'Teacher not found or not available for appointments');
-    }
-
-    // Format response for appointment integration
-    const appointmentTeacherData = {
-      id: teacher._id,
-      name: teacher.name,
-      email: teacher.email,
-      department: teacher.teacherProfile?.department || '',
-      subject: teacher.teacherProfile?.subject || '',
-      phone: teacher.teacherProfile?.phone || '',
-      availability: teacher.teacherProfile?.availability || []
-    };
-
-    return sendResponse(res, 200, true, 'Teacher appointment info retrieved successfully', appointmentTeacherData);
-
-  } catch (error) {
-    console.error('❌ Error fetching teacher for appointment:', error);
-    return sendResponse(res, 500, false, 'Server error while fetching teacher appointment info', null, [{ message: error.message }]);
-  }
-};
-
-// @desc    Get teachers with availability for appointment booking
-// @route   GET /api/teachers/available
-// @access  Public
-const getAvailableTeachers = async (req, res) => {
-  try {
-    const { department, subject } = req.query;
-
-    const filter = {
-      role: 'teacher',
-      isActive: true,
-      approvalStatus: 'approved',
-      'teacherProfile.availability': { $exists: true, $ne: [] }
-    };
-
-    if (department) {
-      filter['teacherProfile.department'] = department;
-    }
-
-    if (subject) {
-      filter['teacherProfile.subject'] = { $regex: subject, $options: 'i' };
-    }
-
-    const availableTeachers = await User.find(filter)
-      .select('name email teacherProfile.department teacherProfile.subject teacherProfile.availability teacherProfile.rating teacherProfile.totalRatings')
-      .sort({ 'teacherProfile.rating': -1, createdAt: -1 });
-
-    const formattedTeachers = availableTeachers.map(teacher => ({
-      id: teacher._id,
-      name: teacher.name,
-      email: teacher.email,
-      department: teacher.teacherProfile?.department || '',
-      subject: teacher.teacherProfile?.subject || '',
-      availability: teacher.teacherProfile?.availability || [],
-      rating: teacher.teacherProfile?.rating || 0,
-      totalRatings: teacher.teacherProfile?.totalRatings || 0,
-      averageRating: teacher.teacherProfile?.totalRatings > 0 
-        ? Math.round((teacher.teacherProfile.rating / teacher.teacherProfile.totalRatings) * 10) / 10 
-        : 0
-    }));
-
-    return sendResponse(res, 200, true, 'Available teachers retrieved successfully', formattedTeachers);
-
-  } catch (error) {
-    console.error('❌ Error fetching available teachers:', error);
-    return sendResponse(res, 500, false, 'Server error while fetching available teachers', null, [{ message: error.message }]);
-  }
 };
 
 module.exports = {
-  // Public routes
   getAllTeachers,
   getTeacherById,
-  getTeachersByDepartment,
-  getAvailableTeachers,
-  getTeacherForAppointment,
-  
-  // Authentication routes
-  teacherLogin,
-  teacherLogout,
-  setupTeacherAccount,
-  
-  // Teacher protected routes
-  getTeacherProfile,
-  updateTeacherProfile,
-  
-  // Admin protected routes
   createTeacher,
   updateTeacher,
   deleteTeacher,
   permanentDeleteTeacher,
+  getTeachersByDepartment,
   getTeacherStats,
+  // Authentication methods
+  teacherLogin,
   sendAccountSetupLink,
-  approveTeacher,
-  rejectTeacher,
+  setupTeacherAccount,
+  getTeacherProfile,
+  teacherLogout
 };

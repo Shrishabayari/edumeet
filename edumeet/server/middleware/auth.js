@@ -1,378 +1,319 @@
+// middleware/auth.js - FIXED version to match frontend token structure
 const jwt = require('jsonwebtoken');
-const mongoose = require('mongoose');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
 
-// Utility function for standardized API responses
-const sendResponse = (res, statusCode, success, message, data = null, errors = null, meta = null) => {
-  const response = {
-    success,
-    message,
-    timestamp: new Date().toISOString(),
-    requestId: res.locals?.requestId || res.req?.id || 'unknown'
-  };
+// General protect middleware for regular users (students, teachers)
+exports.protect = async (req, res, next) => {
+  try {
+    let token;
+    
+    // Check for token in header
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+    // Check for token in cookies (if you're using cookie-based auth)
+    else if (req.cookies && req.cookies.jwt) {
+      token = req.cookies.jwt;
+    }
 
-  if (data !== null) response.data = data;
-  if (errors !== null) response.errors = errors;
-  if (meta !== null) response.meta = meta;
-
-  return res.status(statusCode).json(response);
-};
-
-// Enhanced JWT verification with better error handling
-const verifyToken = (token) => {
-  return new Promise((resolve, reject) => {
-    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-      if (err) {
-        if (err.name === 'TokenExpiredError') {
-          reject({ name: 'TokenExpiredError', message: 'Token has expired' });
-        } else if (err.name === 'JsonWebTokenError') {
-          reject({ name: 'JsonWebTokenError', message: 'Invalid token' });
-        } else {
-          reject({ name: 'TokenError', message: 'Token verification failed' });
-        }
-      } else {
-        resolve(decoded);
-      }
-    });
-  });
-};
-
-// Consolidated authentication middleware
-const authenticate = (options = {}) => {
-  const {
-    roles = [], // Array of allowed roles
-    required = true, // Whether authentication is required
-    checkApproval = true // Whether to check approval status
-  } = options;
-
-  return async (req, res, next) => {
-    try {
-      let token;
-      
-      // Extract token from header or cookies
-      if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-        token = req.headers.authorization.split(' ')[1];
-      } else if (req.cookies && req.cookies.jwt) {
-        token = req.cookies.jwt;
-      }
-
-      // Handle case where no token is provided
-      if (!token) {
-        if (!required) {
-          return next(); // Continue without authentication for optional routes
-        }
-        return sendResponse(res, 401, false, 'Access denied. No authentication token provided.');
-      }
-
-      // Skip if token is logout placeholder
-      if (token === 'loggedout') {
-        if (!required) {
-          return next();
-        }
-        return sendResponse(res, 401, false, 'Access denied. Please log in again.');
-      }
-
-      // Verify token
-      let decoded;
-      try {
-        decoded = await verifyToken(token);
-      } catch (tokenError) {
-        console.error('Token verification failed:', tokenError.message);
-        
-        let message = 'Invalid authentication token';
-        if (tokenError.name === 'TokenExpiredError') {
-          message = 'Authentication token has expired. Please log in again.';
-        } else if (tokenError.name === 'JsonWebTokenError') {
-          message = 'Invalid token format or signature';
-        }
-        
-        return sendResponse(res, 401, false, message);
-      }
-
-      // Validate token payload
-      const userId = decoded.id;
-      if (!userId) {
-        return sendResponse(res, 401, false, 'Invalid token structure - no user ID found');
-      }
-
-      if (!mongoose.Types.ObjectId.isValid(userId)) {
-        return sendResponse(res, 401, false, 'Invalid token structure - invalid user ID format');
-      }
-
-      console.log('🔍 Token verified for user:', {
-        id: decoded.id,
-        role: decoded.role,
-        email: decoded.email
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access denied. No token provided.'
       });
-
-      // Find user based on role
-      let user;
-      try {
-        if (decoded.role === 'admin') {
-          user = await Admin.findById(userId).select('+isActive');
-          if (user) {
-            user.role = 'admin'; // Ensure role is set
-          }
-        } else {
-          user = await User.findById(userId).select('+isActive +approvalStatus');
-        }
-      } catch (dbError) {
-        console.error('Database error during authentication:', dbError);
-        return sendResponse(res, 500, false, 'Database error during authentication');
-      }
-      
-      // Check if user exists
-      if (!user) {
-        console.error('❌ User not found:', userId);
-        return sendResponse(res, 401, false, 'User not found. Token may be invalid or user may have been deleted.');
-      }
-
-      // Check if user is active
-      if (user.isActive === false) {
-        console.error('❌ User account deactivated:', userId);
-        return sendResponse(res, 401, false, 'Account is deactivated. Please contact support.');
-      }
-
-      // Check approval status (except for admin)
-      if (checkApproval && user.role !== 'admin' && decoded.role !== 'admin') {
-        if (user.approvalStatus === 'rejected') {
-          return sendResponse(res, 401, false, 'Account has been rejected. Please contact admin.');
-        }
-        if (user.approvalStatus === 'pending') {
-          return sendResponse(res, 401, false, 'Account is pending approval. Please contact admin.');
-        }
-        if (user.approvalStatus !== 'approved') {
-          return sendResponse(res, 401, false, 'Account is not approved.');
-        }
-      }
-
-      // Determine user role
-      const userRole = user.role || decoded.role;
-
-      // Check role authorization
-      if (roles.length > 0 && !roles.includes(userRole)) {
-        console.log(`❌ Authorization failed: User role '${userRole}' not in required roles:`, roles);
-        return sendResponse(res, 403, false, `Access denied. Role '${userRole}' is not authorized for this resource.`);
-      }
-
-      // Attach user to request with consistent format
-      req.user = {
-        id: user._id.toString(),
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: userRole,
-        isActive: user.isActive,
-        approvalStatus: user.approvalStatus || 'approved'
-      };
-
-      // For backward compatibility, also set role-specific properties
-      if (userRole === 'admin') {
-        req.admin = req.user;
-      } else if (userRole === 'teacher') {
-        req.teacher = req.user;
-      } else if (userRole === 'student') {
-        req.student = req.user;
-      }
-      
-      console.log(`✅ User authenticated: ${user.name} (${userRole})`);
-      next();
-
-    } catch (error) {
-      console.error('Authentication error:', error);
-      return sendResponse(res, 500, false, 'Server error during authentication', null, [{ message: error.message }]);
     }
-  };
-};
 
-// Convenience middleware functions using the consolidated authenticate function
-const protect = authenticate({ required: true });
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('🔍 Decoded token payload (protect):', decoded);
 
-const authenticateAdmin = authenticate({ 
-  roles: ['admin'], 
-  required: true,
-  checkApproval: false // Admins don't need approval status check
-});
-
-const authenticateTeacher = authenticate({ 
-  roles: ['teacher'], 
-  required: true 
-});
-
-const authenticateStudent = authenticate({ 
-  roles: ['student'], 
-  required: true 
-});
-
-const authorize = (...roles) => {
-  return authenticate({ 
-    roles: roles.flat(), 
-    required: true 
-  });
-};
-
-const restrictTo = (...roles) => {
-  return authenticate({ 
-    roles: roles.flat(), 
-    required: true 
-  });
-};
-
-const optionalAuth = authenticate({ 
-  required: false 
-});
-
-// Middleware to check ownership or admin access
-const checkOwnershipOrAdmin = (resourceUserIdField = 'userId') => {
-  return async (req, res, next) => {
-    try {
-      if (!req.user) {
-        return sendResponse(res, 401, false, 'Authentication required');
-      }
-
-      // Admin can access everything
-      if (req.user.role === 'admin') {
-        return next();
-      }
-
-      // Check if user owns the resource
-      const resourceUserId = req.params[resourceUserIdField] || req.body[resourceUserIdField] || req.params.id;
-      const currentUserId = req.user.id;
-      
-      if (resourceUserId && currentUserId.toString() !== resourceUserId.toString()) {
-        return sendResponse(res, 403, false, 'Access denied. You can only access your own resources.');
-      }
-
-      next();
-    } catch (error) {
-      console.error('Ownership check error:', error);
-      return sendResponse(res, 500, false, 'Server error during ownership verification');
-    }
-  };
-};
-
-// Middleware to validate MongoDB ObjectId
-const validateObjectId = (paramName = 'id') => {
-  return (req, res, next) => {
-    const id = req.params[paramName];
+    // Find user by ID (use 'id' field from token)
+    const user = await User.findById(decoded.id);
     
-    if (!id) {
-      return sendResponse(res, 400, false, `${paramName} parameter is required`);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not found. Token invalid or user does not exist.'
+      });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return sendResponse(res, 400, false, `Invalid ${paramName} format`);
+    // Check if user is active
+    if (!user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Account is deactivated. Please contact support.'
+      });
     }
 
+    // Check if user is approved (except for admin)
+    if (user.role !== 'admin' && user.approvalStatus !== 'approved') {
+      return res.status(401).json({
+        success: false,
+        message: 'User account is not approved or is pending approval.'
+      });
+    }
+
+    // Attach user to request
+    req.user = user;
     next();
-  };
-};
-
-// Enhanced middleware for checking teacher appointment access
-const checkTeacherAppointmentAccess = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return sendResponse(res, 400, false, 'Invalid appointment ID');
-    }
-
-    // Admin can access all appointments
-    if (req.user.role === 'admin') {
-      return next();
-    }
-
-    // Find the appointment
-    const Appointment = require('../models/Appointment');
-    const appointment = await Appointment.findById(id);
-    
-    if (!appointment) {
-      return sendResponse(res, 404, false, 'Appointment not found');
-    }
-
-    // Check if teacher owns the appointment
-    const currentUserId = req.user.id;
-    if (req.user.role === 'teacher' && currentUserId.toString() === appointment.teacherId.toString()) {
-      return next();
-    }
-
-    // Check if student owns the appointment
-    if (req.user.role === 'student' && currentUserId.toString() === appointment.studentId.toString()) {
-      return next();
-    }
-
-    return sendResponse(res, 403, false, 'Access denied. You can only access your own appointments.');
 
   } catch (error) {
-    console.error('Appointment access check error:', error);
-    return sendResponse(res, 500, false, 'Server error during appointment access verification');
-  }
-};
-
-// Middleware to log authentication attempts (for debugging)
-const logAuthAttempt = (req, res, next) => {
-  if (process.env.NODE_ENV === 'development') {
-    const authHeader = req.headers.authorization;
-    const hasToken = authHeader && authHeader.startsWith('Bearer');
+    console.error('Authentication error (protect middleware):', error);
     
-    console.log(`🔑 Auth attempt: ${req.method} ${req.originalUrl}`, {
-      hasToken,
-      ip: req.ip || req.connection.remoteAddress,
-      userAgent: req.headers['user-agent']?.substring(0, 50) + '...' || 'Unknown'
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token'
+      });
+    }
+    
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Token expired'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Server error during authentication'
     });
   }
-
-  next();
 };
 
-// Middleware to check if user has account setup
-const requireAccountSetup = async (req, res, next) => {
+// FIXED Admin-specific authentication middleware
+exports.authenticateAdmin = async (req, res, next) => {
   try {
-    if (!req.user) {
-      return sendResponse(res, 401, false, 'Authentication required');
+    let token;
+    
+    // Check for token in header
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+    // Check for token in cookies
+    else if (req.cookies && req.cookies.jwt) {
+      token = req.cookies.jwt;
+    }
+    
+    if (!token) {
+      console.log('❌ No admin token provided');
+      return res.status(401).json({
+        success: false,
+        message: 'No token provided'
+      });
     }
 
-    if (req.user.role === 'admin') {
-      return next(); // Admins don't need account setup
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('🔍 Decoded admin token payload:', decoded);
+    
+    // FIXED: Try multiple possible ID fields in the token
+    let adminId = decoded.adminId || decoded.id || decoded._id;
+    
+    if (!adminId) {
+      console.log('❌ No admin ID found in token payload');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token structure - no admin ID found'
+      });
+    }
+    
+    // Find admin using the ID from token
+    const admin = await Admin.findById(adminId);
+    
+    if (!admin) {
+      console.log('❌ Admin not found with ID:', adminId);
+      return res.status(401).json({
+        success: false,
+        message: 'Admin not found or token invalid.'
+      });
     }
 
-    const user = await User.findById(req.user.id);
-    if (!user) {
-      return sendResponse(res, 404, false, 'User not found');
+    console.log('✅ Admin authenticated:', admin.email);
+
+    // Check if admin is active
+    if (!admin.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Admin account is deactivated.'
+      });
     }
 
-    if (!user.hasAccount) {
-      return sendResponse(res, 403, false, 'Account setup required. Please complete your account setup first.');
-    }
-
+    // Attach admin to request object
+    req.admin = admin;
+    // For consistency with 'protect' middleware, also set req.user
+    req.user = admin;
+    
     next();
+    
   } catch (error) {
-    console.error('Account setup check error:', error);
-    return sendResponse(res, 500, false, 'Server error during account setup verification');
+    console.error('Authentication error (authenticateAdmin middleware):', error);
+    
+    let message = 'Invalid token';
+    if (error.name === 'TokenExpiredError') {
+      message = 'Token expired';
+    } else if (error.name === 'JsonWebTokenError') {
+      message = 'Invalid token signature or malformed token';
+    }
+    
+    return res.status(401).json({
+      success: false,
+      message: message
+    });
   }
 };
 
-module.exports = {
-  // Main authentication function
-  authenticate,
-  
-  // Convenience functions
-  protect,
-  authenticateAdmin,
-  authenticateTeacher,
-  authenticateStudent,
-  authorize,
-  restrictTo,
-  optionalAuth,
-  
-  // Utility functions
-  checkOwnershipOrAdmin,
-  validateObjectId,
-  checkTeacherAppointmentAccess,
-  logAuthAttempt,
-  requireAccountSetup,
-  
-  // Response utility
-  sendResponse
+// ADDED: Teacher-specific authentication middleware
+exports.authenticateTeacher = async (req, res, next) => {
+  try {
+    let token;
+    
+    // Check for token in header
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+    // Check for token in cookies
+    else if (req.cookies && req.cookies.jwt) {
+      token = req.cookies.jwt;
+    }
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'No token provided'
+      });
+    }
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('🔍 Decoded teacher token payload:', decoded);
+    
+    // Try multiple possible ID fields in the token
+    let teacherId = decoded.teacherId || decoded.id || decoded._id;
+    
+    if (!teacherId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token structure - no teacher ID found'
+      });
+    }
+    
+    // Find teacher - assuming you have a Teacher model or teachers are stored in User model
+    const teacher = await User.findById(teacherId);
+    
+    if (!teacher || teacher.role !== 'teacher') {
+      return res.status(401).json({
+        success: false,
+        message: 'Teacher not found or token invalid.'
+      });
+    }
+
+    // Check if teacher is active
+    if (!teacher.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Teacher account is deactivated.'
+      });
+    }
+
+    // Attach teacher to request object
+    req.teacher = teacher;
+    req.user = teacher;
+    
+    next();
+    
+  } catch (error) {
+    console.error('Authentication error (authenticateTeacher middleware):', error);
+    
+    let message = 'Invalid token';
+    if (error.name === 'TokenExpiredError') {
+      message = 'Token expired';
+    } else if (error.name === 'JsonWebTokenError') {
+      message = 'Invalid token signature or malformed token';
+    }
+    
+    return res.status(401).json({
+      success: false,
+      message: message
+    });
+  }
+};
+
+// Role-based authorization middleware
+exports.authorize = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user || !req.user.role) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access denied. User role not found or not authenticated.'
+      });
+    }
+
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: `Access denied. ${req.user.role} role is not authorized to access this resource.`
+      });
+    }
+
+    next();
+  };
+};
+
+// Restrict to specific roles (alias for authorize)
+exports.restrictTo = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user || !req.user.role) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access denied. User role not found or not authenticated.'
+      });
+    }
+
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Insufficient permissions.'
+      });
+    }
+    
+    next();
+  };
+};
+
+// Optional authentication middleware (doesn't fail if no token)
+exports.optionalAuth = async (req, res, next) => {
+  try {
+    let token;
+
+    // Check for token in header
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+    // Check for token in cookies
+    else if (req.cookies && req.cookies.jwt) {
+      token = req.cookies.jwt;
+    }
+
+    if (token) {
+      // Verify token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      // Find user by ID
+      const user = await User.findById(decoded.id);
+      
+      // Only attach user if found, active, and approved (or admin)
+      if (user && user.isActive && (user.role === 'admin' || user.approvalStatus === 'approved')) {
+        req.user = user;
+      }
+    }
+
+    next();
+
+  } catch (error) {
+    // Continue without authentication if token is invalid or expired for optional routes
+    console.warn('Optional authentication failed but continuing:', error.message);
+    next();
+  }
 };

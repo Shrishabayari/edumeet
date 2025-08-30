@@ -140,7 +140,7 @@ const TeacherSchedule = () => {
     return getDefaultAvailability();
   }, [getDefaultAvailability]);
 
-  // FIXED: Fetch teacher appointments
+  // Fetch teacher appointments
   const fetchTeacherAppointments = useCallback(async () => {
     if (!currentTeacher?.id && !currentTeacher?._id) {
       console.warn("No teacher ID available");
@@ -150,61 +150,25 @@ const TeacherSchedule = () => {
     
     try {
       setLoading(true);
-      setError('');
+      const teacherId = currentTeacher.id || currentTeacher._id;
+      console.log('Fetching appointments for teacher:', teacherId);
       
-      console.log('Fetching appointments for teacher:', currentTeacher);
-      
-      // Try different API methods to get appointments
-      let response;
-      try {
-        // First try: Get appointments for current authenticated teacher
-        response = await apiMethods.getTeacherAppointments();
-        console.log('Method 1 - Current teacher appointments:', response);
-      } catch (error) {
-        console.log('Method 1 failed, trying with teacher ID...');
-        try {
-          // Second try: Get appointments by teacher ID
-          const teacherId = currentTeacher.id || currentTeacher._id;
-          response = await apiMethods.getTeacherAppointments(teacherId);
-          console.log('Method 2 - Teacher ID appointments:', response);
-        } catch (error2) {
-          console.log('Method 2 failed, trying general appointments...');
-          // Third try: Get all appointments and filter
-          response = await apiMethods.getAllAppointments();
-          console.log('Method 3 - All appointments:', response);
-        }
-      }
+      const response = await apiMethods.getTeacherAppointments(teacherId);
+      console.log('Appointments response:', response);
       
       let appointmentsData = [];
-      
-      // Handle different response formats
       if (response?.data?.success && Array.isArray(response.data.data)) {
         appointmentsData = response.data.data;
-      } else if (response?.data?.success && Array.isArray(response.data.appointments)) {
-        appointmentsData = response.data.appointments;
       } else if (Array.isArray(response?.data)) {
         appointmentsData = response.data;
-      } else if (response?.data && Array.isArray(response.data)) {
-        appointmentsData = response.data;
       }
       
-      // Filter appointments for current teacher if we got all appointments
-      const teacherId = currentTeacher.id || currentTeacher._id;
-      if (appointmentsData.length > 0 && teacherId) {
-        appointmentsData = appointmentsData.filter(apt => 
-          (apt.teacherId === teacherId) || 
-          (apt.teacher === teacherId) ||
-          (apt.teacherId?.toString() === teacherId.toString()) ||
-          (apt.teacher?.toString() === teacherId.toString())
-        );
-      }
-      
-      console.log('Final appointments data:', appointmentsData);
+      console.log('Setting appointments:', appointmentsData);
       setAppointments(appointmentsData);
       
     } catch (error) {
       console.error('Error fetching appointments:', error);
-      setError('Failed to load appointments. Please try refreshing the page.');
+      setError('Failed to load appointments');
       setAppointments([]);
     } finally {
       setLoading(false);
@@ -226,7 +190,7 @@ const TeacherSchedule = () => {
         
       } catch (error) {
         console.error('Error parsing teacher data:', error);
-        setError('Unable to load teacher information. Please login again.');
+        setError('Unable to load teacher information');
       }
     } else {
       setError('Please log in to access your schedule');
@@ -267,7 +231,7 @@ const TeacherSchedule = () => {
     resetForm();
   }, [resetForm]);
 
-  // FIXED: Create appointment
+  // Create appointment - FIXED
   const handleCreateAppointment = async () => {
     if (!currentTeacher) {
       setError('Teacher information not loaded');
@@ -304,17 +268,8 @@ const TeacherSchedule = () => {
 
       console.log('Creating appointment with data:', appointmentData);
 
-      // Try the teacher booking method first
-      let response;
-      try {
-        response = await apiMethods.teacherBookAppointment(appointmentData);
-        console.log('Teacher booking response:', response);
-      } catch (error) {
-        console.log('Teacher booking failed, trying general appointment creation...');
-        // Fallback to general appointment creation
-        response = await apiMethods.requestAppointment(appointmentData);
-        console.log('General appointment response:', response);
-      }
+      const response = await apiMethods.teacherBookAppointment(appointmentData);
+      console.log('Appointment creation response:', response);
 
       // Refresh appointments list
       await fetchTeacherAppointments();
@@ -343,7 +298,7 @@ const TeacherSchedule = () => {
     }
   };
 
-  // FIXED: Cancel appointment
+  // Cancel appointment - FIXED
   const cancelAppointment = async (appointmentId) => {
     if (!appointmentId) {
       setError('Invalid appointment ID');
@@ -354,7 +309,6 @@ const TeacherSchedule = () => {
       setLoading(true);
       setError('');
 
-      console.log('Cancelling appointment:', appointmentId);
       await apiMethods.cancelAppointment(appointmentId, 'Cancelled by teacher');
       
       // Remove from local state
@@ -362,11 +316,9 @@ const TeacherSchedule = () => {
         prev.filter(apt => (apt.id || apt._id) !== appointmentId)
       );
 
-      console.log('Appointment cancelled successfully');
-
     } catch (error) {
       console.error('Error canceling appointment:', error);
-      setError('Failed to cancel appointment. Please try again.');
+      setError('Failed to cancel appointment');
     } finally {
       setLoading(false);
     }
@@ -447,7 +399,6 @@ const TeacherSchedule = () => {
             </div>
           )}
 
-          {/* Rest of your component remains the same... */}
           {/* Tabs */}
           <div className="bg-white rounded-2xl shadow-xl mb-6 overflow-hidden">
             <div className="flex border-b border-gray-200">
@@ -576,7 +527,6 @@ const TeacherSchedule = () => {
                           <button
                             onClick={() => cancelAppointment(appointment.id || appointment._id)}
                             className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors text-sm shadow-md"
-                            disabled={loading}
                           >
                             Cancel Appointment
                           </button>
@@ -756,7 +706,6 @@ const TeacherSchedule = () => {
                     <button
                       onClick={closeBookingModal}
                       className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
-                      disabled={loading}
                     >
                       Cancel
                     </button>
@@ -790,7 +739,7 @@ const TeacherSchedule = () => {
                 <div className="bg-green-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-6 border-4 border-green-200">
                   <CheckCircle className="w-10 h-10 text-green-600" />
                 </div>
-                <h3 className="text-3xl font-bold text-gray-800 mb-3">Appointment Created!</h3>
+                <h3 className="text-3xl font-bold text-gray-800 mb-3">Appointment Created! 🎉</h3>
                 <p className="text-gray-600 mb-6 text-lg">
                   The appointment has been successfully created and the student will be notified.
                 </p>
