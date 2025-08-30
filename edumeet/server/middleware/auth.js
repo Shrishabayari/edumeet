@@ -38,7 +38,7 @@ const verifyToken = (token) => {
   });
 };
 
-// FIXED: Consolidated authentication middleware
+// Consolidated authentication middleware
 const authenticate = (options = {}) => {
   const {
     roles = [], // Array of allowed roles
@@ -124,13 +124,13 @@ const authenticate = (options = {}) => {
       
       // Check if user exists
       if (!user) {
-        console.error('User not found:', userId);
+        console.error('❌ User not found:', userId);
         return sendResponse(res, 401, false, 'User not found. Token may be invalid or user may have been deleted.');
       }
 
       // Check if user is active
       if (user.isActive === false) {
-        console.error('User account deactivated:', userId);
+        console.error('❌ User account deactivated:', userId);
         return sendResponse(res, 401, false, 'Account is deactivated. Please contact support.');
       }
 
@@ -152,7 +152,7 @@ const authenticate = (options = {}) => {
 
       // Check role authorization
       if (roles.length > 0 && !roles.includes(userRole)) {
-        console.log(`Authorization failed: User role '${userRole}' not in required roles:`, roles);
+        console.log(`❌ Authorization failed: User role '${userRole}' not in required roles:`, roles);
         return sendResponse(res, 403, false, `Access denied. Role '${userRole}' is not authorized for this resource.`);
       }
 
@@ -176,7 +176,7 @@ const authenticate = (options = {}) => {
         req.student = req.user;
       }
       
-      console.log(`User authenticated: ${user.name} (${userRole})`);
+      console.log(`✅ User authenticated: ${user.name} (${userRole})`);
       next();
 
     } catch (error) {
@@ -269,7 +269,7 @@ const validateObjectId = (paramName = 'id') => {
   };
 };
 
-// Enhanced middleware for checking teacher appointment access - FIXED
+// Enhanced middleware for checking teacher appointment access
 const checkTeacherAppointmentAccess = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -283,7 +283,7 @@ const checkTeacherAppointmentAccess = async (req, res, next) => {
       return next();
     }
 
-    // Find the appointment - FIXED: Import Appointment model correctly
+    // Find the appointment
     const Appointment = require('../models/Appointment');
     const appointment = await Appointment.findById(id);
     
@@ -297,12 +297,9 @@ const checkTeacherAppointmentAccess = async (req, res, next) => {
       return next();
     }
 
-    // FIXED: For students - check if they made the appointment request
-    if (req.user.role === 'student') {
-      // Students can view appointments they requested (by email match)
-      if (appointment.student?.email?.toLowerCase() === req.user.email?.toLowerCase()) {
-        return next();
-      }
+    // Check if student owns the appointment
+    if (req.user.role === 'student' && currentUserId.toString() === appointment.studentId.toString()) {
+      return next();
     }
 
     return sendResponse(res, 403, false, 'Access denied. You can only access your own appointments.');
@@ -319,7 +316,7 @@ const logAuthAttempt = (req, res, next) => {
     const authHeader = req.headers.authorization;
     const hasToken = authHeader && authHeader.startsWith('Bearer');
     
-    console.log(`Auth attempt: ${req.method} ${req.originalUrl}`, {
+    console.log(`🔑 Auth attempt: ${req.method} ${req.originalUrl}`, {
       hasToken,
       ip: req.ip || req.connection.remoteAddress,
       userAgent: req.headers['user-agent']?.substring(0, 50) + '...' || 'Unknown'

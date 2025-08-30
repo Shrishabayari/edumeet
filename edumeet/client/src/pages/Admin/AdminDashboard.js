@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { PlusCircle, LogOut, User, AlertCircle, BookOpen, UserCheck } from 'lucide-react';
 import AdminNavbar from "../../components/adminNavbar";
 
-// Fixed API configuration to match your server
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com/api';
+// Use the same API configuration as your existing api.js
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com' || 'http://localhost:5000';
 
 // API Helper functions for token management
 const apiHelpers = {
@@ -44,32 +44,22 @@ const adminAPI = {
         throw new Error('No authentication token found');
       }
       
-      console.log('Attempting to fetch profile with token:', token.substring(0, 20) + '...');
-      
       const response = await fetch(`${API_BASE_URL}/admin/profile`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        },
-        credentials: 'include'
+        }
       });
       
-      console.log('Profile response status:', response.status);
-      
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Profile fetch failed:', errorData);
-        
         if (response.status === 401) {
           throw new Error('Unauthorized - Please login again');
         }
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      const data = await response.json();
-      console.log('Profile data received:', data);
-      return data;
+      return await response.json();
     } catch (error) {
       console.error('Profile API error:', error);
       throw error;
@@ -83,54 +73,23 @@ const adminAPI = {
         throw new Error('No authentication token found');
       }
       
-      // Try both endpoints - first the main dashboard endpoint
-      let response;
-      try {
-        console.log('Trying dashboard endpoint...');
-        response = await fetch(`${API_BASE_URL}/admin/dashboard`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          credentials: 'include'
-        });
-      } catch (err) {
-        console.log('Dashboard endpoint failed, trying stats endpoint...');
-        response = await fetch(`${API_BASE_URL}/admin/dashboard/stats`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          credentials: 'include'
-        });
-      }
-      
-      console.log('Stats response status:', response.status);
+      // Fixed: Use /admin/dashboard instead of /admin/dashboard/stats
+      const response = await fetch(`${API_BASE_URL}/admin/dashboard`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
       
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Stats fetch failed:', errorData);
-        
         if (response.status === 401) {
           throw new Error('Unauthorized - Please login again');
         }
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      const data = await response.json();
-      console.log('Stats data received:', data);
-      
-      // Handle different response formats
-      if (data.data && typeof data.data === 'object') {
-        return data.data;
-      } else if (data.stats && typeof data.stats === 'object') {
-        return data.stats;
-      } else {
-        // Return the data as-is if it's already in the right format
-        return data;
-      }
+      return await response.json();
     } catch (error) {
       console.error('Dashboard stats API error:', error);
       throw error;
@@ -141,18 +100,13 @@ const adminAPI = {
     try {
       const token = apiHelpers.getToken();
       if (token) {
-        try {
-          await fetch(`${API_BASE_URL}/admin/logout`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            credentials: 'include'
-          });
-        } catch (logoutError) {
-          console.warn('Logout API call failed, but continuing with local cleanup:', logoutError);
-        }
+        await fetch(`${API_BASE_URL}/admin/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
       }
       
       apiHelpers.logout();
@@ -232,7 +186,6 @@ const AdminDashboard = () => {
       try {
         // Check if authenticated
         if (!apiHelpers.isAuthenticated()) {
-          console.log('Not authenticated, redirecting to login');
           navigate('/admin/login');
           return;
         }
@@ -241,39 +194,16 @@ const AdminDashboard = () => {
         const storedAdmin = localStorage.getItem('admin');
         if (storedAdmin) {
           try {
-            const parsed = JSON.parse(storedAdmin);
-            setAdminData(parsed);
-            console.log('Loaded admin data from storage:', parsed);
+            setAdminData(JSON.parse(storedAdmin));
           } catch (e) {
-            console.log('Error parsing stored admin data:', e);
+            console.log('Error parsing stored admin data');
           }
         }
 
         // Load admin profile from API
         try {
-          console.log('Loading admin profile...');
-          const profileResponse = await adminAPI.getProfile();
-          
-          // Handle different response formats
-          let profileData;
-          if (profileResponse.data && typeof profileResponse.data === 'object') {
-            profileData = profileResponse.data;
-          } else if (profileResponse.admin && typeof profileResponse.admin === 'object') {
-            profileData = profileResponse.admin;
-          } else if (profileResponse.success && profileResponse.user) {
-            profileData = profileResponse.user;
-          } else {
-            profileData = profileResponse;
-          }
-          
-          setAdminData(profileData);
-          console.log('Profile loaded successfully:', profileData);
-          
-          // Update localStorage with fresh data
-          if (profileData) {
-            localStorage.setItem('admin', JSON.stringify(profileData));
-          }
-          
+          const profile = await adminAPI.getProfile();
+          setAdminData(profile);
         } catch (profileError) {
           console.log('Profile loading failed:', profileError);
           
@@ -281,19 +211,17 @@ const AdminDashboard = () => {
           if (profileError.message.includes('Unauthorized') || 
               profileError.message.includes('401') || 
               profileError.message.includes('403')) {
-            console.log('Authentication error, redirecting to login');
             apiHelpers.logout();
             navigate('/admin/login');
             return;
           }
           
-          // Set a user-friendly error message but continue loading
-          setError('Failed to load profile. Some features may not work correctly.');
+          // Set a user-friendly error message
+          setError('Failed to load profile. Please try refreshing the page.');
         }
 
         // Load dashboard stats
         try {
-          console.log('Loading dashboard stats...');
           const dashboardStats = await adminAPI.getDashboardStats();
           console.log('Dashboard stats received:', dashboardStats);
           setStats(dashboardStats);
@@ -304,14 +232,12 @@ const AdminDashboard = () => {
           if (statsError.message.includes('Unauthorized') || 
               statsError.message.includes('401') || 
               statsError.message.includes('403')) {
-            console.log('Stats authentication error, redirecting to login');
             apiHelpers.logout();
             navigate('/admin/login');
             return;
           }
           
           // Continue without stats - not critical for basic functionality
-          console.log('Continuing without stats');
         }
 
       } catch (error) {
@@ -323,7 +249,7 @@ const AdminDashboard = () => {
             error.message.includes('401') || 
             error.message.includes('403')) {
           apiHelpers.logout();
-          navigate('/admin/login');
+          navigate('/admin');
         }
       } finally {
         setLoading(false);
@@ -335,7 +261,6 @@ const AdminDashboard = () => {
 
   const handleLogout = async () => {
     try {
-      setLoading(true);
       await adminAPI.logout();
       navigate('/admin/login');
     } catch (error) {
@@ -399,7 +324,6 @@ const AdminDashboard = () => {
                 <button
                   onClick={handleLogout}
                   className="flex items-center space-x-2 bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200"
-                  disabled={loading}
                 >
                   <LogOut className="w-4 h-4" />
                   <span>Logout</span>
@@ -417,7 +341,7 @@ const AdminDashboard = () => {
               </div>
             )}
 
-            {/* Stats Section */}
+            {/* Stats Section - Fixed */}
             {stats && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 {Object.entries(stats).map(([key, value]) => (

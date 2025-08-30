@@ -37,7 +37,7 @@ const app = express();
 // Create HTTP server and Socket.io instance
 const server = http.createServer(app);
 
-// CORRECTED: Connect to MongoDB with error handling
+// Connect to MongoDB with error handling
 connectDB().catch(err => {
   console.error('Failed to connect to MongoDB:', err);
   process.exit(1);
