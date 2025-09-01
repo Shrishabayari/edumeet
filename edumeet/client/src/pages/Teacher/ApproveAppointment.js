@@ -10,8 +10,15 @@ import {
   XCircle, 
   AlertCircle,
   Send,
-  Loader
+  Loader,
+  BookOpen,
+  GraduationCap,
+  Trash2,
+  Eye,
+  EyeOff,
+  RefreshCw
 } from 'lucide-react';
+
 import { apiMethods } from '../../services/api';
 
 const TeacherApproveAppointments = () => {
@@ -21,13 +28,13 @@ const TeacherApproveAppointments = () => {
   const [processingId, setProcessingId] = useState(null);
   const [responseMessages, setResponseMessages] = useState({});
   const [showResponseForm, setShowResponseForm] = useState(null);
+  const [expandedCards, setExpandedCards] = useState(new Set());
 
   // Fetch pending appointments for the teacher
   const fetchPendingAppointments = async () => {
     setLoading(true);
     setError('');
     try {
-      // Get all appointments with pending status and student creation
       const response = await apiMethods.getPendingRequests();
       
       let appointmentsArray = [];
@@ -70,6 +77,22 @@ const TeacherApproveAppointments = () => {
     }
   };
 
+  // Format time since creation
+  const getTimeSinceCreation = (dateString) => {
+    try {
+      const created = new Date(dateString);
+      const now = new Date();
+      const diffInHours = Math.floor((now - created) / (1000 * 60 * 60));
+      
+      if (diffInHours < 1) return 'Just now';
+      if (diffInHours < 24) return `${diffInHours}h ago`;
+      const diffInDays = Math.floor(diffInHours / 24);
+      return `${diffInDays}d ago`;
+    } catch (error) {
+      return '';
+    }
+  };
+
   // Handle response message change
   const handleResponseMessageChange = (appointmentId, message) => {
     setResponseMessages(prev => ({
@@ -78,17 +101,44 @@ const TeacherApproveAppointments = () => {
     }));
   };
 
-  // Accept appointment
+  // Direct status update method (fallback)
+  const updateStatusDirectly = async (appointmentId, newStatus) => {
+    try {
+      console.log(`Directly updating appointment ${appointmentId} to status: ${newStatus}`);
+      
+      const response = await apiMethods.updateAppointment(appointmentId, { 
+        status: newStatus,
+        updatedBy: 'teacher',
+        updatedAt: new Date().toISOString()
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Direct update failed:', error);
+      throw error;
+    }
+  };
+
+  // Accept appointment with fallback mechanism
   const acceptAppointment = async (appointmentId) => {
     setProcessingId(appointmentId);
     setError('');
     
     try {
       const responseMessage = responseMessages[appointmentId] || '';
+      let response;
+      let usedFallback = false;
       
       console.log('Accepting appointment:', appointmentId, 'with message:', responseMessage);
       
-      await apiMethods.acceptAppointmentRequest(appointmentId, responseMessage);
+      try {
+        response = await apiMethods.acceptAppointmentRequest(appointmentId, responseMessage);
+      } catch (error) {
+        console.log('Accept method failed, using fallback:', error.message);
+        // eslint-disable-next-line
+        response = await updateStatusDirectly(appointmentId, 'confirmed');
+        usedFallback = true;
+      }
       
       // Remove from pending list
       setPendingAppointments(prev => 
@@ -103,6 +153,10 @@ const TeacherApproveAppointments = () => {
       });
       
       setShowResponseForm(null);
+      
+      // Show success message
+      setError(`Appointment accepted successfully!${usedFallback ? ' (using fallback method)' : ''}`);
+      setTimeout(() => setError(''), 3000);
       
     } catch (error) {
       console.error('Error accepting appointment:', error);
@@ -112,9 +166,14 @@ const TeacherApproveAppointments = () => {
     }
   };
 
-  // Reject appointment
+  // Reject appointment with enhanced error handling and fallback
   const rejectAppointment = async (appointmentId) => {
-    if (!window.confirm('Are you sure you want to reject this appointment request?')) {
+    // Show confirmation dialog
+    const confirmed = window.confirm(
+      'Are you sure you want to reject this appointment request? This action cannot be undone.'
+    );
+    
+    if (!confirmed) {
       return;
     }
 
@@ -123,10 +182,30 @@ const TeacherApproveAppointments = () => {
     
     try {
       const responseMessage = responseMessages[appointmentId] || '';
+      let response;
+      let usedFallback = false;
       
-      await apiMethods.rejectAppointmentRequest(appointmentId, responseMessage);
+      console.log('=== REJECTING APPOINTMENT ===');
+      console.log('Appointment ID:', appointmentId);
+      console.log('Response Message:', responseMessage);
       
-      // Remove from pending list
+      // Validate appointment ID format before sending
+      if (!appointmentId) {
+        throw new Error('Invalid appointment ID');
+      }
+      
+      // Try the primary reject method first, then fallback to direct update
+      try {
+        response = await apiMethods.rejectAppointmentRequest(appointmentId, responseMessage);
+        console.log('✅ Primary rejection response:', response);
+      } catch (error) {
+        console.log('Primary reject method failed, using fallback:', error.message);
+        response = await updateStatusDirectly(appointmentId, 'rejected');
+        usedFallback = true;
+        console.log('✅ Fallback rejection response:', response);
+      }
+      
+      // Remove from pending list only if the API call was successful
       setPendingAppointments(prev => 
         prev.filter(apt => (apt._id || apt.id) !== appointmentId)
       );
@@ -140,9 +219,46 @@ const TeacherApproveAppointments = () => {
       
       setShowResponseForm(null);
       
+      // Show success message
+      setError(`Appointment rejected successfully!${usedFallback ? ' (using fallback method)' : ''}`);
+      setTimeout(() => setError(''), 3000);
+      
+      console.log('✅ Appointment rejected successfully');
+      
     } catch (error) {
-      console.error('Error rejecting appointment:', error);
-      setError(error.message || 'Failed to reject appointment. Please try again.');
+      console.error('❌ Error rejecting appointment:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      
+      // Enhanced error message based on the error type
+      let errorMessage = 'Failed to reject appointment. Please try again.';
+      
+      if (error.response) {
+        const { status, data } = error.response;
+        switch (status) {
+          case 400:
+            errorMessage = data.message || 'Invalid request. Please check the appointment details.';
+            break;
+          case 404:
+            errorMessage = 'Appointment not found or may have been already processed.';
+            break;
+          case 403:
+            errorMessage = 'You do not have permission to reject this appointment.';
+            break;
+          case 409:
+            errorMessage = 'Appointment has already been processed.';
+            break;
+          default:
+            errorMessage = data.message || `Server error (${status}). Please try again.`;
+        }
+      } else if (error.request) {
+        errorMessage = 'Cannot connect to server. Please check your internet connection.';
+      }
+      
+      setError(errorMessage);
     } finally {
       setProcessingId(null);
     }
@@ -152,28 +268,50 @@ const TeacherApproveAppointments = () => {
     setShowResponseForm(showResponseForm === appointmentId ? null : appointmentId);
   };
 
+  const toggleCardExpansion = (appointmentId) => {
+    setExpandedCards(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(appointmentId)) {
+        newSet.delete(appointmentId);
+      } else {
+        newSet.add(appointmentId);
+      }
+      return newSet;
+    });
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* Header */}
-      <div className="bg-white shadow-lg">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
+      {/* Modern Header with Glass Morphism */}
+      <div className="bg-white/80 backdrop-blur-xl border-b border-white/20 shadow-lg sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Appointment Requests</h1>
-              <p className="mt-2 text-gray-600">Review and approve student appointment requests</p>
-            </div>
             <div className="flex items-center space-x-4">
-              <div className="bg-blue-100 px-4 py-2 rounded-full">
-                <span className="text-blue-800 font-semibold">
-                  {pendingAppointments.length} Pending
+              <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-3 rounded-2xl shadow-lg">
+                <GraduationCap className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                  Appointment Requests
+                </h1>
+                <p className="mt-1 text-gray-600">Review and manage student appointment requests</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center space-x-4">
+              <div className="bg-gradient-to-r from-blue-500/10 to-indigo-500/10 backdrop-blur-sm px-6 py-3 rounded-2xl border border-blue-200/50">
+                <span className="text-blue-700 font-semibold flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                  <span>{pendingAppointments.length} Pending</span>
                 </span>
               </div>
               <button
                 onClick={fetchPendingAppointments}
                 disabled={loading}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors duration-200 disabled:opacity-50"
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-2xl hover:shadow-lg hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:transform-none flex items-center space-x-2"
               >
-                {loading ? 'Refreshing...' : 'Refresh'}
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
               </button>
             </div>
           </div>
@@ -181,15 +319,36 @@ const TeacherApproveAppointments = () => {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Error Message */}
+        {/* Enhanced Error/Success Message */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6">
-            <div className="flex items-center">
-              <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
-              <span className="text-red-700">{error}</span>
+          <div className={`mb-8 rounded-2xl border-2 p-6 backdrop-blur-sm transition-all duration-300 ${
+            error.includes('successfully') 
+              ? 'bg-gradient-to-r from-emerald-50/80 to-green-50/80 border-emerald-200 shadow-emerald-100/50 shadow-lg' 
+              : 'bg-gradient-to-r from-red-50/80 to-pink-50/80 border-red-200 shadow-red-100/50 shadow-lg'
+          }`}>
+            <div className="flex items-start space-x-3">
+              <div className={`p-2 rounded-full ${
+                error.includes('successfully') ? 'bg-emerald-100' : 'bg-red-100'
+              }`}>
+                <AlertCircle className={`w-5 h-5 ${
+                  error.includes('successfully') ? 'text-emerald-600' : 'text-red-600'
+                }`} />
+              </div>
+              <div className="flex-1">
+                <h3 className={`font-semibold ${
+                  error.includes('successfully') ? 'text-emerald-800' : 'text-red-800'
+                }`}>
+                  {error.includes('successfully') ? 'Success' : 'Error'}
+                </h3>
+                <p className={error.includes('successfully') ? 'text-emerald-700' : 'text-red-700'}>
+                  {error}
+                </p>
+              </div>
               <button
                 onClick={() => setError('')}
-                className="ml-auto text-red-500 hover:text-red-700"
+                className={`p-1 rounded-full hover:bg-white/50 transition-colors ${
+                  error.includes('successfully') ? 'text-emerald-600 hover:text-emerald-800' : 'text-red-600 hover:text-red-800'
+                }`}
               >
                 <XCircle className="w-5 h-5" />
               </button>
@@ -197,153 +356,202 @@ const TeacherApproveAppointments = () => {
           </div>
         )}
 
-        {/* Loading Overlay */}
+        {/* Enhanced Loading Overlay */}
         {loading && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-2xl p-8 text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading appointments...</p>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 text-center shadow-2xl border border-white/20">
+              <div className="relative mb-6">
+                <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+                <div className="absolute inset-0 w-16 h-16 border-4 border-transparent border-r-indigo-600 rounded-full animate-pulse mx-auto"></div>
+              </div>
+              <p className="text-gray-700 font-medium">Loading appointments...</p>
+              <p className="text-gray-500 text-sm mt-2">Please wait while we fetch the latest requests</p>
             </div>
           </div>
         )}
 
-        {/* Appointment Requests */}
+        {/* Enhanced Appointment Cards */}
         <div className="space-y-6">
           {pendingAppointments.length === 0 && !loading ? (
-            <div className="bg-white rounded-2xl shadow-xl p-12 text-center">
-              <CheckCircle className="w-16 h-16 text-green-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-600 mb-2">No pending requests</h3>
-              <p className="text-gray-500">All appointment requests have been processed!</p>
+            <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl p-16 text-center border border-white/20">
+              <div className="bg-gradient-to-r from-green-400 to-emerald-500 p-6 rounded-full w-24 h-24 mx-auto mb-6 shadow-lg">
+                <CheckCircle className="w-12 h-12 text-white mx-auto mt-1.5" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-800 mb-3">All Caught Up!</h3>
+              <p className="text-gray-600 text-lg">No pending appointment requests at the moment.</p>
+              <p className="text-gray-500 mt-2">New requests will appear here automatically.</p>
             </div>
           ) : (
             pendingAppointments.map(appointment => {
               const appointmentId = appointment._id || appointment.id;
               const isProcessing = processingId === appointmentId;
               const showForm = showResponseForm === appointmentId;
+              const isExpanded = expandedCards.has(appointmentId);
               
               return (
-                <div key={appointmentId} className="bg-white rounded-2xl shadow-xl overflow-hidden">
-                  {/* Main Content */}
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-6">
+                <div key={appointmentId} className="group bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-300 overflow-hidden border border-white/20 hover:border-white/40">
+                  {/* Enhanced Card Header */}
+                  <div className="bg-gradient-to-r from-blue-50/50 to-indigo-50/50 p-6 border-b border-gray-100/50">
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-4">
-                        <div className="bg-gradient-to-r from-blue-400 to-purple-500 p-3 rounded-full">
-                          <User className="w-6 h-6 text-white" />
+                        <div className="relative">
+                          <div className="bg-gradient-to-r from-blue-500 to-indigo-600 p-4 rounded-2xl shadow-lg">
+                            <User className="w-6 h-6 text-white" />
+                          </div>
+                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full border-2 border-white animate-pulse"></div>
                         </div>
                         <div>
-                          <h3 className="text-xl font-semibold text-gray-800">
+                          <h3 className="text-xl font-bold text-gray-900">
                             {appointment.student?.name || 'Unknown Student'}
                           </h3>
-                          <p className="text-gray-600 flex items-center mt-1">
-                            <Mail className="w-4 h-4 mr-2" />
-                            {appointment.student?.email || 'No email provided'}
+                          <div className="flex items-center space-x-4 mt-2">
+                            <p className="text-gray-600 flex items-center">
+                              <Mail className="w-4 h-4 mr-2" />
+                              {appointment.student?.email || 'No email provided'}
+                            </p>
+                            {appointment.student?.phone && (
+                              <p className="text-gray-600 flex items-center">
+                                <Phone className="w-4 h-4 mr-2" />
+                                {appointment.student.phone}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-3">
+                        <div className="bg-yellow-100 text-yellow-700 px-4 py-2 rounded-2xl text-sm font-medium border border-yellow-200 shadow-sm">
+                          ⏳ Pending Review
+                        </div>
+                        <div className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                          {getTimeSinceCreation(appointment.createdAt)}
+                        </div>
+                        <button
+                          onClick={() => toggleCardExpansion(appointmentId)}
+                          className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+                        >
+                          {isExpanded ? 
+                            <EyeOff className="w-4 h-4 text-gray-500" /> : 
+                            <Eye className="w-4 h-4 text-gray-500" />
+                          }
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Enhanced Card Content */}
+                  <div className="p-6">
+                    {/* Appointment Details Grid */}
+                    <div className={`grid gap-6 transition-all duration-300 ${isExpanded ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
+                      <div className="space-y-4">
+                        <div className="flex items-start space-x-3 p-4 bg-blue-50/50 rounded-2xl">
+                          <Calendar className="w-6 h-6 text-blue-600 mt-1" />
+                          <div>
+                            <p className="font-semibold text-gray-900 mb-1">Date & Day</p>
+                            <p className="text-gray-700">{formatDateForDisplay(appointment.date || appointment.appointmentDate)}</p>
+                            <p className="text-sm text-blue-600 font-medium">{appointment.day}</p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        <div className="flex items-start space-x-3 p-4 bg-green-50/50 rounded-2xl">
+                          <Clock className="w-6 h-6 text-green-600 mt-1" />
+                          <div>
+                            <p className="font-semibold text-gray-900 mb-1">Time Slot</p>
+                            <p className="text-gray-700 font-medium">{appointment.time}</p>
+                            <p className="text-xs text-gray-500">60 minutes duration</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {appointment.student?.subject && (
+                        <div className="space-y-4">
+                          <div className="flex items-start space-x-3 p-4 bg-purple-50/50 rounded-2xl">
+                            <BookOpen className="w-6 h-6 text-purple-600 mt-1" />
+                            <div>
+                              <p className="font-semibold text-gray-900 mb-1">Subject</p>
+                              <p className="text-gray-700 font-medium">{appointment.student.subject}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Student Message */}
+                    {appointment.student?.message && (
+                      <div className="mt-6">
+                        <div className="bg-gradient-to-r from-gray-50/50 to-blue-50/50 p-6 rounded-2xl border border-gray-200/50">
+                          <p className="font-semibold text-gray-900 flex items-center mb-3">
+                            <MessageSquare className="w-5 h-5 mr-2 text-blue-600" />
+                            Student's Message
                           </p>
-                          {appointment.student?.phone && (
-                            <p className="text-gray-600 flex items-center mt-1">
-                              <Phone className="w-4 h-4 mr-2" />
-                              {appointment.student.phone}
-                            </p>
-                          )}
+                          <p className="text-gray-700 leading-relaxed">
+                            {appointment.student.message}
+                          </p>
                         </div>
                       </div>
-                      
-                      <div className="flex items-center space-x-2">
-                        <span className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-medium">
-                          Pending Approval
-                        </span>
-                      </div>
-                    </div>
+                    )}
 
-                    {/* Appointment Details */}
-                    <div className="grid md:grid-cols-2 gap-6 mb-6">
-                      <div className="space-y-4">
-                        <div className="flex items-center space-x-3">
-                          <Calendar className="w-5 h-5 text-blue-500" />
-                          <div>
-                            <p className="font-medium text-gray-800">Date & Day</p>
-                            <p className="text-gray-600">{formatDateForDisplay(appointment.date || appointment.appointmentDate)}</p>
-                            <p className="text-sm text-gray-500">{appointment.day}</p>
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center space-x-3">
-                          <Clock className="w-5 h-5 text-green-500" />
-                          <div>
-                            <p className="font-medium text-gray-800">Time</p>
-                            <p className="text-gray-600">{appointment.time}</p>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-4">
-                        {appointment.student?.subject && (
-                          <div>
-                            <p className="font-medium text-gray-800">Subject</p>
-                            <p className="text-gray-600">{appointment.student.subject}</p>
-                          </div>
-                        )}
-                        
-                        {appointment.student?.message && (
-                          <div>
-                            <p className="font-medium text-gray-800 flex items-center">
-                              <MessageSquare className="w-4 h-4 mr-2" />
-                              Student Message
-                            </p>
-                            <p className="text-gray-600 bg-gray-50 p-3 rounded-lg mt-2">
-                              {appointment.student.message}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Response Form */}
+                    {/* Enhanced Response Form */}
                     {showForm && (
-                      <div className="bg-gray-50 rounded-xl p-4 mb-6">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <div className="mt-6 bg-gradient-to-r from-blue-50/30 to-indigo-50/30 rounded-2xl p-6 border border-blue-200/30">
+                        <label className="block text-sm font-semibold text-gray-800 mb-3 items-center">
+                          <Send className="w-4 h-4 mr-2" />
                           Response Message (Optional)
                         </label>
                         <textarea
                           value={responseMessages[appointmentId] || ''}
                           onChange={(e) => handleResponseMessageChange(appointmentId, e.target.value)}
-                          placeholder="Add a personal message for the student..."
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          rows="3"
+                          placeholder="Add a personal message for the student... (e.g., 'Looking forward to our session!' or 'Please bring your textbook.')"
+                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white/70 backdrop-blur-sm"
+                          rows="4"
                           maxLength="500"
                         />
-                        <p className="text-xs text-gray-500 mt-1">
-                          {(responseMessages[appointmentId] || '').length}/500 characters
-                        </p>
+                        <div className="flex justify-between items-center mt-3">
+                          <p className="text-xs text-gray-500">
+                            {(responseMessages[appointmentId] || '').length}/500 characters
+                          </p>
+                          <div className="flex space-x-2">
+                            <span className="text-xs text-gray-500">💡 Tip: Keep it friendly and professional</span>
+                          </div>
+                        </div>
                       </div>
                     )}
 
-                    {/* Action Buttons */}
-                    <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                    {/* Enhanced Action Buttons */}
+                    <div className="flex items-center justify-between pt-6 mt-6 border-t border-gray-200/50">
                       <button
                         onClick={() => toggleResponseForm(appointmentId)}
-                        className="text-blue-600 hover:text-blue-700 flex items-center space-x-2 transition-colors duration-200"
+                        className="text-blue-600 hover:text-blue-700 flex items-center space-x-2 transition-colors duration-200 px-4 py-2 rounded-xl hover:bg-blue-50"
                         disabled={isProcessing}
                       >
                         <Send className="w-4 h-4" />
-                        <span>{showForm ? 'Hide' : 'Add'} Response Message</span>
+                        <span>{showForm ? 'Hide Message' : 'Add Response Message'}</span>
                       </button>
                       
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-4">
                         <button
                           onClick={() => rejectAppointment(appointmentId)}
                           disabled={isProcessing}
-                          className="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 transition-colors duration-200 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="bg-gradient-to-r from-red-500 to-pink-500 text-white px-6 py-3 rounded-xl hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                         >
-                          {isProcessing ? <Loader className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                          {isProcessing ? 
+                            <Loader className="w-4 h-4 animate-spin" /> : 
+                            <Trash2 className="w-4 h-4" />
+                          }
                           <span>Reject</span>
                         </button>
                         
                         <button
                           onClick={() => acceptAppointment(appointmentId)}
                           disabled={isProcessing}
-                          className="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600 transition-colors duration-200 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="bg-gradient-to-r from-green-500 to-emerald-500 text-white px-6 py-3 rounded-xl hover:shadow-lg hover:scale-105 transition-all duration-200 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                         >
-                          {isProcessing ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                          {isProcessing ? 
+                            <Loader className="w-4 h-4 animate-spin" /> : 
+                            <CheckCircle className="w-4 h-4" />
+                          }
                           <span>Accept</span>
                         </button>
                       </div>

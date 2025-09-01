@@ -429,7 +429,7 @@ const rejectAppointmentRequest = async (req, res) => {
     if (!appointment) {
       return res.status(404).json({
         success: false,
-        message: 'Appointment request not found or already processed'
+        message: 'Appointment request not found or already processed '
       });
     }
     

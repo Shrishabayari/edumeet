@@ -528,7 +528,7 @@ const TeacherSchedule = () => {
                             onClick={() => cancelAppointment(appointment.id || appointment._id)}
                             className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors text-sm shadow-md"
                           >
-                            Cancel Appointment
+                            Cancel
                           </button>
                         </div>
                       </div>

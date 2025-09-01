@@ -4,7 +4,7 @@ import {
   Eye, EyeOff, User, BookOpen
 } from 'lucide-react';
 import { useNavigate, Link } from "react-router-dom";
-import TeacherNavbar from "../../components/teacherNavbar";
+import Navbar from "../../components/navbar";
 
 // ✅ API Client - Enhanced to handle authentication tokens automatically
 const createApiClient = () => {
@@ -210,7 +210,7 @@ const TeacherLogin = () => {
 
   return (
     <>
-      <TeacherNavbar/>
+      <Navbar/>
       <div className="min-h-screen relative overflow-hidden">
         {/* Background Image with Overlay */}
         <div
@@ -222,7 +222,7 @@ const TeacherLogin = () => {
         />
 
         {/* Content Container */}
-        <div className="relative z-10 min-h-screen flex flex-col lg:flex-row pt-10 pb-10">
+        <div className="relative z-10 min-h-screen flex flex-col lg:flex-row pt-0 pb-10">
           {/* Left Section (Marketing/Branding) */}
           <div className="flex-1 flex flex-col justify-center px-8 lg:px-16">
             <div className="max-w-lg">
