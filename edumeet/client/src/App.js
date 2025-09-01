@@ -13,11 +13,13 @@ import TeacherDashboard from './pages/Teacher/TeacherDashboard';
 import TeacherSchedule from './pages/Teacher/SheduleAppointment';
 import TeacherApproveAppointments from './pages/Teacher/ApproveAppointment';
 import UserDashboard from './pages/User/UserDashboard';
+import StudentMessageBoard from './pages/User/StudentMessageBoard';
 import SheduleApppointment from './pages/User/SheduleAppointment';
 import AppointmentList from './pages/Teacher/AppointmentList';
 import MessageBoard from './pages/Message';
 import ViewTeachers from './pages/Admin/ViewTeacher';
 import AddTeacher from './pages/Admin/AddTeacher';
+import TeacherMessageBoard from './pages/Teacher/TeacherMessageBoard';
 
 function App() {
   return (
@@ -52,8 +54,8 @@ function App() {
               <Route path="/teacher/approve-appointment" element={<TeacherApproveAppointments />} />
               
               {/* Message Board Route */}
-              <Route path="/teacher/message" element={<MessageBoard />} />
-              <Route path="/student/message" element={<MessageBoard />} />
+              <Route path="/teacher/message" element={<TeacherMessageBoard />} />
+              <Route path="/student/message" element={<StudentMessageBoard />} />
             </Routes>
           </main>
         </div>
