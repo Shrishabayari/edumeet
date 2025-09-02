@@ -5,13 +5,14 @@ import io from 'socket.io-client';
 const MessageBoard = () => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
-  const [userRole, setUserRole] = useState('student');
+  const [userRole, setUserRole] = useState('');
   const [userName, setUserName] = useState('');
   const [roomId, setRoomId] = useState('general');
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [connectionAttempts, setConnectionAttempts] = useState(0);
+  const [isRoleDetected, setIsRoleDetected] = useState(false);
   
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -23,17 +24,91 @@ const MessageBoard = () => {
     { id: 'star', icon: Star, label: 'Star', color: 'text-yellow-500' },
   ];
 
+  // Detect user role and info from localStorage on component mount
+  useEffect(() => {
+    const detectUserRole = () => {
+      const teacherToken = localStorage.getItem('teacherToken');
+      const userToken = localStorage.getItem('userToken');
+      const teacherData = localStorage.getItem('teacher');
+      const userData = localStorage.getItem('user');
+
+      console.log('Detecting user role...', { 
+        hasTeacherToken: !!teacherToken, 
+        hasUserToken: !!userToken,
+        hasTeacherData: !!teacherData,
+        hasUserData: !!userData
+      });
+
+      if (teacherToken) {
+        // User is a teacher
+        setUserRole('teacher');
+        if (teacherData) {
+          try {
+            const teacher = JSON.parse(teacherData);
+            setUserName(teacher.name || teacher.fullName || teacher.email || 'Teacher');
+          } catch (e) {
+            console.error('Error parsing teacher data:', e);
+            setUserName('Teacher');
+          }
+        } else {
+          setUserName('Teacher');
+        }
+        setIsRoleDetected(true);
+        console.log('Detected as teacher');
+      } else if (userToken) {
+        // User is a student
+        setUserRole('student');
+        if (userData) {
+          try {
+            const user = JSON.parse(userData);
+            setUserName(user.name || user.fullName || user.email || 'Student');
+          } catch (e) {
+            console.error('Error parsing user data:', e);
+            setUserName('Student');
+          }
+        } else {
+          setUserName('Student');
+        }
+        setIsRoleDetected(true);
+        console.log('Detected as student');
+      } else {
+        // No authentication found
+        setUserRole('student'); // Default fallback
+        setUserName('');
+        setIsRoleDetected(false);
+        setError('Please enter your name to connect');
+        console.log('No authentication found, using manual input');
+      }
+    };
+
+    detectUserRole();
+
+    // Listen for localStorage changes (when user logs in/out in another tab)
+    const handleStorageChange = () => {
+      detectUserRole();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   // Initialize socket connection
   useEffect(() => {
     if (!userName.trim()) {
-      setError('Please enter your name to connect');
+      if (isRoleDetected) {
+        setError('User name not found. Please refresh and try again.');
+      } else {
+        setError('Please enter your name to connect');
+      }
       return;
     }
 
-    // Get token from localStorage (adjust based on your auth system)
-    const token = localStorage.getItem('userToken') || localStorage.getItem('teacherToken');
+    // Get token from localStorage based on role
+    const token = userRole === 'teacher' 
+      ? localStorage.getItem('teacherToken')
+      : localStorage.getItem('userToken');
     
-    if (!token) {
+    if (!token && isRoleDetected) {
       setError('Please login to use the message board');
       return;
     }
@@ -43,8 +118,12 @@ const MessageBoard = () => {
       socketRef.current.disconnect();
     }
 
-    console.log('Attempting to connect with token:', token.substring(0, 20) + '...');
-    console.log('User role:', userRole, 'User name:', userName);
+    console.log('Attempting to connect with:', { 
+      role: userRole, 
+      name: userName, 
+      hasToken: !!token,
+      isRoleDetected 
+    });
 
     // Connect to socket with better error handling
     socketRef.current = io('http://localhost:5000', {
@@ -56,7 +135,7 @@ const MessageBoard = () => {
 
     // Connection events
     socketRef.current.on('connect', () => {
-      console.log('Socket connected successfully');
+      console.log('Socket connected successfully as:', userRole);
       setIsConnected(true);
       setError('');
       setConnectionAttempts(0);
@@ -123,7 +202,7 @@ const MessageBoard = () => {
         socketRef.current.disconnect();
       }
     };
-  }, [roomId, userName]); // Re-run when roomId or userName changes
+  }, [roomId, userName, userRole, isRoleDetected]); // Re-run when these change
 
   // Auto-scroll to bottom
   const scrollToBottom = () => {
@@ -146,7 +225,10 @@ const MessageBoard = () => {
     
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('userToken') || localStorage.getItem('teacherToken');
+      const token = userRole === 'teacher' 
+        ? localStorage.getItem('teacherToken')
+        : localStorage.getItem('userToken');
+        
       const response = await fetch(`http://localhost:5000/api/messages/room/${roomId}`, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -242,7 +324,12 @@ const MessageBoard = () => {
               {isConnected ? 'Connected' : 'Disconnected'}
             </span>
           </h1>
-          <p className="text-blue-100 mt-2">Connect, communicate, and collaborate in real-time</p>
+          <p className="text-blue-100 mt-2">
+            {isRoleDetected 
+              ? `Connected as: ${userName} (${userRole === 'teacher' ? 'Teacher' : 'Student'})`
+              : 'Connect, communicate, and collaborate in real-time'
+            }
+          </p>
         </div>
 
         {/* Error Display */}
@@ -258,47 +345,50 @@ const MessageBoard = () => {
           </div>
         )}
 
-        {/* User Setup */}
-        <div className="p-6 border-b bg-gray-50">
-          <div className="flex flex-wrap gap-4 items-center">
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Your Name:</label>
-              <input
-                type="text"
-                value={userName}
-                onChange={(e) => setUserName(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter your name"
-                disabled={isConnected} // Disable when connected to prevent confusion
-              />
+        {/* User Setup - Only show if role not auto-detected */}
+        {!isRoleDetected && (
+          <div className="p-6 border-b bg-gray-50">
+            <div className="flex flex-wrap gap-4 items-center">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700">Your Name:</label>
+                <input
+                  type="text"
+                  value={userName}
+                  onChange={(e) => setUserName(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter your name"
+                />
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700">Role:</label>
+                <select
+                  value={userRole}
+                  onChange={(e) => setUserRole(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="student">Student</option>
+                  <option value="teacher">Teacher</option>
+                </select>
+              </div>
             </div>
-            
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Role:</label>
-              <select
-                value={userRole}
-                onChange={(e) => setUserRole(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={isConnected} // Disable when connected
-              >
-                <option value="student">Student</option>
-                <option value="teacher">Teacher</option>
-              </select>
-            </div>
+          </div>
+        )}
 
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Room:</label>
-              <select
-                value={roomId}
-                onChange={(e) => handleRoomChange(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="general">General</option>
-                <option value="cs101">CS101 - Computer Science</option>
-                <option value="math101">Math101 - Mathematics</option>
-                <option value="physics101">Physics101 - Physics</option>
-              </select>
-            </div>
+        {/* Room Selection */}
+        <div className="p-6 border-b bg-gray-50">
+          <div className="flex items-center gap-4">
+            <label className="text-sm font-medium text-gray-700">Room:</label>
+            <select
+              value={roomId}
+              onChange={(e) => handleRoomChange(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="general">General</option>
+              <option value="cs101">CS101 - Computer Science</option>
+              <option value="math101">Math101 - Mathematics</option>
+              <option value="physics101">Physics101 - Physics</option>
+            </select>
           </div>
         </div>
 
@@ -422,7 +512,7 @@ const MessageBoard = () => {
             </button>
           </div>
           
-          {!userName.trim() && (
+          {!userName.trim() && !isRoleDetected && (
             <p className="text-sm text-orange-600 mt-2">Please enter your name and it will automatically connect</p>
           )}
           
@@ -443,7 +533,7 @@ const MessageBoard = () => {
           <div className="bg-blue-50 p-4 rounded-lg">
             <h3 className="font-semibold text-blue-800 mb-2">For Students:</h3>
             <ul className="text-sm text-blue-700 space-y-1">
-              <li>• Enter your name and select "Student" role</li>
+              <li>• {isRoleDetected ? 'Automatically identified when logged in' : 'Enter your name and select "Student" role'}</li>
               <li>• Send messages to ask questions in real-time</li>
               <li>• Share thoughts and ideas instantly</li>
               <li>• View teacher reactions on your messages</li>
@@ -454,7 +544,7 @@ const MessageBoard = () => {
           <div className="bg-green-50 p-4 rounded-lg">
             <h3 className="font-semibold text-green-800 mb-2">For Teachers:</h3>
             <ul className="text-sm text-green-700 space-y-1">
-              <li>• Enter your name and select "Teacher" role</li>
+              <li>• {isRoleDetected ? 'Automatically identified when logged in' : 'Enter your name and select "Teacher" role'}</li>
               <li>• React to student messages with emojis</li>
               <li>• Send messages to the class instantly</li>
               <li>• Provide real-time feedback and encouragement</li>
