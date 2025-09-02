@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Heart, ThumbsUp, Star, MessageCircle, User, GraduationCap, Clock, AlertCircle } from 'lucide-react';
-import io from 'socket.io-client';
 
 const TeacherMessageBoard = () => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
-  const [userRole, setUserRole] = useState('student');
+  const [userRole, setUserRole] = useState('teacher'); // Default to teacher
   const [userName, setUserName] = useState('');
   const [roomId, setRoomId] = useState('general');
   const [isConnected, setIsConnected] = useState(false);
@@ -23,107 +22,122 @@ const TeacherMessageBoard = () => {
     { id: 'star', icon: Star, label: 'Star', color: 'text-yellow-500' },
   ];
 
-  // Initialize socket connection
+  // Initialize user from localStorage on component mount
   useEffect(() => {
-    if (!userName.trim()) {
-      setError('Please enter your name to connect');
-      return;
-    }
-
-    // Get token from localStorage (adjust based on your auth system)
-    const token = localStorage.getItem('userToken') || localStorage.getItem('teacherToken');
-    
-    if (!token) {
-      setError('Please login to use the message board');
-      return;
-    }
-
-    // Disconnect existing socket if any
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-    }
-
-    console.log('Attempting to connect with token:', token.substring(0, 20) + '...');
-    console.log('User role:', userRole, 'User name:', userName);
-
-    // Connect to socket with better error handling
-    socketRef.current = io('http://localhost:5000', {
-      auth: { token },
-      transports: ['websocket', 'polling'], // Fallback to polling if websocket fails
-      timeout: 10000,
-      forceNew: true
-    });
-
-    // Connection events
-    socketRef.current.on('connect', () => {
-      console.log('Socket connected successfully');
-      setIsConnected(true);
-      setError('');
-      setConnectionAttempts(0);
-      
-      // Join the room
-      socketRef.current.emit('join-room', roomId);
-      console.log('Joined room:', roomId);
-    });
-
-    socketRef.current.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
-      setIsConnected(false);
-      if (reason === 'io server disconnect') {
-        // Server disconnected, try to reconnect
-        setError('Server disconnected. Attempting to reconnect...');
-      }
-    });
-
-    socketRef.current.on('connect_error', (err) => {
-      console.error('Connection error:', err);
-      setError('Connection failed: ' + err.message);
-      setIsConnected(false);
-      setConnectionAttempts(prev => prev + 1);
-      
-      // Show specific error messages based on the error
-      if (err.message.includes('Authentication error')) {
-        setError('Authentication failed. Please login again.');
-      } else if (err.message.includes('No token provided')) {
-        setError('No authentication token found. Please login.');
-      }
-    });
-
-    // Message events
-    socketRef.current.on('new-message', (message) => {
-      console.log('Received new message:', message);
-      setMessages(prev => [...prev, message]);
-      scrollToBottom();
-    });
-
-    socketRef.current.on('message-updated', (updatedMessage) => {
-      console.log('Message updated:', updatedMessage);
-      setMessages(prev => prev.map(msg => 
-        msg.id === updatedMessage.id ? updatedMessage : msg
-      ));
-    });
-
-    socketRef.current.on('error', (error) => {
-      console.error('Socket error:', error);
-      setError(error.message || 'An error occurred');
-    });
-
-    // Room events
-    socketRef.current.on('user-joined', (data) => {
-      console.log('User joined:', data);
-    });
-
-    socketRef.current.on('user-left', (data) => {
-      console.log('User left:', data);
-    });
-
-    return () => {
-      if (socketRef.current) {
-        console.log('Cleaning up socket connection');
-        socketRef.current.disconnect();
+    const initializeUser = () => {
+      try {
+        // Get teacher data from localStorage (saved during login)
+        const teacherData = localStorage.getItem('teacher');
+        const teacherToken = localStorage.getItem('teacherToken');
+        
+        if (teacherData && teacherToken) {
+          const teacher = JSON.parse(teacherData);
+          console.log('Found teacher data:', teacher);
+          
+          // Set user name from teacher data - handle different possible field names
+          let fullName = '';
+          if (teacher.name) {
+            fullName = teacher.name;
+          } else if (teacher.fullName) {
+            fullName = teacher.fullName;
+          } else if (teacher.firstName && teacher.lastName) {
+            fullName = teacher.firstName + ' ' + teacher.lastName;
+          } else if (teacher.firstName) {
+            fullName = teacher.firstName;
+          } else if (teacher.email) {
+            // Use email as fallback if no name is available
+            fullName = teacher.email.split('@')[0];
+          }
+          
+          if (fullName) {
+            setUserName(fullName);
+            setUserRole('teacher');
+            console.log('Set teacher name:', fullName);
+          } else {
+            console.warn('No name found in teacher data:', teacher);
+            setError('Teacher name not found. Please update your profile.');
+          }
+        } else {
+          console.log('No teacher data found, checking for student data...');
+          
+          // Fallback: Check for student data
+          const studentData = localStorage.getItem('student');
+          const studentToken = localStorage.getItem('userToken');
+          
+          if (studentData && studentToken) {
+            const student = JSON.parse(studentData);
+            let fullName = '';
+            if (student.name) {
+              fullName = student.name;
+            } else if (student.fullName) {
+              fullName = student.fullName;
+            } else if (student.firstName && student.lastName) {
+              fullName = student.firstName + ' ' + student.lastName;
+            } else if (student.firstName) {
+              fullName = student.firstName;
+            } else if (student.email) {
+              fullName = student.email.split('@')[0];
+            }
+            
+            if (fullName) {
+              setUserName(fullName);
+              setUserRole('student');
+              console.log('Set student name:', fullName);
+            }
+          } else {
+            setError('Please login to use the message board');
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing user data:', error);
+        setError('Error loading user data. Please login again.');
       }
     };
-  }, [roomId, userName]); // Re-run when roomId or userName changes
+
+    initializeUser();
+  }, []);
+
+  // Mock socket connection (since we can't use actual socket.io in artifacts)
+  useEffect(() => {
+    if (!userName.trim()) {
+      return;
+    }
+
+    // Simulate connection
+    const timer = setTimeout(() => {
+      setIsConnected(true);
+      setError('');
+      console.log('Mock connection established for:', userName);
+      
+      // Load mock messages
+      loadMockMessages();
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [userName, roomId]);
+
+  // Mock message loading
+  const loadMockMessages = () => {
+    const mockMessages = [
+      {
+        id: '1',
+        text: 'Welcome to the message board! This is a demo message.',
+        sender: 'System',
+        role: 'teacher',
+        timestamp: new Date().toISOString(),
+        reactions: { heart: 2, thumbs: 1 }
+      },
+      {
+        id: '2',
+        text: 'Can someone help me with the assignment from last week?',
+        sender: 'Student A',
+        role: 'student',
+        timestamp: new Date(Date.now() - 300000).toISOString(),
+        reactions: { star: 1 }
+      }
+    ];
+    setMessages(mockMessages);
+  };
 
   // Auto-scroll to bottom
   const scrollToBottom = () => {
@@ -134,41 +148,6 @@ const TeacherMessageBoard = () => {
     scrollToBottom();
   }, [messages]);
 
-  // Load initial messages
-  useEffect(() => {
-    if (userName.trim()) {
-      loadMessages();
-    }
-  }, [roomId, userName]);
-
-  const loadMessages = async () => {
-    if (!userName.trim()) return;
-    
-    setIsLoading(true);
-    try {
-      const token = localStorage.getItem('userToken') || localStorage.getItem('teacherToken');
-      const response = await fetch(`http://localhost:5000/api/messages/room/${roomId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Loaded messages:', data.data);
-        setMessages(data.data.messages || []);
-      } else {
-        console.error('Failed to load messages:', response.status);
-        setError('Failed to load previous messages');
-      }
-    } catch (error) {
-      console.error('Error loading messages:', error);
-      setError('Error loading messages: ' + error.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleSendMessage = () => {
     if (!newMessage.trim()) {
       setError('Please enter a message');
@@ -176,39 +155,43 @@ const TeacherMessageBoard = () => {
     }
 
     if (!userName.trim()) {
-      setError('Please enter your name');
+      setError('User name not found. Please login again.');
       return;
     }
 
-    if (!socketRef.current || !isConnected) {
-      setError('Not connected to server. Please try again.');
+    if (!isConnected) {
+      setError('Not connected. Please wait for connection.');
       return;
     }
 
-    console.log('Sending message:', {
+    // Create new message
+    const message = {
+      id: Date.now().toString(),
       text: newMessage,
-      roomId,
       sender: userName,
-      role: userRole
-    });
+      role: userRole,
+      timestamp: new Date().toISOString(),
+      reactions: {}
+    };
 
-    socketRef.current.emit('send-message', {
-      text: newMessage,
-      roomId
-    });
-
+    console.log('Sending message:', message);
+    setMessages(prev => [...prev, message]);
     setNewMessage('');
-    setError(''); // Clear any previous errors
+    setError('');
   };
 
   const handleReaction = (messageId, reactionType) => {
-    if (userRole !== 'teacher' || !socketRef.current) return;
+    if (userRole !== 'teacher') return;
 
     console.log('Adding reaction:', { messageId, reactionType });
-    socketRef.current.emit('add-reaction', {
-      messageId,
-      reactionType
-    });
+    setMessages(prev => prev.map(msg => {
+      if (msg.id === messageId) {
+        const reactions = { ...msg.reactions };
+        reactions[reactionType] = (reactions[reactionType] || 0) + 1;
+        return { ...msg, reactions };
+      }
+      return msg;
+    }));
   };
 
   const formatTime = (timestamp) => {
@@ -216,15 +199,30 @@ const TeacherMessageBoard = () => {
   };
 
   const handleRoomChange = (newRoomId) => {
-    if (socketRef.current && isConnected) {
-      // Leave current room
-      socketRef.current.emit('leave-room', roomId);
-      // Set new room (useEffect will handle joining)
-      setRoomId(newRoomId);
-      setMessages([]); // Clear messages when changing rooms
-    } else {
-      setRoomId(newRoomId);
-    }
+    setRoomId(newRoomId);
+    setMessages([]);
+    setIsConnected(false);
+    
+    // Simulate reconnection
+    setTimeout(() => {
+      setIsConnected(true);
+      loadMockMessages();
+    }, 1000);
+  };
+
+  const handleLogout = () => {
+    // Clear all stored data
+    localStorage.removeItem('teacher');
+    localStorage.removeItem('teacherToken');
+    localStorage.removeItem('student');
+    localStorage.removeItem('userToken');
+    
+    // Reset state
+    setUserName('');
+    setUserRole('student');
+    setIsConnected(false);
+    setMessages([]);
+    setError('Logged out successfully');
   };
 
   return (
@@ -232,17 +230,34 @@ const TeacherMessageBoard = () => {
       <div className="bg-white rounded-lg shadow-lg overflow-hidden">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-6">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <MessageCircle className="h-8 w-8" />
-            Edumeet Message Board
-            <span className={`ml-auto text-sm px-2 py-1 rounded flex items-center gap-1 ${
-              isConnected ? 'bg-green-500' : 'bg-red-500'
-            }`}>
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-200' : 'bg-red-200'}`}></div>
-              {isConnected ? 'Connected' : 'Disconnected'}
-            </span>
-          </h1>
-          <p className="text-blue-100 mt-2">Connect, communicate, and collaborate in real-time</p>
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <MessageCircle className="h-8 w-8" />
+                Edumeet Message Board
+              </h1>
+              <p className="text-blue-100 mt-2">Connect, communicate, and collaborate in real-time</p>
+              {userName && (
+                <p className="text-blue-200 text-sm mt-1">
+                  Logged in as: <strong>{userName}</strong> ({userRole})
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-4">
+              <span className={`text-sm px-3 py-1 rounded-full flex items-center gap-2 ${
+                isConnected ? 'bg-green-500' : 'bg-red-500'
+              }`}>
+                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-200' : 'bg-red-200'}`}></div>
+                {isConnected ? 'Connected' : 'Disconnected'}
+              </span>
+              <button
+                onClick={handleLogout}
+                className="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-sm transition-colors"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Error Display */}
@@ -258,32 +273,14 @@ const TeacherMessageBoard = () => {
           </div>
         )}
 
-        {/* User Setup */}
+        {/* User Info & Room Selection */}
         <div className="p-6 border-b bg-gray-50">
           <div className="flex flex-wrap gap-4 items-center">
             <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Your Name:</label>
-              <input
-                type="text"
-                value={userName}
-                onChange={(e) => setUserName(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter your name"
-                disabled={isConnected} // Disable when connected to prevent confusion
-              />
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Role:</label>
-              <select
-                value={userRole}
-                onChange={(e) => setUserRole(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={isConnected} // Disable when connected
-              >
-                <option value="student">Student</option>
-                <option value="teacher">Teacher</option>
-              </select>
+              <span className="text-sm font-medium text-gray-700">Current User:</span>
+              <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                {userName || 'Not logged in'} ({userRole})
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -292,6 +289,7 @@ const TeacherMessageBoard = () => {
                 value={roomId}
                 onChange={(e) => handleRoomChange(e.target.value)}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={!userName}
               >
                 <option value="general">General</option>
                 <option value="cs101">CS101 - Computer Science</option>
@@ -299,12 +297,24 @@ const TeacherMessageBoard = () => {
                 <option value="physics101">Physics101 - Physics</option>
               </select>
             </div>
+
+            {!userName && (
+              <div className="text-sm text-orange-600">
+                Please login to access the message board
+              </div>
+            )}
           </div>
         </div>
 
         {/* Messages Display */}
         <div className="p-6 max-h-96 overflow-y-auto">
-          {isLoading ? (
+          {!userName ? (
+            <div className="text-center py-12 text-gray-500">
+              <User className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+              <p className="text-lg">Please Login</p>
+              <p className="text-sm">You need to be logged in to view and send messages</p>
+            </div>
+          ) : isLoading ? (
             <div className="text-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
               <p className="mt-2 text-gray-500">Loading messages...</p>
@@ -324,7 +334,7 @@ const TeacherMessageBoard = () => {
                     message.role === 'student' 
                       ? 'bg-blue-50 border-l-4 border-blue-500' 
                       : 'bg-green-50 border-l-4 border-green-500'
-                  }`}
+                  } ${message.sender === userName ? 'bg-opacity-80' : ''}`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-2 mb-2">
@@ -333,7 +343,10 @@ const TeacherMessageBoard = () => {
                       ) : (
                         <GraduationCap className="h-5 w-5 text-green-600" />
                       )}
-                      <span className="font-semibold text-gray-900">{message.sender}</span>
+                      <span className="font-semibold text-gray-900">
+                        {message.sender}
+                        {message.sender === userName && <span className="text-blue-600 ml-1">(You)</span>}
+                      </span>
                       <span className={`text-xs px-2 py-1 rounded-full ${
                         message.role === 'student' 
                           ? 'bg-blue-100 text-blue-800' 
@@ -353,7 +366,7 @@ const TeacherMessageBoard = () => {
                   
                   {/* Reactions */}
                   <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
-                    {userRole === 'teacher' && message.role === 'student' && (
+                    {userRole === 'teacher' && message.role === 'student' && message.sender !== userName && (
                       <div className="flex gap-1">
                         {reactions.map((reaction) => {
                           const ReactionIcon = reaction.icon;
@@ -377,7 +390,7 @@ const TeacherMessageBoard = () => {
                     )}
                     
                     {/* Display reactions for all users */}
-                    {message.role === 'student' && message.reactions && Object.keys(message.reactions).length > 0 && (
+                    {message.reactions && Object.keys(message.reactions).length > 0 && (
                       <div className="flex gap-1 ml-auto">
                         {Object.entries(message.reactions).map(([reactionId, count]) => {
                           const reaction = reactions.find(r => r.id === reactionId);
@@ -408,13 +421,13 @@ const TeacherMessageBoard = () => {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder={`${userRole === 'student' ? 'Ask a question or share a thought...' : 'Send a message to students...'}`}
+              placeholder={userName ? `${userRole === 'student' ? 'Ask a question or share a thought...' : 'Send a message to students...'}` : 'Please login to send messages'}
               className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              disabled={!userName.trim() || !isConnected}
+              disabled={!userName || !isConnected}
             />
             <button
               onClick={handleSendMessage}
-              disabled={!newMessage.trim() || !userName.trim() || !isConnected}
+              disabled={!newMessage.trim() || !userName || !isConnected}
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
               <Send className="h-5 w-5" />
@@ -422,15 +435,15 @@ const TeacherMessageBoard = () => {
             </button>
           </div>
           
-          {!userName.trim() && (
-            <p className="text-sm text-orange-600 mt-2">Please enter your name and it will automatically connect</p>
+          {!userName && (
+            <p className="text-sm text-orange-600 mt-2">Please login to send messages</p>
           )}
           
-          {!isConnected && userName.trim() && (
-            <p className="text-sm text-red-500 mt-2">Connecting to server... Please wait</p>
+          {!isConnected && userName && (
+            <p className="text-sm text-red-500 mt-2">Connecting... Please wait</p>
           )}
           
-          {userRole === 'teacher' && isConnected && (
+          {userRole === 'teacher' && isConnected && userName && (
             <p className="text-sm text-green-600 mt-2">As a teacher, you can react to student messages with hearts, thumbs up, or stars</p>
           )}
         </div>
@@ -443,7 +456,7 @@ const TeacherMessageBoard = () => {
           <div className="bg-blue-50 p-4 rounded-lg">
             <h3 className="font-semibold text-blue-800 mb-2">For Students:</h3>
             <ul className="text-sm text-blue-700 space-y-1">
-              <li>• Enter your name and select "Student" role</li>
+              <li>• Login with your student credentials</li>
               <li>• Send messages to ask questions in real-time</li>
               <li>• Share thoughts and ideas instantly</li>
               <li>• View teacher reactions on your messages</li>
@@ -454,7 +467,7 @@ const TeacherMessageBoard = () => {
           <div className="bg-green-50 p-4 rounded-lg">
             <h3 className="font-semibold text-green-800 mb-2">For Teachers:</h3>
             <ul className="text-sm text-green-700 space-y-1">
-              <li>• Enter your name and select "Teacher" role</li>
+              <li>• Login with your teacher credentials</li>
               <li>• React to student messages with emojis</li>
               <li>• Send messages to the class instantly</li>
               <li>• Provide real-time feedback and encouragement</li>

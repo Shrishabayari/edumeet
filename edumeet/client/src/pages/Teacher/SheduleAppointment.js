@@ -480,7 +480,7 @@ const TeacherSchedule = () => {
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                 <Calendar className="w-6 h-6 relative z-10" />
                 <span className="relative z-10">My Schedule</span>
-                <span className="bg-white/20 text-white px-2 py-1 rounded-full text-sm font-bold relative z-10">
+                <span className="bg-white/20 text-black px-2 py-1 rounded-full text-sm font-bold relative z-10">
                   {safeAppointments.length}
                 </span>
                 {activeTab === 'appointments' && (

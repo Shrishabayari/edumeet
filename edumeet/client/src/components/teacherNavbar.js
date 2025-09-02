@@ -32,7 +32,8 @@ const TeacherNavbar = () => {
           <Link to="/teacher/dashboard" className="hover:underline">Dashboard</Link>
           <Link to="/teacher/shedule-appointment" className="hover:underline">Shedule Appointment</Link>
           <Link to="/teacher/approve-appointment" className="hover:underline">Slot Approval</Link>
-          <Link to="/teacher/Appointment-list" className="hover:underline">All Appointments</Link>
+          <Link to="/teacher/appointment-list" className="hover:underline">All Appointments</Link>
+          <Link to="/teacher/message" className="hover:underline">Message</Link>
           <button onClick={handleLogout} className="hover:underline text-red-100">Logout</button>
         </div>
       </div>
@@ -44,6 +45,7 @@ const TeacherNavbar = () => {
           <Link to="/teacher/shedule-appointment" onClick={toggleMenu} className="block hover:underline">Shedule Appointment</Link>
           <Link to="/teacher/approve-appointment" onClick={toggleMenu} className="block hover:underline">Slot Approval</Link>
           <Link to="/teacher/Appointment-list" onClick={toggleMenu} className="block hover:underline">All Appointments</Link>
+          <Link to="/teacher/message" className="hover:underline">Message</Link>
           <button onClick={() => { toggleMenu(); handleLogout(); }} className=" text-left hover:underline text-red-100">Logout</button>
         </div>
       )}
