@@ -24,60 +24,73 @@ const MessageBoard = () => {
     { id: 'star', icon: Star, label: 'Star', color: 'text-yellow-500' },
   ];
 
-  // Determine user role and info from localStorage
+  // FIXED: Better token and user detection
   useEffect(() => {
-    const teacherToken = localStorage.getItem('teacherToken');
-    const userToken = localStorage.getItem('userToken') || localStorage.getItem('studentToken');
-    const teacherData = localStorage.getItem('teacher');
-    const userData = localStorage.getItem('user') || localStorage.getItem('student');
+    const detectUserType = () => {
+      // Check for teacher authentication first
+      const teacherToken = localStorage.getItem('teacherToken') || sessionStorage.getItem('teacherToken');
+      const teacherData = localStorage.getItem('teacher') || sessionStorage.getItem('teacher');
+      
+      // Check for student/user authentication
+      const userToken = localStorage.getItem('userToken') || localStorage.getItem('studentToken') || 
+                       sessionStorage.getItem('userToken') || sessionStorage.getItem('studentToken');
+      const userData = localStorage.getItem('user') || localStorage.getItem('student') ||
+                      sessionStorage.getItem('user') || sessionStorage.getItem('student');
 
-    let detectedRole = '';
-    let detectedName = '';
-    let detectedToken = '';
+      let detectedRole = '';
+      let detectedName = '';
+      let detectedToken = '';
 
-    if (teacherToken && teacherData) {
-      // User is a teacher
-      try {
-        const teacher = JSON.parse(teacherData);
+      if (teacherToken) {
+        // User is a teacher
         detectedRole = 'teacher';
-        detectedName = teacher.name || teacher.fullName || teacher.email || 'Teacher';
         detectedToken = teacherToken;
-      } catch (e) {
-        console.error('Error parsing teacher data:', e);
-      }
-    } else if (userToken && userData) {
-      // User is a student
-      try {
-        const user = JSON.parse(userData);
+        
+        if (teacherData) {
+          try {
+            const teacher = JSON.parse(teacherData);
+            detectedName = teacher.name || teacher.fullName || teacher.email || 'Teacher';
+          } catch (e) {
+            console.error('Error parsing teacher data:', e);
+            detectedName = 'Teacher';
+          }
+        } else {
+          detectedName = 'Teacher';
+        }
+      } else if (userToken) {
+        // User is a student
         detectedRole = 'student';
-        detectedName = user.name || user.fullName || user.email || 'Student';
         detectedToken = userToken;
-      } catch (e) {
-        console.error('Error parsing user data:', e);
+        
+        if (userData) {
+          try {
+            const user = JSON.parse(userData);
+            detectedName = user.name || user.fullName || user.email || 'Student';
+          } catch (e) {
+            console.error('Error parsing user data:', e);
+            detectedName = 'Student';
+          }
+        } else {
+          detectedName = 'Student';
+        }
       }
-    } else if (teacherToken) {
-      // Fallback: teacher token exists but no data
-      detectedRole = 'teacher';
-      detectedName = 'Teacher';
-      detectedToken = teacherToken;
-    } else if (userToken) {
-      // Fallback: user token exists but no data
-      detectedRole = 'student';
-      detectedName = 'Student';
-      detectedToken = userToken;
-    }
 
-    if (detectedRole && detectedToken) {
-      setUserRole(detectedRole);
-      setUserName(detectedName);
-      setAuthToken(detectedToken);
-      setError('');
-      console.log('Detected user:', { role: detectedRole, name: detectedName, hasToken: !!detectedToken });
-    } else {
-      setError('Please login to use the message board');
-      console.log('No valid authentication found');
-    }
-  }, []); // Run once on mount
+      if (detectedRole && detectedToken) {
+        setUserRole(detectedRole);
+        setUserName(detectedName);
+        setAuthToken(detectedToken);
+        setError('');
+        console.log('Detected user:', { role: detectedRole, name: detectedName, hasToken: !!detectedToken });
+        return true;
+      } else {
+        setError('Please login to use the message board');
+        console.log('No valid authentication found');
+        return false;
+      }
+    };
+
+    detectUserType();
+  }, []);
 
   // Initialize socket connection
   useEffect(() => {
@@ -101,7 +114,7 @@ const MessageBoard = () => {
     socketRef.current = io('http://localhost:5000', {
       auth: { 
         token: authToken,
-        role: userRole, // Send role to server for verification
+        role: userRole,
         name: userName
       },
       transports: ['websocket', 'polling'],
@@ -141,6 +154,9 @@ const MessageBoard = () => {
         localStorage.removeItem('teacherToken');
         localStorage.removeItem('userToken');
         localStorage.removeItem('studentToken');
+        sessionStorage.removeItem('teacherToken');
+        sessionStorage.removeItem('userToken');
+        sessionStorage.removeItem('studentToken');
       } else if (err.message.includes('No token provided')) {
         setError('No authentication token found. Please login.');
       }
@@ -180,7 +196,7 @@ const MessageBoard = () => {
         socketRef.current.disconnect();
       }
     };
-  }, [roomId, authToken, userRole, userName]); // Re-run when these change
+  }, [roomId, authToken, userRole, userName]);
 
   // Auto-scroll to bottom
   const scrollToBottom = () => {
@@ -191,7 +207,7 @@ const MessageBoard = () => {
     scrollToBottom();
   }, [messages]);
 
-  // Load initial messages
+  // FIXED: Load initial messages with proper authentication headers
   useEffect(() => {
     if (authToken && userRole) {
       loadMessages();
@@ -203,19 +219,30 @@ const MessageBoard = () => {
     
     setIsLoading(true);
     try {
+      // FIXED: Use the correct endpoint structure and headers
       const response = await fetch(`http://localhost:5000/api/messages/room/${roomId}`, {
+        method: 'GET',
         headers: {
-          'Authorization': `Bearer ${authToken}`
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
         }
       });
       
       if (response.ok) {
         const data = await response.json();
-        console.log('Loaded messages:', data.data);
-        setMessages(data.data.messages || []);
+        console.log('Loaded messages:', data);
+        // FIXED: Handle different possible response structures
+        const messagesArray = data.data?.messages || data.messages || data.data || [];
+        setMessages(messagesArray);
+      } else if (response.status === 401) {
+        setError('Authentication failed. Please login again.');
+        // Clear tokens and redirect
+        localStorage.clear();
+        sessionStorage.clear();
       } else {
-        console.error('Failed to load messages:', response.status);
-        setError('Failed to load previous messages');
+        console.error('Failed to load messages:', response.status, response.statusText);
+        const errorData = await response.json().catch(() => ({}));
+        setError(errorData.message || 'Failed to load previous messages');
       }
     } catch (error) {
       console.error('Error loading messages:', error);
@@ -282,13 +309,19 @@ const MessageBoard = () => {
       socketRef.current.disconnect();
     }
     
-    // Clear all auth data
+    // Clear all auth data from both storage types
     localStorage.removeItem('teacherToken');
     localStorage.removeItem('teacher');
     localStorage.removeItem('userToken');
     localStorage.removeItem('studentToken');
     localStorage.removeItem('user');
     localStorage.removeItem('student');
+    sessionStorage.removeItem('teacherToken');
+    sessionStorage.removeItem('teacher');
+    sessionStorage.removeItem('userToken');
+    sessionStorage.removeItem('studentToken');
+    sessionStorage.removeItem('user');
+    sessionStorage.removeItem('student');
     
     // Reset state
     setUserRole('');
