@@ -83,6 +83,15 @@ const teacherSchema = new mongoose.Schema({
     type: String,
     select: false // Don't include password in queries by default
   },
+  role: {
+    type: String,
+    enum: {
+      values: ['student', 'teacher', 'admin'],
+      message: 'Role must be student, teacher, or admin'
+    },
+    default: 'teacher',
+    index: true
+  },
   hasAccount: {
     type: Boolean,
     default: false

@@ -5,14 +5,14 @@ import io from 'socket.io-client';
 const MessageBoard = () => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
-  const [userRole, setUserRole] = useState('');
+  const [userRole, setUserRole] = useState(''); // Will be determined from auth
   const [userName, setUserName] = useState('');
   const [roomId, setRoomId] = useState('general');
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [connectionAttempts, setConnectionAttempts] = useState(0);
-  const [isRoleDetected, setIsRoleDetected] = useState(false);
+  const [authToken, setAuthToken] = useState('');
   
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -24,92 +24,65 @@ const MessageBoard = () => {
     { id: 'star', icon: Star, label: 'Star', color: 'text-yellow-500' },
   ];
 
-  // Detect user role and info from localStorage on component mount
+  // Determine user role and info from localStorage
   useEffect(() => {
-    const detectUserRole = () => {
-      const teacherToken = localStorage.getItem('teacherToken');
-      const userToken = localStorage.getItem('userToken');
-      const teacherData = localStorage.getItem('teacher');
-      const userData = localStorage.getItem('user');
+    const teacherToken = localStorage.getItem('teacherToken');
+    const userToken = localStorage.getItem('userToken') || localStorage.getItem('studentToken');
+    const teacherData = localStorage.getItem('teacher');
+    const userData = localStorage.getItem('user') || localStorage.getItem('student');
 
-      console.log('Detecting user role...', { 
-        hasTeacherToken: !!teacherToken, 
-        hasUserToken: !!userToken,
-        hasTeacherData: !!teacherData,
-        hasUserData: !!userData
-      });
+    let detectedRole = '';
+    let detectedName = '';
+    let detectedToken = '';
 
-      if (teacherToken) {
-        // User is a teacher
-        setUserRole('teacher');
-        if (teacherData) {
-          try {
-            const teacher = JSON.parse(teacherData);
-            setUserName(teacher.name || teacher.fullName || teacher.email || 'Teacher');
-          } catch (e) {
-            console.error('Error parsing teacher data:', e);
-            setUserName('Teacher');
-          }
-        } else {
-          setUserName('Teacher');
-        }
-        setIsRoleDetected(true);
-        console.log('Detected as teacher');
-      } else if (userToken) {
-        // User is a student
-        setUserRole('student');
-        if (userData) {
-          try {
-            const user = JSON.parse(userData);
-            setUserName(user.name || user.fullName || user.email || 'Student');
-          } catch (e) {
-            console.error('Error parsing user data:', e);
-            setUserName('Student');
-          }
-        } else {
-          setUserName('Student');
-        }
-        setIsRoleDetected(true);
-        console.log('Detected as student');
-      } else {
-        // No authentication found
-        setUserRole('student'); // Default fallback
-        setUserName('');
-        setIsRoleDetected(false);
-        setError('Please enter your name to connect');
-        console.log('No authentication found, using manual input');
+    if (teacherToken && teacherData) {
+      // User is a teacher
+      try {
+        const teacher = JSON.parse(teacherData);
+        detectedRole = 'teacher';
+        detectedName = teacher.name || teacher.fullName || teacher.email || 'Teacher';
+        detectedToken = teacherToken;
+      } catch (e) {
+        console.error('Error parsing teacher data:', e);
       }
-    };
+    } else if (userToken && userData) {
+      // User is a student
+      try {
+        const user = JSON.parse(userData);
+        detectedRole = 'student';
+        detectedName = user.name || user.fullName || user.email || 'Student';
+        detectedToken = userToken;
+      } catch (e) {
+        console.error('Error parsing user data:', e);
+      }
+    } else if (teacherToken) {
+      // Fallback: teacher token exists but no data
+      detectedRole = 'teacher';
+      detectedName = 'Teacher';
+      detectedToken = teacherToken;
+    } else if (userToken) {
+      // Fallback: user token exists but no data
+      detectedRole = 'student';
+      detectedName = 'Student';
+      detectedToken = userToken;
+    }
 
-    detectUserRole();
-
-    // Listen for localStorage changes (when user logs in/out in another tab)
-    const handleStorageChange = () => {
-      detectUserRole();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+    if (detectedRole && detectedToken) {
+      setUserRole(detectedRole);
+      setUserName(detectedName);
+      setAuthToken(detectedToken);
+      setError('');
+      console.log('Detected user:', { role: detectedRole, name: detectedName, hasToken: !!detectedToken });
+    } else {
+      setError('Please login to use the message board');
+      console.log('No valid authentication found');
+    }
+  }, []); // Run once on mount
 
   // Initialize socket connection
   useEffect(() => {
-    if (!userName.trim()) {
-      if (isRoleDetected) {
-        setError('User name not found. Please refresh and try again.');
-      } else {
-        setError('Please enter your name to connect');
-      }
-      return;
-    }
-
-    // Get token from localStorage based on role
-    const token = userRole === 'teacher' 
-      ? localStorage.getItem('teacherToken')
-      : localStorage.getItem('userToken');
-    
-    if (!token && isRoleDetected) {
-      setError('Please login to use the message board');
+    if (!authToken || !userRole || !userName) {
+      console.log('Missing auth requirements:', { authToken: !!authToken, userRole, userName });
       return;
     }
 
@@ -121,14 +94,17 @@ const MessageBoard = () => {
     console.log('Attempting to connect with:', { 
       role: userRole, 
       name: userName, 
-      hasToken: !!token,
-      isRoleDetected 
+      token: authToken.substring(0, 20) + '...' 
     });
 
     // Connect to socket with better error handling
     socketRef.current = io('http://localhost:5000', {
-      auth: { token },
-      transports: ['websocket', 'polling'], // Fallback to polling if websocket fails
+      auth: { 
+        token: authToken,
+        role: userRole, // Send role to server for verification
+        name: userName
+      },
+      transports: ['websocket', 'polling'],
       timeout: 10000,
       forceNew: true
     });
@@ -149,7 +125,6 @@ const MessageBoard = () => {
       console.log('Socket disconnected:', reason);
       setIsConnected(false);
       if (reason === 'io server disconnect') {
-        // Server disconnected, try to reconnect
         setError('Server disconnected. Attempting to reconnect...');
       }
     });
@@ -160,9 +135,12 @@ const MessageBoard = () => {
       setIsConnected(false);
       setConnectionAttempts(prev => prev + 1);
       
-      // Show specific error messages based on the error
       if (err.message.includes('Authentication error')) {
         setError('Authentication failed. Please login again.');
+        // Clear invalid tokens
+        localStorage.removeItem('teacherToken');
+        localStorage.removeItem('userToken');
+        localStorage.removeItem('studentToken');
       } else if (err.message.includes('No token provided')) {
         setError('No authentication token found. Please login.');
       }
@@ -202,7 +180,7 @@ const MessageBoard = () => {
         socketRef.current.disconnect();
       }
     };
-  }, [roomId, userName, userRole, isRoleDetected]); // Re-run when these change
+  }, [roomId, authToken, userRole, userName]); // Re-run when these change
 
   // Auto-scroll to bottom
   const scrollToBottom = () => {
@@ -215,23 +193,19 @@ const MessageBoard = () => {
 
   // Load initial messages
   useEffect(() => {
-    if (userName.trim()) {
+    if (authToken && userRole) {
       loadMessages();
     }
-  }, [roomId, userName]);
+  }, [roomId, authToken, userRole]);
 
   const loadMessages = async () => {
-    if (!userName.trim()) return;
+    if (!authToken) return;
     
     setIsLoading(true);
     try {
-      const token = userRole === 'teacher' 
-        ? localStorage.getItem('teacherToken')
-        : localStorage.getItem('userToken');
-        
       const response = await fetch(`http://localhost:5000/api/messages/room/${roomId}`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${authToken}`
         }
       });
       
@@ -257,8 +231,8 @@ const MessageBoard = () => {
       return;
     }
 
-    if (!userName.trim()) {
-      setError('Please enter your name');
+    if (!authToken || !userRole) {
+      setError('Please login to send messages');
       return;
     }
 
@@ -267,12 +241,7 @@ const MessageBoard = () => {
       return;
     }
 
-    console.log('Sending message:', {
-      text: newMessage,
-      roomId,
-      sender: userName,
-      role: userRole
-    });
+    console.log('Sending message as:', { role: userRole, name: userName });
 
     socketRef.current.emit('send-message', {
       text: newMessage,
@@ -280,7 +249,7 @@ const MessageBoard = () => {
     });
 
     setNewMessage('');
-    setError(''); // Clear any previous errors
+    setError('');
   };
 
   const handleReaction = (messageId, reactionType) => {
@@ -299,37 +268,103 @@ const MessageBoard = () => {
 
   const handleRoomChange = (newRoomId) => {
     if (socketRef.current && isConnected) {
-      // Leave current room
       socketRef.current.emit('leave-room', roomId);
-      // Set new room (useEffect will handle joining)
       setRoomId(newRoomId);
-      setMessages([]); // Clear messages when changing rooms
+      setMessages([]);
     } else {
       setRoomId(newRoomId);
     }
   };
+
+  const handleLogout = () => {
+    // Disconnect socket
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+    }
+    
+    // Clear all auth data
+    localStorage.removeItem('teacherToken');
+    localStorage.removeItem('teacher');
+    localStorage.removeItem('userToken');
+    localStorage.removeItem('studentToken');
+    localStorage.removeItem('user');
+    localStorage.removeItem('student');
+    
+    // Reset state
+    setUserRole('');
+    setUserName('');
+    setAuthToken('');
+    setIsConnected(false);
+    setMessages([]);
+    setError('Logged out. Please login again.');
+    
+    // Redirect to home or login page
+    window.location.href = '/';
+  };
+
+  // Show login message if not authenticated
+  if (!authToken || !userRole) {
+    return (
+      <div className="max-w-4xl mx-auto p-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+        <div className="bg-white rounded-lg shadow-lg p-8 text-center">
+          <MessageCircle className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Message Board</h2>
+          <p className="text-gray-600 mb-6">Please login as a teacher or student to access the message board.</p>
+          <div className="flex gap-4 justify-center">
+            <a 
+              href="/teacher/login" 
+              className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              Teacher Login
+            </a>
+            <a 
+              href="/login" 
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Student Login
+            </a>
+          </div>
+          {error && (
+            <div className="mt-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+              {error}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto p-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
       <div className="bg-white rounded-lg shadow-lg overflow-hidden">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-6">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <MessageCircle className="h-8 w-8" />
-            Edumeet Message Board
-            <span className={`ml-auto text-sm px-2 py-1 rounded flex items-center gap-1 ${
-              isConnected ? 'bg-green-500' : 'bg-red-500'
-            }`}>
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-200' : 'bg-red-200'}`}></div>
-              {isConnected ? 'Connected' : 'Disconnected'}
-            </span>
-          </h1>
-          <p className="text-blue-100 mt-2">
-            {isRoleDetected 
-              ? `Connected as: ${userName} (${userRole === 'teacher' ? 'Teacher' : 'Student'})`
-              : 'Connect, communicate, and collaborate in real-time'
-            }
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <MessageCircle className="h-8 w-8" />
+                Edumeet Message Board
+              </h1>
+              <p className="text-blue-100 mt-1">
+                Connected as: <span className="font-semibold">{userName}</span> 
+                ({userRole === 'teacher' ? 'Teacher' : 'Student'})
+              </p>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className={`text-sm px-3 py-1 rounded-full flex items-center gap-2 ${
+                isConnected ? 'bg-green-500' : 'bg-red-500'
+              }`}>
+                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-200' : 'bg-red-200'}`}></div>
+                {isConnected ? 'Connected' : 'Disconnected'}
+              </span>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded transition-colors"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Error Display */}
@@ -345,50 +380,23 @@ const MessageBoard = () => {
           </div>
         )}
 
-        {/* User Setup - Only show if role not auto-detected */}
-        {!isRoleDetected && (
-          <div className="p-6 border-b bg-gray-50">
-            <div className="flex flex-wrap gap-4 items-center">
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700">Your Name:</label>
-                <input
-                  type="text"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter your name"
-                />
-              </div>
-              
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700">Role:</label>
-                <select
-                  value={userRole}
-                  onChange={(e) => setUserRole(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="student">Student</option>
-                  <option value="teacher">Teacher</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Room Selection */}
         <div className="p-6 border-b bg-gray-50">
           <div className="flex items-center gap-4">
-            <label className="text-sm font-medium text-gray-700">Room:</label>
+            <label className="text-sm font-medium text-gray-700">Current Room:</label>
             <select
               value={roomId}
               onChange={(e) => handleRoomChange(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="general">General</option>
+              <option value="general">General Discussion</option>
               <option value="cs101">CS101 - Computer Science</option>
               <option value="math101">Math101 - Mathematics</option>
               <option value="physics101">Physics101 - Physics</option>
             </select>
+            <span className="text-sm text-gray-600 ml-auto">
+              {messages.length} message{messages.length !== 1 ? 's' : ''} in this room
+            </span>
           </div>
         </div>
 
@@ -402,7 +410,7 @@ const MessageBoard = () => {
           ) : messages.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <MessageCircle className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-              <p className="text-lg">No messages yet</p>
+              <p className="text-lg">No messages yet in {roomId}</p>
               <p className="text-sm">Start a conversation!</p>
             </div>
           ) : (
@@ -429,7 +437,7 @@ const MessageBoard = () => {
                           ? 'bg-blue-100 text-blue-800' 
                           : 'bg-green-100 text-green-800'
                       }`}>
-                        {message.role}
+                        {message.role === 'student' ? 'Student' : 'Teacher'}
                       </span>
                     </div>
                     
@@ -500,11 +508,11 @@ const MessageBoard = () => {
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
               placeholder={`${userRole === 'student' ? 'Ask a question or share a thought...' : 'Send a message to students...'}`}
               className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              disabled={!userName.trim() || !isConnected}
+              disabled={!isConnected}
             />
             <button
               onClick={handleSendMessage}
-              disabled={!newMessage.trim() || !userName.trim() || !isConnected}
+              disabled={!newMessage.trim() || !isConnected}
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
               <Send className="h-5 w-5" />
@@ -512,11 +520,7 @@ const MessageBoard = () => {
             </button>
           </div>
           
-          {!userName.trim() && !isRoleDetected && (
-            <p className="text-sm text-orange-600 mt-2">Please enter your name and it will automatically connect</p>
-          )}
-          
-          {!isConnected && userName.trim() && (
+          {!isConnected && (
             <p className="text-sm text-red-500 mt-2">Connecting to server... Please wait</p>
           )}
           
@@ -533,7 +537,7 @@ const MessageBoard = () => {
           <div className="bg-blue-50 p-4 rounded-lg">
             <h3 className="font-semibold text-blue-800 mb-2">For Students:</h3>
             <ul className="text-sm text-blue-700 space-y-1">
-              <li>• {isRoleDetected ? 'Automatically identified when logged in' : 'Enter your name and select "Student" role'}</li>
+              <li>• Automatically identified when you login as a student</li>
               <li>• Send messages to ask questions in real-time</li>
               <li>• Share thoughts and ideas instantly</li>
               <li>• View teacher reactions on your messages</li>
@@ -544,7 +548,7 @@ const MessageBoard = () => {
           <div className="bg-green-50 p-4 rounded-lg">
             <h3 className="font-semibold text-green-800 mb-2">For Teachers:</h3>
             <ul className="text-sm text-green-700 space-y-1">
-              <li>• {isRoleDetected ? 'Automatically identified when logged in' : 'Enter your name and select "Teacher" role'}</li>
+              <li>• Automatically identified when you login as a teacher</li>
               <li>• React to student messages with emojis</li>
               <li>• Send messages to the class instantly</li>
               <li>• Provide real-time feedback and encouragement</li>
