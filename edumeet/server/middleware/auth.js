@@ -1,6 +1,7 @@
 // middleware/auth.js - FIXED version to match frontend token structure
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Teacher =require('../models/Teacher');
 const Admin = require('../models/Admin');
 
 // General protect middleware for regular users (students, teachers)
