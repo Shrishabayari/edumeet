@@ -1,10 +1,10 @@
-// middleware/auth.js - FIXED version to match frontend token structure
+// middleware/auth.js - CORRECTED VERSION for messaging system
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const Teacher =require('../models/Teacher');
+const Teacher = require('../models/Teacher');
 const Admin = require('../models/Admin');
 
-// General protect middleware for regular users (students, teachers)
+// Enhanced protect middleware for all users (students, teachers, admins)
 exports.protect = async (req, res, next) => {
   try {
     let token;
@@ -29,35 +29,73 @@ exports.protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('🔍 Decoded token payload (protect):', decoded);
 
-    // Find user by ID (use 'id' field from token)
-    const user = await User.findById(decoded.id);
-    
-    if (!user) {
-      return res.status(401).json({
+    let user = null;
+    let userRole = decoded.role || 'student';
+
+    // Find user based on role in token
+    try {
+      if (userRole === 'teacher') {
+        user = await Teacher.findById(decoded.id);
+        
+        // For teachers, check if they have an active account
+        if (user && (!user.hasAccount || !user.isActive)) {
+          return res.status(401).json({
+            success: false,
+            message: 'Teacher account is not properly set up or is inactive.'
+          });
+        }
+      } else if (userRole === 'admin') {
+        user = await Admin.findById(decoded.id);
+        
+        if (user && !user.isActive) {
+          return res.status(401).json({
+            success: false,
+            message: 'Admin account is deactivated.'
+          });
+        }
+      } else {
+        // Default to student/user
+        user = await User.findById(decoded.id);
+        
+        if (user) {
+          // Check if user is active
+          if (!user.isActive) {
+            return res.status(401).json({
+              success: false,
+              message: 'Account is deactivated. Please contact support.'
+            });
+          }
+          
+          // Check if user is approved (students need approval)
+          if (user.approvalStatus !== 'approved') {
+            return res.status(401).json({
+              success: false,
+              message: 'User account is not approved or is pending approval.'
+            });
+          }
+        }
+      }
+      
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'User not found. Token invalid or user does not exist.'
+        });
+      }
+      
+      // Attach user to request with proper role information
+      req.user = user;
+      req.user.role = userRole; // Ensure role is set correctly
+      
+      next();
+      
+    } catch (dbError) {
+      console.error('Database error during authentication:', dbError);
+      return res.status(500).json({
         success: false,
-        message: 'User not found. Token invalid or user does not exist.'
+        message: 'Database error during authentication'
       });
     }
-
-    // Check if user is active
-    if (!user.isActive) {
-      return res.status(401).json({
-        success: false,
-        message: 'Account is deactivated. Please contact support.'
-      });
-    }
-
-    // Check if user is approved (except for admin)
-    if (user.role !== 'admin' && user.approvalStatus !== 'approved') {
-      return res.status(401).json({
-        success: false,
-        message: 'User account is not approved or is pending approval.'
-      });
-    }
-
-    // Attach user to request
-    req.user = user;
-    next();
 
   } catch (error) {
     console.error('Authentication error (protect middleware):', error);
@@ -83,7 +121,7 @@ exports.protect = async (req, res, next) => {
   }
 };
 
-// FIXED Admin-specific authentication middleware
+// Admin-specific authentication middleware
 exports.authenticateAdmin = async (req, res, next) => {
   try {
     let token;
@@ -109,7 +147,7 @@ exports.authenticateAdmin = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('🔍 Decoded admin token payload:', decoded);
     
-    // FIXED: Try multiple possible ID fields in the token
+    // Try multiple possible ID fields in the token
     let adminId = decoded.adminId || decoded.id || decoded._id;
     
     if (!adminId) {
@@ -143,8 +181,8 @@ exports.authenticateAdmin = async (req, res, next) => {
 
     // Attach admin to request object
     req.admin = admin;
-    // For consistency with 'protect' middleware, also set req.user
     req.user = admin;
+    req.user.role = 'admin'; // Ensure role is set
     
     next();
     
@@ -165,7 +203,7 @@ exports.authenticateAdmin = async (req, res, next) => {
   }
 };
 
-// ADDED: Teacher-specific authentication middleware
+// Teacher-specific authentication middleware
 exports.authenticateTeacher = async (req, res, next) => {
   try {
     let token;
@@ -200,27 +238,28 @@ exports.authenticateTeacher = async (req, res, next) => {
       });
     }
     
-    // Find teacher - assuming you have a Teacher model or teachers are stored in User model
-    const teacher = await User.findById(teacherId);
+    // Find teacher in Teacher model (not User model)
+    const teacher = await Teacher.findById(teacherId);
     
-    if (!teacher || teacher.role !== 'teacher') {
+    if (!teacher) {
       return res.status(401).json({
         success: false,
         message: 'Teacher not found or token invalid.'
       });
     }
 
-    // Check if teacher is active
-    if (!teacher.isActive) {
+    // Check if teacher has an active account
+    if (!teacher.isActive || !teacher.hasAccount) {
       return res.status(401).json({
         success: false,
-        message: 'Teacher account is deactivated.'
+        message: 'Teacher account is not properly set up or is inactive.'
       });
     }
 
     // Attach teacher to request object
     req.teacher = teacher;
     req.user = teacher;
+    req.user.role = 'teacher'; // Ensure role is set
     
     next();
     
@@ -283,6 +322,87 @@ exports.restrictTo = (...roles) => {
   };
 };
 
+// Middleware specifically for messaging routes that require either student or teacher
+exports.protectMessaging = async (req, res, next) => {
+  try {
+    let token;
+    
+    // Check for token in header
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+    // Check for token in cookies
+    else if (req.cookies && req.cookies.jwt) {
+      token = req.cookies.jwt;
+    }
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access denied. No token provided.'
+      });
+    }
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('🔍 Messaging auth - Decoded token:', { id: decoded.id, role: decoded.role });
+
+    let user = null;
+    const userRole = decoded.role || 'student';
+
+    // Find user based on role
+    if (userRole === 'teacher') {
+      user = await Teacher.findById(decoded.id);
+      
+      if (!user || !user.isActive || !user.hasAccount) {
+        return res.status(401).json({
+          success: false,
+          message: 'Teacher account not found or not properly set up.'
+        });
+      }
+    } else {
+      // Student or other user
+      user = await User.findById(decoded.id);
+      
+      if (!user || !user.isActive || user.approvalStatus !== 'approved') {
+        return res.status(401).json({
+          success: false,
+          message: 'User account not found, inactive, or not approved.'
+        });
+      }
+    }
+
+    // Attach user to request
+    req.user = user;
+    req.user.role = userRole;
+    
+    console.log(`✅ Messaging auth success: ${user.name} (${userRole})`);
+    next();
+
+  } catch (error) {
+    console.error('Messaging authentication error:', error);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token'
+      });
+    }
+    
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Token expired'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Server error during authentication'
+    });
+  }
+};
+
 // Optional authentication middleware (doesn't fail if no token)
 exports.optionalAuth = async (req, res, next) => {
   try {
@@ -300,13 +420,28 @@ exports.optionalAuth = async (req, res, next) => {
     if (token) {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const userRole = decoded.role || 'student';
       
-      // Find user by ID
-      const user = await User.findById(decoded.id);
+      let user = null;
       
-      // Only attach user if found, active, and approved (or admin)
-      if (user && user.isActive && (user.role === 'admin' || user.approvalStatus === 'approved')) {
-        req.user = user;
+      if (userRole === 'teacher') {
+        user = await Teacher.findById(decoded.id);
+        if (user && user.isActive && user.hasAccount) {
+          req.user = user;
+          req.user.role = 'teacher';
+        }
+      } else if (userRole === 'admin') {
+        user = await Admin.findById(decoded.id);
+        if (user && user.isActive) {
+          req.user = user;
+          req.user.role = 'admin';
+        }
+      } else {
+        user = await User.findById(decoded.id);
+        if (user && user.isActive && user.approvalStatus === 'approved') {
+          req.user = user;
+          req.user.role = userRole;
+        }
       }
     }
 

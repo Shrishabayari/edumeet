@@ -120,7 +120,7 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Enhanced Socket.io middleware for authentication
+// CORRECTED Socket.io middleware for authentication
 io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth.token;
@@ -141,26 +141,28 @@ io.use(async (socket, next) => {
     // Fetch user details from database based on role
     let user;
     try {
-      if (decoded.role === 'teacher') {
-        user = await Teacher.findById(decoded.id).select('name email isActive');
+      if (socket.userRole === 'teacher') {
+        user = await Teacher.findById(decoded.id).select('name email isActive hasAccount');
+        
+        // Additional check for teacher account status
+        if (user && (!user.hasAccount || !user.isActive)) {
+          console.log('❌ Socket connection rejected: Teacher account not properly set up');
+          return next(new Error('Teacher account not properly set up'));
+        }
       } else {
+        // For students and other users
         user = await User.findById(decoded.id).select('name email isActive approvalStatus');
+        
+        // Check user status
+        if (user && (!user.isActive || user.approvalStatus !== 'approved')) {
+          console.log('❌ Socket connection rejected: User not active or approved');
+          return next(new Error('User account is not active or approved'));
+        }
       }
       
       if (!user) {
         console.log('❌ Socket connection rejected: User not found in database');
         return next(new Error('User not found'));
-      }
-      
-      if (!user.isActive) {
-        console.log('❌ Socket connection rejected: User account is not active');
-        return next(new Error('User account is not active'));
-      }
-      
-      // For students, check approval status
-      if (decoded.role !== 'teacher' && user.approvalStatus !== 'approved') {
-        console.log('❌ Socket connection rejected: User not approved');
-        return next(new Error('User account is not approved'));
       }
       
       // Attach user details to socket
@@ -188,31 +190,34 @@ io.use(async (socket, next) => {
   }
 });
 
-// Enhanced Socket.io connection handling
+// CORRECTED Socket.io connection handling
 io.on('connection', (socket) => {
   console.log(`👤 User connected: ${socket.userName} (${socket.userRole}) - Socket ID: ${socket.id}`);
   
   // Join a room
   socket.on('join-room', (roomId) => {
     try {
-      if (!roomId || typeof roomId !== 'string') {
+      if (!roomId || typeof roomId !== 'string' || roomId.trim() === '') {
         socket.emit('error', { message: 'Invalid room ID' });
         return;
       }
       
-      socket.join(roomId);
-      socket.currentRoom = roomId;
-      console.log(`🏠 ${socket.userName} joined room: ${roomId}`);
+      // Clean the roomId
+      const cleanRoomId = roomId.trim();
+      
+      socket.join(cleanRoomId);
+      socket.currentRoom = cleanRoomId;
+      console.log(`🏠 ${socket.userName} (${socket.userRole}) joined room: ${cleanRoomId}`);
       
       // Notify others in the room
-      socket.to(roomId).emit('user-joined', {
+      socket.to(cleanRoomId).emit('user-joined', {
         userName: socket.userName,
         userRole: socket.userRole,
         userId: socket.userId
       });
       
       // Confirm room join to the user
-      socket.emit('room-joined', { roomId });
+      socket.emit('room-joined', { roomId: cleanRoomId });
       
     } catch (error) {
       console.error('❌ Error joining room:', error);
@@ -224,15 +229,16 @@ io.on('connection', (socket) => {
   socket.on('leave-room', (roomId) => {
     try {
       if (roomId && typeof roomId === 'string') {
-        socket.leave(roomId);
-        socket.to(roomId).emit('user-left', {
+        const cleanRoomId = roomId.trim();
+        socket.leave(cleanRoomId);
+        socket.to(cleanRoomId).emit('user-left', {
           userName: socket.userName,
           userRole: socket.userRole,
           userId: socket.userId
         });
-        console.log(`🚪 ${socket.userName} left room: ${roomId}`);
+        console.log(`🚪 ${socket.userName} left room: ${cleanRoomId}`);
         
-        if (socket.currentRoom === roomId) {
+        if (socket.currentRoom === cleanRoomId) {
           socket.currentRoom = null;
         }
       }
@@ -241,16 +247,21 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Handle sending messages
+  // Handle sending messages - CORRECTED
   socket.on('send-message', async (data) => {
     try {
       // Validate input data
+      if (!data || typeof data !== 'object') {
+        socket.emit('error', { message: 'Invalid message data' });
+        return;
+      }
+      
       if (!data.text || typeof data.text !== 'string' || data.text.trim().length === 0) {
         socket.emit('error', { message: 'Message text is required' });
         return;
       }
       
-      if (!data.roomId || typeof data.roomId !== 'string') {
+      if (!data.roomId || typeof data.roomId !== 'string' || data.roomId.trim() === '') {
         socket.emit('error', { message: 'Room ID is required' });
         return;
       }
@@ -266,15 +277,18 @@ io.on('connection', (socket) => {
         return;
       }
       
-      console.log(`💬 Processing message from: ${socket.userName} (${socket.userRole}) in room: ${data.roomId}`);
+      const cleanRoomId = data.roomId.trim();
+      const cleanText = data.text.trim();
+      
+      console.log(`💬 Processing message from: ${socket.userName} (${socket.userRole}) in room: ${cleanRoomId}`);
       
       // Create message using the Message model's static method
       const messageData = {
-        text: data.text.trim(),
+        text: cleanText,
         sender: socket.userName,
         senderId: socket.userId,
-        role: socket.userRole,
-        roomId: data.roomId
+        role: socket.userRole === 'teacher' ? 'teacher' : 'student',
+        roomId: cleanRoomId
       };
       
       const savedMessage = await Message.createMessage(messageData);
@@ -290,12 +304,14 @@ io.on('connection', (socket) => {
         roomId: savedMessage.roomId,
         reactions: savedMessage.reactions,
         timestamp: savedMessage.createdAt,
-        createdAt: savedMessage.createdAt
+        createdAt: savedMessage.createdAt,
+        formattedTime: savedMessage.formattedTime,
+        formattedDate: savedMessage.formattedDate
       };
       
       // Broadcast to all users in the room
-      io.to(data.roomId).emit('new-message', messageForClient);
-      console.log(`📢 Message broadcasted to room: ${data.roomId}`);
+      io.to(cleanRoomId).emit('new-message', messageForClient);
+      console.log(`📢 Message broadcasted to room: ${cleanRoomId}`);
       
     } catch (error) {
       console.error('❌ Error sending message:', error);
@@ -306,16 +322,33 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Handle reactions (only teachers can react)
+  // Handle reactions (only teachers can react) - CORRECTED
   socket.on('add-reaction', async (data) => {
     try {
+      // Only teachers can add reactions
       if (socket.userRole !== 'teacher') {
         socket.emit('error', { message: 'Only teachers can add reactions' });
         return;
       }
       
-      if (!data.messageId || !data.reactionType) {
-        socket.emit('error', { message: 'Message ID and reaction type are required' });
+      if (!data || typeof data !== 'object') {
+        socket.emit('error', { message: 'Invalid reaction data' });
+        return;
+      }
+      
+      if (!data.messageId || typeof data.messageId !== 'string') {
+        socket.emit('error', { message: 'Message ID is required' });
+        return;
+      }
+      
+      if (!data.reactionType || typeof data.reactionType !== 'string') {
+        socket.emit('error', { message: 'Reaction type is required' });
+        return;
+      }
+      
+      const validReactions = ['heart', 'thumbs', 'star'];
+      if (!validReactions.includes(data.reactionType)) {
+        socket.emit('error', { message: 'Invalid reaction type. Must be: heart, thumbs, or star' });
         return;
       }
       
@@ -338,7 +371,9 @@ io.on('connection', (socket) => {
         roomId: updatedMessage.roomId,
         reactions: updatedMessage.reactions,
         timestamp: updatedMessage.createdAt,
-        createdAt: updatedMessage.createdAt
+        createdAt: updatedMessage.createdAt,
+        formattedTime: updatedMessage.formattedTime,
+        formattedDate: updatedMessage.formattedDate
       };
       
       // Broadcast updated message to all users in the room
@@ -357,11 +392,15 @@ io.on('connection', (socket) => {
   // Handle typing indicators
   socket.on('typing-start', (data) => {
     try {
-      if (data.roomId && socket.currentRoom === data.roomId) {
-        socket.to(data.roomId).emit('user-typing', {
-          userName: socket.userName,
-          userId: socket.userId
-        });
+      if (data && data.roomId && typeof data.roomId === 'string') {
+        const cleanRoomId = data.roomId.trim();
+        if (socket.currentRoom === cleanRoomId) {
+          socket.to(cleanRoomId).emit('user-typing', {
+            userName: socket.userName,
+            userId: socket.userId,
+            userRole: socket.userRole
+          });
+        }
       }
     } catch (error) {
       console.error('❌ Error handling typing start:', error);
@@ -370,62 +409,77 @@ io.on('connection', (socket) => {
   
   socket.on('typing-stop', (data) => {
     try {
-      if (data.roomId && socket.currentRoom === data.roomId) {
-        socket.to(data.roomId).emit('user-stop-typing', {
-          userName: socket.userName,
-          userId: socket.userId
-        });
+      if (data && data.roomId && typeof data.roomId === 'string') {
+        const cleanRoomId = data.roomId.trim();
+        if (socket.currentRoom === cleanRoomId) {
+          socket.to(cleanRoomId).emit('user-stop-typing', {
+            userName: socket.userName,
+            userId: socket.userId,
+            userRole: socket.userRole
+          });
+        }
       }
     } catch (error) {
       console.error('❌ Error handling typing stop:', error);
     }
   });
   
-  // Handle message deletion
+  // Handle message deletion - CORRECTED
   socket.on('delete-message', async (data) => {
     try {
-      const { messageId } = data;
-      
-      if (!messageId) {
+      if (!data || !data.messageId) {
         socket.emit('error', { message: 'Message ID is required' });
         return;
       }
       
-      const message = await Message.findById(messageId);
+      const { messageId } = data;
       
-      if (!message) {
-        socket.emit('error', { message: 'Message not found' });
-        return;
-      }
+      console.log(`🗑️ Attempting to delete message ${messageId} by ${socket.userName} (${socket.userRole})`);
       
-      if (message.isDeleted) {
-        socket.emit('error', { message: 'Message is already deleted' });
-        return;
-      }
-      
-      // Check if user can delete (sender or teacher)
-      if (message.senderId.toString() !== socket.userId && socket.userRole !== 'teacher') {
-        socket.emit('error', { message: 'Not authorized to delete this message' });
-        return;
-      }
-      
-      // Soft delete
-      message.isDeleted = true;
-      await message.save();
+      // Use the static method from Message model
+      const deletedMessage = await Message.deleteMessage(messageId, socket.userId, socket.userRole);
       
       // Notify all users in the room
-      io.to(message.roomId).emit('message-deleted', {
-        messageId: message._id,
-        roomId: message.roomId
+      io.to(deletedMessage.roomId).emit('message-deleted', {
+        messageId: deletedMessage._id,
+        roomId: deletedMessage.roomId,
+        deletedBy: socket.userName
       });
       
-      console.log(`🗑️ Message ${messageId} deleted by ${socket.userName}`);
+      console.log(`✅ Message ${messageId} deleted by ${socket.userName}`);
       
     } catch (error) {
       console.error('❌ Error deleting message:', error);
       socket.emit('error', { 
-        message: error.message || 'Failed to delete message'
+        message: error.message || 'Failed to delete message',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
+    }
+  });
+  
+  // Handle getting room info
+  socket.on('get-room-info', async (data) => {
+    try {
+      if (!data || !data.roomId) {
+        socket.emit('error', { message: 'Room ID is required' });
+        return;
+      }
+      
+      const cleanRoomId = data.roomId.trim();
+      
+      // Get basic room information
+      const roomStats = await Message.getRoomStats(cleanRoomId);
+      const totalMessages = await Message.countDocuments({ roomId: cleanRoomId, isDeleted: false });
+      
+      socket.emit('room-info', {
+        roomId: cleanRoomId,
+        totalMessages,
+        stats: roomStats
+      });
+      
+    } catch (error) {
+      console.error('❌ Error getting room info:', error);
+      socket.emit('error', { message: 'Failed to get room information' });
     }
   });
   
@@ -533,10 +587,13 @@ app.all('*', (req, res) => {
       ],
       messages: [
         'GET /api/messages/room/:roomId',
+        'POST /api/messages/room/:roomId',
+        'POST /api/messages/:messageId/reaction',
         'DELETE /api/messages/:messageId',
         'GET /api/messages/room/:roomId/stats',
         'GET /api/messages/rooms',
-        'GET /api/messages/room/:roomId/search'
+        'GET /api/messages/room/:roomId/search',
+        'GET /api/messages/my-rooms'
       ],
       admin: [
         'POST /api/admin/register',
