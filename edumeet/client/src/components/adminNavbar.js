@@ -29,9 +29,10 @@ const AdminNavbar = () => {
         </div>
 
         <div className="hidden md:flex space-x-6">
+          <Link to="/admin/dashboard" className="hover:underline">Dashboard</Link>
           <Link to="/admin/teacher-register" className="hover:underline">Add Teacher</Link>
           <Link to="/admin/view-teachers" className="hover:underline">Manage Teacher</Link>
-          <Link to="/admin/approval" className="hover:underline">Approve Student</Link>
+          <Link to="/admin/approval" className="hover:underline">Student Approval</Link>
           <button onClick={handleLogout} className="hover:underline text-red-100">Logout</button>
         </div>
       </div>
@@ -39,9 +40,10 @@ const AdminNavbar = () => {
       {/* Mobile Menu */}
       {isOpen && (
         <div className="md:hidden px-4 pb-4 space-y-2 bg-blue-600 text-white flex flex-col">
+          <Link to="/admin/dashboard" onClick={toggleMenu} className="hover:underline">Dashboard</Link>
           <Link to="/admin/teacher-register" onClick={toggleMenu} className="block hover:underline">Add Teacher</Link>
           <Link to="/admin/view-teachers" onClick={toggleMenu} className="block hover:underline">Manage Teacher</Link>
-          <Link to="/admin/approval" onClick={toggleMenu} className="block hover:underline">Approve Student</Link>
+          <Link to="/admin/approval" onClick={toggleMenu} className="block hover:underline">Student Approval</Link>
           <button onClick={() => { toggleMenu(); handleLogout(); }} className=" text-left hover:underline text-red-100">Logout</button>
         </div>
       )}

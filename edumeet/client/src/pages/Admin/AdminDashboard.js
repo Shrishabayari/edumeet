@@ -120,33 +120,9 @@ const adminAPI = {
   }
 };
 
-// Helper function to format stat values for display
-const formatStatValue = (value) => {
-  if (value === null || value === undefined) {
-    return '0';
-  }
-  if (typeof value === 'object') {
-    if (Array.isArray(value)) {
-      return value.length.toString();
-    }
-    // If it's an object, try to get a meaningful count
-    return Object.keys(value).length.toString();
-  }
-  return value.toString();
-};
-
-// Helper function to format stat keys for display
-const formatStatKey = (key) => {
-  return key
-    .replace(/([A-Z])/g, ' $1')
-    .trim()
-    .replace(/^./, (str) => str.toUpperCase());
-};
-
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const [adminData, setAdminData] = useState(null);
-  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -218,26 +194,6 @@ const AdminDashboard = () => {
           
           // Set a user-friendly error message
           setError('Failed to load profile. Please try refreshing the page.');
-        }
-
-        // Load dashboard stats
-        try {
-          const dashboardStats = await adminAPI.getDashboardStats();
-          console.log('Dashboard stats received:', dashboardStats);
-          setStats(dashboardStats);
-        } catch (statsError) {
-          console.log('Stats loading failed:', statsError);
-          
-          // If it's an authentication error, redirect to login
-          if (statsError.message.includes('Unauthorized') || 
-              statsError.message.includes('401') || 
-              statsError.message.includes('403')) {
-            apiHelpers.logout();
-            navigate('/admin/login');
-            return;
-          }
-          
-          // Continue without stats - not critical for basic functionality
         }
 
       } catch (error) {
@@ -340,22 +296,6 @@ const AdminDashboard = () => {
                 </div>
               </div>
             )}
-
-            {/* Stats Section - Fixed */}
-            {stats && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                {Object.entries(stats).map(([key, value]) => (
-                  <div key={key} className="bg-gradient-to-r from-red-50 to-pink-50 rounded-lg p-4 border border-red-100">
-                    <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">
-                      {formatStatKey(key)}
-                    </h3>
-                    <p className="text-2xl font-bold text-gray-900 mt-2">
-                      {formatStatValue(value)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* Grid of Dashboard Cards */}
@@ -381,34 +321,6 @@ const AdminDashboard = () => {
               </button>
             ))}
           </div>
-
-          {/* Debug Info - Remove in production */}
-          {process.env.NODE_ENV === 'development' && (
-            <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600">
-                <strong>Debug Info:</strong>
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Token Status: 
-                <span className={`ml-2 px-2 py-1 rounded text-xs ${
-                  apiHelpers.getToken() ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                }`}>
-                  {apiHelpers.getToken() ? 'Valid' : 'Invalid'}
-                </span>
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                API URL: {API_BASE_URL}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Token: {apiHelpers.getToken() ? `${apiHelpers.getToken().substring(0, 20)}...` : 'None'}
-              </p>
-              {stats && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Stats: {JSON.stringify(stats)}
-                </p>
-              )}
-            </div>
-          )}
         </div>
       </div>
     </div>

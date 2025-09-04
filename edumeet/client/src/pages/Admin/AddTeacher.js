@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Eye, EyeOff, AlertCircle, Users } from 'lucide-react';
+import { Save, Eye, EyeOff, AlertCircle, Users, User, Mail, Phone, GraduationCap, Clock, Building2, BookOpen, Award, FileText, CheckCircle2 } from 'lucide-react';
 import api from '../../services/api';
 import AdminNavbar from '../../components/adminNavbar';
-const AddTeacher = ({onTeacherAdded }) => {
+
+const AddTeacher = ({ onTeacherAdded }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -60,7 +61,6 @@ const AddTeacher = ({onTeacherAdded }) => {
     '5:00 PM - 6:00 PM'
   ];
 
-  // Clear messages after 5 seconds
   useEffect(() => {
     if (error || success) {
       const timer = setTimeout(() => {
@@ -106,7 +106,6 @@ const AddTeacher = ({onTeacherAdded }) => {
     setShowPassword(false);
   };
 
-  // Validate form data before submission
   const validateFormData = (data) => {
     const errors = [];
     
@@ -138,7 +137,6 @@ const AddTeacher = ({onTeacherAdded }) => {
       errors.push('Qualification is required');
     }
 
-    // Password validation
     if (data.password && data.password.length < 6) {
       errors.push('Password must be at least 6 characters long');
     }
@@ -156,7 +154,6 @@ const AddTeacher = ({onTeacherAdded }) => {
     setError('');
     setSuccess('');
 
-    // Validate form data
     const validationErrors = validateFormData(formData);
     if (validationErrors.length > 0) {
       setError(`Validation errors: ${validationErrors.join(', ')}`);
@@ -164,7 +161,6 @@ const AddTeacher = ({onTeacherAdded }) => {
       return;
     }
 
-    // Clean form data - remove empty strings and trim whitespace
     const cleanFormData = {
       name: formData.name.trim(),
       email: formData.email.trim().toLowerCase(),
@@ -174,15 +170,13 @@ const AddTeacher = ({onTeacherAdded }) => {
       experience: formData.experience.trim(),
       qualification: formData.qualification.trim(),
       bio: formData.bio.trim(),
-      availability: formData.availability.filter(slot => slot) // Remove empty slots
+      availability: formData.availability.filter(slot => slot)
     };
 
-    // Add password if provided
     if (formData.password) {
       cleanFormData.password = formData.password;
     }
 
-    // Add account setup email flag
     if (formData.sendSetupEmail) {
       cleanFormData.sendSetupEmail = true;
     }
@@ -197,12 +191,10 @@ const AddTeacher = ({onTeacherAdded }) => {
       
       setSuccess('Teacher added successfully!');
       
-      // Call the callback to notify parent component
       if (onTeacherAdded) {
         onTeacherAdded(response.data.data || response.data);
       }
       
-      // Reset form after successful submission
       setTimeout(() => {
         resetForm();
         setSuccess('');
@@ -224,7 +216,6 @@ const AddTeacher = ({onTeacherAdded }) => {
         } else if (error.response.data.error) {
           errorMessage = error.response.data.error;
         } else if (error.response.data.errors) {
-          // Handle validation errors array
           const validationErrors = Object.values(error.response.data.errors).join(', ');
           errorMessage = `Validation errors: ${validationErrors}`;
         }
@@ -236,209 +227,253 @@ const AddTeacher = ({onTeacherAdded }) => {
     }
   };
 
+  const InputField = ({ label, name, type = "text", icon: Icon, required = false, placeholder, ...props }) => (
+    <div className="group">
+      <label className="block text-sm font-semibold text-gray-800 mb-3 items-center gap-2">
+        <Icon className="h-4 w-4 text-indigo-600" />
+        {label} {required && <span className="text-red-500 ml-1">*</span>}
+      </label>
+      <input
+        type={type}
+        name={name}
+        value={formData[name]}
+        onChange={handleInputChange}
+        required={required}
+        placeholder={placeholder}
+        className="w-full px-4 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:bg-white transition-all duration-300 text-gray-800 placeholder-gray-500 hover:border-gray-300"
+        {...props}
+      />
+    </div>
+  );
+
+  const SelectField = ({ label, name, options, icon: Icon, required = false, placeholder = "Select an option", disabled = false }) => (
+    <div className="group">
+      <label className="block text-sm font-semibold text-gray-800 mb-3 items-center gap-2">
+        <Icon className="h-4 w-4 text-indigo-600" />
+        {label} {required && <span className="text-red-500 ml-1">*</span>}
+      </label>
+      <select
+        name={name}
+        value={formData[name]}
+        onChange={handleInputChange}
+        required={required}
+        disabled={disabled}
+        className="w-full px-4 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:bg-white transition-all duration-300 text-gray-800 hover:border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <option value="">{placeholder}</option>
+        {options.map(option => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </select>
+    </div>
+  );
+
   return (
     <>
-    <AdminNavbar/>
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-        <div className="max-w-4xl mx-auto">
-          {/* Header */}
-          <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+      <AdminNavbar />
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
+        <div className="max-w-5xl mx-auto">
+          
+          {/* Modern Header */}
+          <div className="bg-white rounded-3xl shadow-2xl shadow-indigo-500/10 p-8 mb-8 border border-gray-100">
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="bg-blue-500 p-2 rounded-lg">
-                  <Users className="h-6 w-6 text-white" />
+              <div className="flex items-center space-x-4">
+                <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-4 rounded-2xl shadow-lg">
+                  <Users className="h-8 w-8 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Add New Teacher</h1>
-                  <p className="text-gray-600">Create a new teacher profile</p>
+                  <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                    Add New Teacher
+                  </h1>
+                  <p className="text-gray-600 text-lg mt-1">Create a comprehensive teacher profile</p>
                 </div>
+              </div>
+              <div className="hidden md:flex bg-gradient-to-r from-indigo-50 to-purple-50 p-4 rounded-2xl">
+                <GraduationCap className="h-12 w-12 text-indigo-500" />
               </div>
             </div>
           </div>
 
           {/* Alert Messages */}
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-center space-x-2">
-              <AlertCircle className="h-5 w-5 text-red-500" />
-              <span className="text-red-700">{error}</span>
+            <div className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-2xl p-6 mb-8 flex items-center space-x-3 shadow-lg">
+              <div className="bg-red-100 p-2 rounded-full">
+                <AlertCircle className="h-5 w-5 text-red-600" />
+              </div>
+              <span className="text-red-800 font-medium">{error}</span>
             </div>
           )}
           
           {success && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6 flex items-center space-x-2">
-              <AlertCircle className="h-5 w-5 text-green-500" />
-              <span className="text-green-700">{success}</span>
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-6 mb-8 flex items-center space-x-3 shadow-lg">
+              <div className="bg-green-100 p-2 rounded-full">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              </div>
+              <span className="text-green-800 font-medium">{success}</span>
             </div>
           )}
 
-          {/* Form */}
-          <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
-            <form onSubmit={handleSubmit} className="p-6 space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Name */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Full Name *
-                  </label>
-                  <input
-                    type="text"
+          {/* Main Form */}
+          <div className="bg-white rounded-3xl shadow-2xl shadow-indigo-500/10 overflow-hidden border border-gray-100">
+            <div className="p-8">
+              
+              {/* Personal Information Section */}
+              <div className="mb-10">
+                <div className="flex items-center gap-3 mb-8">
+                  <div className="bg-gradient-to-r from-indigo-100 to-purple-100 p-3 rounded-xl">
+                    <User className="h-6 w-6 text-indigo-600" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900">Personal Information</h2>
+                </div>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <InputField
+                    label="Full Name"
                     name="name"
-                    value={formData.name}
-                    onChange={handleInputChange}
+                    icon={User}
                     required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="Enter teacher's full name"
                   />
-                </div>
-
-                {/* Email */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Email Address *
-                  </label>
-                  <input
-                    type="email"
+                  <InputField
+                    label="Email Address"
                     name="email"
-                    value={formData.email}
-                    onChange={handleInputChange}
+                    type="email"
+                    icon={Mail}
                     required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Enter email address"
+                    placeholder="teacher@school.edu"
                   />
-                </div>
-
-                {/* Phone */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Phone Number *
-                  </label>
-                  <input
-                    type="tel"
+                  <InputField
+                    label="Phone Number"
                     name="phone"
-                    value={formData.phone}
-                    onChange={handleInputChange}
+                    type="tel"
+                    icon={Phone}
                     required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Enter phone number"
+                    placeholder="+1 (555) 123-4567"
                   />
-                </div>
-
-                {/* Department */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Department *
-                  </label>
-                  <select
-                    name="department"
-                    value={formData.department}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">Select Department</option>
-                    {departments.map(dept => (
-                      <option key={dept} value={dept}>{dept}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Subject */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Subject *
-                  </label>
-                  <select
-                    name="subject"
-                    value={formData.subject}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    disabled={!formData.department}
-                  >
-                    <option value="">Select Subject</option>
-                    {formData.department && subjects[formData.department]?.map(subject => (
-                      <option key={subject} value={subject}>{subject}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Experience */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Years of Experience *
-                  </label>
-                  <input
-                    type="number"
+                  <InputField
+                    label="Years of Experience"
                     name="experience"
-                    value={formData.experience}
-                    onChange={handleInputChange}
+                    type="number"
+                    icon={Award}
                     required
+                    placeholder="5"
                     min="0"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Enter years of experience"
                   />
                 </div>
+              </div>
 
-                {/* Qualification */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Qualification *
-                  </label>
-                  <input
-                    type="text"
-                    name="qualification"
-                    value={formData.qualification}
-                    onChange={handleInputChange}
+              {/* Professional Information Section */}
+              <div className="mb-10">
+                <div className="flex items-center gap-3 mb-8">
+                  <div className="bg-gradient-to-r from-blue-100 to-cyan-100 p-3 rounded-xl">
+                    <GraduationCap className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900">Professional Information</h2>
+                </div>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <SelectField
+                    label="Department"
+                    name="department"
+                    options={departments}
+                    icon={Building2}
                     required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Enter highest qualification"
+                    placeholder="Select Department"
+                  />
+                  <SelectField
+                    label="Subject"
+                    name="subject"
+                    options={formData.department ? subjects[formData.department] || [] : []}
+                    icon={BookOpen}
+                    required
+                    placeholder={!formData.department ? "Select Department First" : "Select Subject"}
+                    disabled={!formData.department}
+                  />
+                  <div className="lg:col-span-2">
+                    <InputField
+                      label="Qualification"
+                      name="qualification"
+                      icon={Award}
+                      required
+                      placeholder="e.g., Ph.D. in Computer Science, M.Sc. Mathematics"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Bio Section */}
+              <div className="mb-10">
+                <div className="flex items-center gap-3 mb-8">
+                  <div className="bg-gradient-to-r from-green-100 to-teal-100 p-3 rounded-xl">
+                    <FileText className="h-6 w-6 text-green-600" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900">Biography</h2>
+                </div>
+                
+                <div className="group">
+                  <label className="block text-sm font-semibold text-gray-800 mb-3">
+                    Professional Bio
+                  </label>
+                  <textarea
+                    name="bio"
+                    value={formData.bio}
+                    onChange={handleInputChange}
+                    rows={4}
+                    className="w-full px-4 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:bg-white transition-all duration-300 text-gray-800 placeholder-gray-500 hover:border-gray-300 resize-none"
+                    placeholder="Brief professional background and teaching philosophy..."
                   />
                 </div>
               </div>
 
-              {/* Bio */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Bio
-                </label>
-                <textarea
-                  name="bio"
-                  value={formData.bio}
-                  onChange={handleInputChange}
-                  rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter teacher's bio (optional)"
-                />
-              </div>
-
-              {/* Availability */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Availability
-                </label>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* Availability Section */}
+              <div className="mb-10">
+                <div className="flex items-center gap-3 mb-8">
+                  <div className="bg-gradient-to-r from-orange-100 to-amber-100 p-3 rounded-xl">
+                    <Clock className="h-6 w-6 text-orange-600" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900">Availability Schedule</h2>
+                </div>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {availabilitySlots.map(slot => (
-                    <label key={slot} className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        checked={formData.availability.includes(slot)}
-                        onChange={() => handleAvailabilityChange(slot)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="text-sm text-gray-700">{slot}</span>
+                    <label key={slot} className="group cursor-pointer">
+                      <div className={`p-4 rounded-xl border-2 transition-all duration-300 ${
+                        formData.availability.includes(slot)
+                          ? 'border-indigo-500 bg-gradient-to-r from-indigo-50 to-purple-50 shadow-md'
+                          : 'border-gray-200 bg-gray-50 hover:border-gray-300 hover:bg-white'
+                      }`}>
+                        <div className="flex items-center space-x-3">
+                          <input
+                            type="checkbox"
+                            checked={formData.availability.includes(slot)}
+                            onChange={() => handleAvailabilityChange(slot)}
+                            className="w-5 h-5 text-indigo-600 border-2 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2"
+                          />
+                          <span className={`text-sm font-medium ${
+                            formData.availability.includes(slot) ? 'text-indigo-700' : 'text-gray-700'
+                          }`}>
+                            {slot}
+                          </span>
+                        </div>
+                      </div>
                     </label>
                   ))}
                 </div>
               </div>
 
               {/* Account Setup Section */}
-              <div className="border-t pt-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Setup</h3>
+              <div className="mb-10">
+                <div className="flex items-center gap-3 mb-8">
+                  <div className="bg-gradient-to-r from-purple-100 to-pink-100 p-3 rounded-xl">
+                    <User className="h-6 w-6 text-purple-600" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900">Account Setup</h2>
+                </div>
                 
-                {/* Password */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-6">
+                  <div className="group">
+                    <label className="block text-sm font-semibold text-gray-800 mb-3 items-center gap-2">
+                      <Eye className="h-4 w-4 text-indigo-600" />
                       Password (Optional)
                     </label>
                     <div className="relative">
@@ -447,21 +482,22 @@ const AddTeacher = ({onTeacherAdded }) => {
                         name="password"
                         value={formData.password}
                         onChange={handleInputChange}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10"
-                        placeholder="Enter password"
+                        className="w-full px-4 py-3.5 pr-12 bg-gray-50 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:bg-white transition-all duration-300 text-gray-800 placeholder-gray-500 hover:border-gray-300"
+                        placeholder="Enter secure password"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors duration-200"
                       >
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                       </button>
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="group">
+                    <label className="block text-sm font-semibold text-gray-800 mb-3 items-center gap-2">
+                      <Eye className="h-4 w-4 text-indigo-600" />
                       Confirm Password
                     </label>
                     <input
@@ -469,53 +505,42 @@ const AddTeacher = ({onTeacherAdded }) => {
                       name="confirmPassword"
                       value={formData.confirmPassword}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-4 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:bg-white transition-all duration-300 text-gray-800 placeholder-gray-500 hover:border-gray-300"
                       placeholder="Confirm password"
                     />
                   </div>
                 </div>
-
-                <div className="mt-4">
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      name="sendSetupEmail"
-                      checked={formData.sendSetupEmail}
-                      onChange={handleInputChange}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                  </label>
-                </div>
               </div>
 
               {/* Form Actions */}
-              <div className="flex items-center justify-end space-x-4 pt-6 border-t">
+              <div className="flex flex-col sm:flex-row items-center justify-end space-y-4 sm:space-y-0 sm:space-x-6 pt-8 border-t-2 border-gray-100">
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors duration-200"
+                  className="w-full sm:w-auto px-8 py-4 border-2 border-gray-300 rounded-xl text-gray-700 font-semibold hover:bg-gray-50 hover:border-gray-400 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-gray-200"
                 >
                   Reset Form
                 </button>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={handleSubmit}
                   disabled={loading}
-                  className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors duration-200 flex items-center space-x-2 disabled:opacity-50"
+                  className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center space-x-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-indigo-200 transform hover:scale-105"
                 >
                   {loading ? (
                     <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
                       <span>Adding Teacher...</span>
                     </>
                   ) : (
                     <>
-                      <Save className="h-4 w-4" />
+                      <Save className="h-5 w-5" />
                       <span>Add Teacher</span>
                     </>
                   )}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       </div>
