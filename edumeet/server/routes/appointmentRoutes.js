@@ -200,16 +200,9 @@ const cancellationValidation = [
     .withMessage('Cancellation reason cannot exceed 500 characters')
 ];
 
-// ROUTES ORDER - Specific routes MUST come before parameterized routes
-// ===================================================================
-
-// 1. Statistics route (no parameters)
 router.get('/stats', getAppointmentStats);
 
-// 2. NEW USER-SPECIFIC ROUTES (MUST BE PROTECTED)
-// These routes get appointments for the currently logged-in user
 router.get('/my-appointments', protect, getCurrentUserAppointments);
-router.get('/my-appointments/upcoming', protect, getCurrentUserUpcomingAppointments);
 router.get('/my-appointments/history', protect, getCurrentUserAppointmentHistory);
 
 // 3. Teacher-specific routes (specific paths)

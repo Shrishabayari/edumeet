@@ -47,9 +47,9 @@ api.interceptors.request.use(
     if (process.env.NODE_ENV === 'development') {
       console.log(`🔄 API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
       if (token) {
-        console.log(`   Token Used: ${token.substring(0, 20)}...`);
+        console.log(`  Token Used: ${token.substring(0, 20)}...`);
       } else {
-        console.log('   No token sent for this request.');
+        console.log('  No token sent for this request.');
       }
     }
     return config;
@@ -116,7 +116,6 @@ api.interceptors.response.use(
   }
 );
 
-// API endpoints object (unchanged)
 export const endpoints = {
   // Auth endpoints (for regular users)
   auth: {
@@ -153,6 +152,10 @@ export const endpoints = {
     getById: (id) => `/appointments/${id}`,
     getStats: '/appointments/stats',
     
+    // User-specific routes
+    getCurrentUser: '/appointments/my-appointments',
+    getCurrentUserHistory: '/appointments/my-appointments/history',
+
     // Student workflow - request appointment (needs teacher approval)
     request: '/appointments/request',
     
@@ -190,13 +193,13 @@ export const endpoints = {
     rejectUser: (id) => `/auth/admin/reject/${id}`,
   },
   messages: {
-  getByRoom: (roomId) => `/messages/room/${roomId}`,
-  delete: (id) => `/messages/${id}`,
-  getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
-}
+    getByRoom: (roomId) => `/messages/room/${roomId}`,
+    delete: (id) => `/messages/${id}`,
+    getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
+  }
 };
 
-// API methods (unchanged - they'll now use the fixed token retrieval)
+// API methods
 export const apiMethods = {
   // Auth Operations
   register: (userData) => api.post(endpoints.auth.register, userData),
@@ -235,51 +238,51 @@ export const apiMethods = {
   },
 
   // Improved acceptAppointmentRequest API method
-acceptAppointmentRequest: async (id, responseMessage = '') => {
-  try {
-    console.log('🔄 Accepting appointment request:', id);
-    console.log('Response message:', responseMessage);
-    
-    // Validate ID format on frontend too
-    if (!id || id.length !== 24) {
-      throw new Error('Invalid appointment ID format');
-    }
-    
-    const response = await api.put(endpoints.appointments.accept(id), { 
-      responseMessage: responseMessage.trim() 
-    });
-    
-    console.log('✅ Appointment accepted successfully:', response.data);
-    return response;
-    
-  } catch (error) {
-    console.error('❌ Error accepting appointment:', error);
-    
-    // Enhanced error handling
-    if (error.response) {
-      const { status, data } = error.response;
-      console.error(`HTTP ${status}:`, data);
+  acceptAppointmentRequest: async (id, responseMessage = '') => {
+    try {
+      console.log('🔄 Accepting appointment request:', id);
+      console.log('Response message:', responseMessage);
       
-      // Provide more specific error messages
-      switch (status) {
-        case 404:
-          throw new Error('Appointment not found or may have been already processed');
-        case 400:
-          throw new Error(data.message || 'Invalid request - check appointment status');
-        case 403:
-          throw new Error('You do not have permission to accept this appointment');
-        case 409:
-          throw new Error('Appointment has already been processed');
-        default:
-          throw new Error(data.message || `Server error (${status}). Please try again.`);
+      // Validate ID format on frontend too
+      if (!id || id.length !== 24) {
+        throw new Error('Invalid appointment ID format');
       }
-    } else if (error.request) {
-      throw new Error('Cannot connect to server. Please check your internet connection.');
-    } else {
-      throw new Error(error.message || 'An unexpected error occurred');
+      
+      const response = await api.put(endpoints.appointments.accept(id), { 
+        responseMessage: responseMessage.trim() 
+      });
+      
+      console.log('✅ Appointment accepted successfully:', response.data);
+      return response;
+      
+    } catch (error) {
+      console.error('❌ Error accepting appointment:', error);
+      
+      // Enhanced error handling
+      if (error.response) {
+        const { status, data } = error.response;
+        console.error(`HTTP ${status}:`, data);
+        
+        // Provide more specific error messages
+        switch (status) {
+          case 404:
+            throw new Error('Appointment not found or may have been already processed');
+          case 400:
+            throw new Error(data.message || 'Invalid request - check appointment status');
+          case 403:
+            throw new Error('You do not have permission to accept this appointment');
+          case 409:
+            throw new Error('Appointment has already been processed');
+          default:
+            throw new Error(data.message || `Server error (${status}). Please try again.`);
+        }
+      } else if (error.request) {
+        throw new Error('Cannot connect to server. Please check your internet connection.');
+      } else {
+        throw new Error(error.message || 'An unexpected error occurred');
+      }
     }
-  }
-},
+  },
 
   rejectAppointmentRequest: (id, responseMessage = '') => {
     console.log(`🔄 Teacher rejecting appointment request: ${id}`);
@@ -426,7 +429,108 @@ acceptAppointmentRequest: async (id, responseMessage = '') => {
       isValid: errors.length === 0,
       errors
     };
-  }
+  },
+
+  // All the other methods that were not inside the object before
+  // Get all appointments for currently logged-in user
+  getCurrentUserAppointments: (params = {}) => {
+    console.log('🔄 Getting current user appointments with params:', params);
+    return api.get('/appointments/my-appointments', { params });
+  },
+
+  // Get upcoming appointments for currently logged-in user
+  getCurrentUserUpcomingAppointments: (limit = 10) => {
+    console.log('🔄 Getting current user upcoming appointments');
+    return api.get('/appointments/my-appointments', { 
+      params: { limit, status: 'confirmed', date: { $gte: new Date().toISOString() } } 
+    });
+  },
+
+  // Get appointment history for currently logged-in user
+  getCurrentUserAppointmentHistory: (page = 1, limit = 20) => {
+    console.log('🔄 Getting current user appointment history');
+    return api.get('/appointments/my-appointments/history', { 
+      params: { page, limit } 
+    });
+  },
+
+  // Get user appointments by status
+  getCurrentUserAppointmentsByStatus: (status, params = {}) => {
+    console.log(`🔄 Getting current user ${status} appointments`);
+    return api.get('/appointments/my-appointments', { 
+      params: { ...params, status } 
+    });
+  },
+
+  // Get user appointments in date range
+  getCurrentUserAppointmentsInRange: (startDate, endDate, params = {}) => {
+    console.log('🔄 Getting current user appointments in date range:', { startDate, endDate });
+    return api.get('/appointments/my-appointments', { 
+      params: { 
+        ...params, 
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0]
+      } 
+    });
+  },
+
+  // Convenience methods for specific appointment types
+  getCurrentUserPendingAppointments: () => {
+    return apiMethods.getCurrentUserAppointmentsByStatus('pending');
+  },
+
+  getCurrentUserConfirmedAppointments: () => {
+    return apiMethods.getCurrentUserAppointmentsByStatus('confirmed');
+  },
+
+  getCurrentUserBookedAppointments: () => {
+    return apiMethods.getCurrentUserAppointmentsByStatus('booked');
+  },
+
+  getCurrentUserCompletedAppointments: () => {
+    return apiMethods.getCurrentUserAppointmentsByStatus('completed');
+  },
+
+  getCurrentUserCancelledAppointments: () => {
+    return apiMethods.getCurrentUserAppointmentsByStatus('cancelled');
+  },
+
+  // Get appointments created by user (for teachers who book directly)
+  getCurrentUserCreatedAppointments: () => {
+    console.log('🔄 Getting appointments created by current user');
+    return api.get('/appointments/my-appointments', { 
+      params: { createdBy: 'teacher' } 
+    });
+  },
+
+  // Enhanced method with error handling and retry
+  getCurrentUserAppointmentsWithRetry: async (params = {}, maxRetries = 3) => {
+    let lastError = null;
+    
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        console.log(`🔄 Getting user appointments attempt ${i + 1}/${maxRetries}`);
+        const response = await api.get('/appointments/my-appointments', { params });
+        console.log(`✅ User appointments retrieved on attempt ${i + 1}`);
+        return response;
+      } catch (error) {
+        lastError = error;
+        console.log(`❌ Attempt ${i + 1} failed:`, error.message);
+        
+        // Don't retry on client errors (4xx)
+        if (error.response?.status >= 400 && error.response?.status < 500) {
+          break;
+        }
+        
+        // Wait before retrying (exponential backoff)
+        if (i < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+        }
+      }
+    }
+    
+    throw lastError || new Error('All attempts to get user appointments failed');
+  },
 };
 
 // FIXED: Token management utilities - now handle both storage locations
@@ -441,7 +545,7 @@ export const tokenManager = {
     console.log('✅ Token stored in localStorage');
   } else {
     sessionStorage.setItem('userToken', token);
-    localStorage.removeItem('userToken'); // Clear from localStorage  
+    localStorage.removeItem('userToken'); // Clear from localStorage    
     console.log('✅ Token stored in sessionStorage');
   }
 },
@@ -549,17 +653,17 @@ export const constants = {
   ],
   
   APPOINTMENT_STATUSES: [
-    'pending',    
-    'confirmed',  
-    'rejected',   
-    'cancelled',  
-    'completed',  
-    'booked'      
+    'pending',      
+    'confirmed',    
+    'rejected',     
+    'cancelled',    
+    'completed',    
+    'booked'          
   ],
 
   APPOINTMENT_TYPES: {
-    STUDENT_REQUEST: 'student_request',  
-    TEACHER_BOOKING: 'teacher_booking'   
+    STUDENT_REQUEST: 'student_request',    
+    TEACHER_BOOKING: 'teacher_booking'      
   }
 };
 

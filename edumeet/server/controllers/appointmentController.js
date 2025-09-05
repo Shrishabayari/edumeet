@@ -859,64 +859,6 @@ const getCurrentUserAppointments = async (req, res) => {
   }
 };
 
-// Get upcoming appointments for current user
-const getCurrentUserUpcomingAppointments = async (req, res) => {
-  try {
-    console.log('=== GET CURRENT USER UPCOMING APPOINTMENTS ===');
-    
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({
-        success: false,
-        message: 'User authentication required'
-      });
-    }
-
-    const userId = req.user.id;
-    const userRole = req.user.role;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    let filter = {
-      date: { $gte: today },
-      status: { $in: ['confirmed', 'booked', 'pending'] }
-    };
-
-    // Add role-specific filters
-    if (userRole === 'teacher') {
-      filter.teacherId = userId;
-    } else if (userRole === 'student') {
-      const userEmail = req.user.email?.toLowerCase();
-      const userName = req.user.name;
-      filter.$or = [
-        { 'student.email': userEmail },
-        { 'student.name': { $regex: new RegExp(userName, 'i') } }
-      ];
-    }
-    // For admin, no additional filter needed (they see all)
-
-    const upcomingAppointments = await Appointment.find(filter)
-      .populate('teacherId', 'name email phone subject department')
-      .sort({ date: 1, time: 1 })
-      .limit(10); // Limit to next 10 appointments
-
-    res.json({
-      success: true,
-      data: upcomingAppointments,
-      count: upcomingAppointments.length,
-      userRole,
-      message: `Retrieved ${upcomingAppointments.length} upcoming appointments`
-    });
-
-  } catch (error) {
-    console.error('Error fetching upcoming appointments:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch upcoming appointments',
-      error: error.message
-    });
-  }
-};
-
 // Get appointment history for current user
 const getCurrentUserAppointmentHistory = async (req, res) => {
   try {
@@ -997,6 +939,5 @@ module.exports = {
   // Legacy method for backward compatibility
   bookAppointment: requestAppointment,
   getCurrentUserAppointments,
-  getCurrentUserUpcomingAppointments,
   getCurrentUserAppointmentHistory
 };
