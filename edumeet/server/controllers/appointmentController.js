@@ -715,6 +715,272 @@ const getAppointmentStats = async (req, res) => {
   }
 };
 
+const getCurrentUserAppointments = async (req, res) => {
+  try {
+    console.log('=== GET CURRENT USER APPOINTMENTS ===');
+    console.log('Request User:', req.user);
+    console.log('User ID:', req.user?.id);
+    console.log('User Role:', req.user?.role);
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    let appointments = [];
+    let filter = {};
+
+    // Build filter based on user role
+    switch (userRole) {
+      case 'teacher':
+        // For teachers: get all appointments where they are the teacher
+        filter = { teacherId: userId };
+        console.log('Fetching teacher appointments for:', userId);
+        break;
+
+      case 'student':
+        // For students: get appointments where student email matches user email
+        // OR where student name matches (in case email doesn't match exactly)
+        const userEmail = req.user.email?.toLowerCase();
+        const userName = req.user.name;
+
+        filter = {
+          $or: [
+            { 'student.email': userEmail },
+            { 'student.name': { $regex: new RegExp(userName, 'i') } }
+          ]
+        };
+        console.log('Fetching student appointments for:', { email: userEmail, name: userName });
+        break;
+
+      case 'admin':
+        // For admins: get all appointments (they can see everything)
+        filter = {};
+        console.log('Fetching all appointments for admin');
+        break;
+
+      default:
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid user role'
+        });
+    }
+
+    // Add additional filters from query parameters
+    const { status, createdBy, startDate, endDate } = req.query;
+    
+    if (status) {
+      filter.status = status;
+    }
+    
+    if (createdBy) {
+      filter.createdBy = createdBy;
+    }
+
+    // Date range filter
+    if (startDate || endDate) {
+      filter.date = {};
+      if (startDate) {
+        filter.date.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        filter.date.$lte = new Date(endDate);
+      }
+    }
+
+    console.log('Final filter:', JSON.stringify(filter, null, 2));
+
+    // Fetch appointments with population
+    appointments = await Appointment.find(filter)
+      .populate('teacherId', 'name email phone subject department')
+      .sort({ date: -1, createdAt: -1 });
+
+    console.log(`Found ${appointments.length} appointments for user`);
+
+    // Group appointments by status for easier frontend handling
+    const groupedAppointments = {
+      pending: appointments.filter(apt => apt.status === 'pending'),
+      confirmed: appointments.filter(apt => apt.status === 'confirmed'),
+      booked: appointments.filter(apt => apt.status === 'booked'),
+      completed: appointments.filter(apt => apt.status === 'completed'),
+      cancelled: appointments.filter(apt => apt.status === 'cancelled'),
+      rejected: appointments.filter(apt => apt.status === 'rejected')
+    };
+
+    // Statistics for the user
+    const stats = {
+      total: appointments.length,
+      pending: groupedAppointments.pending.length,
+      confirmed: groupedAppointments.confirmed.length,
+      booked: groupedAppointments.booked.length,
+      completed: groupedAppointments.completed.length,
+      cancelled: groupedAppointments.cancelled.length,
+      rejected: groupedAppointments.rejected.length,
+      upcoming: appointments.filter(apt => 
+        new Date(apt.date) > new Date() && 
+        ['confirmed', 'booked', 'pending'].includes(apt.status)
+      ).length
+    };
+
+    res.json({
+      success: true,
+      data: {
+        appointments,
+        grouped: groupedAppointments,
+        stats
+      },
+      userInfo: {
+        id: userId,
+        role: userRole,
+        name: req.user.name,
+        email: req.user.email
+      },
+      message: `Retrieved ${appointments.length} appointments for ${userRole}`
+    });
+
+  } catch (error) {
+    console.error('=== ERROR FETCHING USER APPOINTMENTS ===');
+    console.error('Error details:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user appointments',
+      error: error.message,
+      debug: process.env.NODE_ENV === 'development' ? {
+        userId: req.user?.id,
+        userRole: req.user?.role,
+        errorStack: error.stack
+      } : undefined
+    });
+  }
+};
+
+// Get upcoming appointments for current user
+const getCurrentUserUpcomingAppointments = async (req, res) => {
+  try {
+    console.log('=== GET CURRENT USER UPCOMING APPOINTMENTS ===');
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let filter = {
+      date: { $gte: today },
+      status: { $in: ['confirmed', 'booked', 'pending'] }
+    };
+
+    // Add role-specific filters
+    if (userRole === 'teacher') {
+      filter.teacherId = userId;
+    } else if (userRole === 'student') {
+      const userEmail = req.user.email?.toLowerCase();
+      const userName = req.user.name;
+      filter.$or = [
+        { 'student.email': userEmail },
+        { 'student.name': { $regex: new RegExp(userName, 'i') } }
+      ];
+    }
+    // For admin, no additional filter needed (they see all)
+
+    const upcomingAppointments = await Appointment.find(filter)
+      .populate('teacherId', 'name email phone subject department')
+      .sort({ date: 1, time: 1 })
+      .limit(10); // Limit to next 10 appointments
+
+    res.json({
+      success: true,
+      data: upcomingAppointments,
+      count: upcomingAppointments.length,
+      userRole,
+      message: `Retrieved ${upcomingAppointments.length} upcoming appointments`
+    });
+
+  } catch (error) {
+    console.error('Error fetching upcoming appointments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch upcoming appointments',
+      error: error.message
+    });
+  }
+};
+
+// Get appointment history for current user
+const getCurrentUserAppointmentHistory = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const { limit = 20, page = 1 } = req.query;
+    
+    let filter = {
+      status: { $in: ['completed', 'cancelled', 'rejected'] }
+    };
+
+    // Add role-specific filters
+    if (userRole === 'teacher') {
+      filter.teacherId = userId;
+    } else if (userRole === 'student') {
+      const userEmail = req.user.email?.toLowerCase();
+      const userName = req.user.name;
+      filter.$or = [
+        { 'student.email': userEmail },
+        { 'student.name': { $regex: new RegExp(userName, 'i') } }
+      ];
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [appointments, totalCount] = await Promise.all([
+      Appointment.find(filter)
+        .populate('teacherId', 'name email phone subject department')
+        .sort({ date: -1, updatedAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Appointment.countDocuments(filter)
+    ]);
+
+    res.json({
+      success: true,
+      data: appointments,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        totalCount,
+        hasNext: skip + appointments.length < totalCount,
+        hasPrev: parseInt(page) > 1
+      },
+      message: `Retrieved appointment history for ${userRole}`
+    });
+
+  } catch (error) {
+    console.error('Error fetching appointment history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch appointment history',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllAppointments,
   getAppointmentById,
@@ -729,5 +995,8 @@ module.exports = {
   getTeacherAppointments,
   getAppointmentStats,
   // Legacy method for backward compatibility
-  bookAppointment: requestAppointment
+  bookAppointment: requestAppointment,
+  getCurrentUserAppointments,
+  getCurrentUserUpcomingAppointments,
+  getCurrentUserAppointmentHistory
 };
