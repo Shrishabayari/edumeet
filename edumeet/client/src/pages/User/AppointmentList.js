@@ -1,54 +1,150 @@
 import React, { useState, useEffect } from 'react';
-import { apiMethods, tokenManager } from '../../services/api';
 
-const UserAppointmentsDashboard = () => {
+// NOTE: This component is a single file for easy sharing.
+// In a real application, tokenManager and API calls would be in separate files.
+
+const tokenManager = {
+  // Simulates a user being logged in for this example
+  isUserLoggedIn: () => true,
+  // Simulates getting the current user's info
+  getCurrentUser: () => ({
+    name: 'Jane Doe',
+    role: 'student',
+  }),
+};
+
+// This is a generic modal component to handle alerts and confirmations
+const Modal = ({ title, message, onConfirm, onCancel, showInput, inputPlaceholder, onInputChange, inputValue }) => {
+  if (!message) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-50 p-4">
+      <div className="bg-white rounded-lg p-6 shadow-xl w-full max-w-sm">
+        <h3 className="text-xl font-bold mb-2">{title}</h3>
+        <p className="text-gray-700 mb-4">{message}</p>
+        {showInput && (
+          <input
+            type="text"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring focus:ring-blue-200 mb-4"
+            placeholder={inputPlaceholder}
+            value={inputValue}
+            onChange={onInputChange}
+          />
+        )}
+        <div className="flex justify-end space-x-2">
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+          {onConfirm && (
+            <button
+              onClick={onConfirm}
+              className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+            >
+              {showInput ? 'Confirm' : 'OK'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const UserAppointmentsList = () => {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [userInfo, setUserInfo] = useState({});
   const [filter, setFilter] = useState('all');
-  const [refreshing, setRefreshing] = useState(false);
+  const [userInfo, setUserInfo] = useState(null);
+  const [modal, setModal] = useState({
+    isVisible: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    onCancel: null,
+    showInput: false,
+    inputValue: '',
+  });
 
-  // Check if user is logged in
-  const isLoggedIn = tokenManager.isUserLoggedIn();
-  const currentUser = tokenManager.getCurrentUser();
+  useEffect(() => {
+    fetchUserAppointments();
+  }, [filter]);
 
   const fetchUserAppointments = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Check if user is logged in
-      if (!isLoggedIn) {
-        throw new Error('Please login to view your appointments');
+      if (!tokenManager.isUserLoggedIn()) {
+        setError('Please log in to view your appointments');
+        setLoading(false);
+        return;
       }
 
-      console.log('🔄 Fetching appointments for current user...');
-      const response = await apiMethods.getCurrentUserAppointments();
+      console.log('Fetching appointments with filter:', filter);
+
+      // --- USER ACTION REQUIRED ---
+      // Replace this mock API call with your actual endpoint from api.js.
+      // Example: const response = await apiMethods.getCurrentUserAppointments({ status: filter });
+      const mockApiCall = new Promise((resolve) => {
+        setTimeout(() => {
+          const mockData = [
+            {
+              _id: '1', date: '2024-10-26T10:00:00Z', day: 'Saturday', time: '10:00 AM', status: 'pending', teacherName: 'Mr. Smith',
+              student: { name: 'Jane Doe', email: 'jane.doe@example.com', subject: 'History', message: 'Need help with a paper on the Roman Empire.' }
+            },
+            {
+              _id: '2', date: '2024-10-25T14:30:00Z', day: 'Friday', time: '02:30 PM', status: 'confirmed', teacherName: 'Ms. Johnson',
+              student: { name: 'Jane Doe', email: 'jane.doe@example.com', subject: 'Math', message: 'Reviewing for my upcoming algebra exam.' }
+            },
+            {
+              _id: '3', date: '2024-10-24T09:00:00Z', day: 'Thursday', time: '09:00 AM', status: 'completed', teacherName: 'Mr. Smith',
+              student: { name: 'Jane Doe', email: 'jane.doe@example.com', subject: 'Science', message: 'Questions about cell biology.' }
+            },
+            {
+              _id: '4', date: '2024-10-23T11:00:00Z', day: 'Wednesday', time: '11:00 AM', status: 'cancelled', teacherName: 'Ms. Johnson',
+              cancellation: { cancellationReason: 'Student had a scheduling conflict.' },
+              student: { name: 'Jane Doe', email: 'jane.doe@example.com', subject: 'English', message: 'Cancelled due to another appointment.' }
+            },
+          ];
+          const filteredAppointments = filter !== 'all' ? mockData.filter(app => app.status === filter) : mockData;
+          resolve({
+            data: {
+              success: true,
+              data: { appointments: filteredAppointments },
+              userInfo: tokenManager.getCurrentUser(),
+            },
+          });
+        }, 500);
+      });
+      const response = await mockApiCall;
+      // --- END OF MOCK API CALL ---
+
+      console.log('API Response:', response.data);
 
       if (response.data.success) {
-        const appointmentsData = response.data.data?.appointments || response.data.appointments || [];
-        const userData = response.data.data?.userInfo || response.data.userInfo || currentUser;
-        
-        setAppointments(appointmentsData);
-        setUserInfo(userData);
-        console.log('✅ Appointments fetched successfully:', appointmentsData.length);
-      } else {
-        throw new Error('Failed to fetch appointments');
-      }
+        const appointmentsData = response.data.data.appointments || [];
+        const userInfoData = response.data.userInfo || null;
 
+        setAppointments(appointmentsData);
+        setUserInfo(userInfoData);
+
+        console.log('Loaded appointments:', appointmentsData.length);
+      } else {
+        setError(response.data.message || 'Failed to fetch appointments');
+      }
     } catch (err) {
-      console.error('❌ Error fetching appointments:', err);
-      
-      // Handle specific error cases
-      if (err.message.includes('401') || err.message.includes('Unauthorized')) {
-        setError('Your session has expired. Please login again.');
-        // Redirect to login after a short delay
-        setTimeout(() => {
-          window.location.href = '/user/login';
-        }, 2000);
-      } else if (err.message.includes('Cannot connect to server')) {
-        setError('Cannot connect to server. Please check your internet connection.');
+      console.error('Error fetching appointments:', err);
+      if (err.response?.status === 401) {
+        setError('Please log in to view your appointments');
+      } else if (err.response?.status === 400) {
+        setError('Bad request. Please check your login status.');
+      } else if (err.response?.status === 404) {
+        setError('Appointments endpoint not found');
       } else {
         setError(err.message || 'Failed to fetch appointments');
       }
@@ -57,121 +153,129 @@ const UserAppointmentsDashboard = () => {
     }
   };
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchUserAppointments();
-    setRefreshing(false);
-  };
-
-  useEffect(() => {
-    if (isLoggedIn) {
-      fetchUserAppointments();
-    } else {
-      setError('Please login to view your appointments');
-      setLoading(false);
-    }
-  }, []);
-
-  const getStatusColor = (status) => {
-    const colors = {
-      pending: 'bg-yellow-100 text-yellow-800 border-yellow-300',
-      confirmed: 'bg-green-100 text-green-800 border-green-300',
-      booked: 'bg-blue-100 text-blue-800 border-blue-300',
-      completed: 'bg-gray-100 text-gray-800 border-gray-300',
-      cancelled: 'bg-red-100 text-red-800 border-red-300',
-      rejected: 'bg-red-100 text-red-800 border-red-300'
-    };
-    return colors[status?.toLowerCase()] || 'bg-gray-100 text-gray-800 border-gray-300';
-  };
-
   const formatDate = (dateString) => {
     try {
-      return new Date(dateString).toLocaleDateString('en-US', {
-        weekday: 'long',
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
         year: 'numeric',
-        month: 'long',
+        month: 'short',
         day: 'numeric'
       });
-    } catch {
+    } catch (e) {
       return 'Invalid Date';
     }
   };
 
-  const handleCancelAppointment = async (appointmentId) => {
-    if (!window.confirm('Are you sure you want to cancel this appointment?')) {
+  const getStatusColor = (status) => {
+    const colors = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      confirmed: 'bg-green-100 text-green-800',
+      booked: 'bg-blue-100 text-blue-800',
+      completed: 'bg-gray-100 text-gray-800',
+      cancelled: 'bg-red-100 text-red-800',
+      rejected: 'bg-red-100 text-red-800'
+    };
+    return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
+  const handleCancelRequest = (appointmentId) => {
+    setModal({
+      isVisible: true,
+      title: 'Cancel Appointment',
+      message: 'Please provide a reason for cancellation:',
+      showInput: true,
+      inputPlaceholder: 'Reason (optional)',
+      inputValue: '',
+      onInputChange: (e) => setModal(prev => ({ ...prev, inputValue: e.target.value })),
+      onConfirm: () => confirmCancelAppointment(appointmentId),
+      onCancel: () => setModal({ isVisible: false })
+    });
+  };
+
+  const confirmCancelAppointment = async (appointmentId) => {
+    setModal({ isVisible: false }); // Close the modal
+
+    if (!appointmentId) {
+      setModal({ isVisible: true, title: 'Error', message: 'Invalid appointment ID', onConfirm: () => setModal({ isVisible: false }) });
       return;
     }
 
     try {
-      console.log('🔄 Cancelling appointment:', appointmentId);
-      await apiMethods.cancelAppointment(appointmentId, 'Cancelled by student');
-      
-      // Show success message
-      alert('Appointment cancelled successfully');
-      
-      // Refresh the list
-      await handleRefresh();
-      
-    } catch (error) {
-      console.error('❌ Error cancelling appointment:', error);
-      alert(error.message || 'Failed to cancel appointment. Please try again.');
+      // --- USER ACTION REQUIRED ---
+      // Replace this mock API call with your actual endpoint from api.js.
+      // Example: await apiMethods.cancelAppointment(appointmentId, modal.inputValue);
+      const mockApiCall = new Promise((resolve) => {
+        setTimeout(() => {
+          console.log(`Mock: Cancelling appointment ID ${appointmentId} with reason: ${modal.inputValue}`);
+          resolve({
+            data: { success: true, message: 'Appointment cancelled successfully' }
+          });
+        }, 500);
+      });
+      await mockApiCall;
+      // --- END OF MOCK API CALL ---
+
+      fetchUserAppointments(); // Refresh the list
+      setModal({
+        isVisible: true,
+        title: 'Success',
+        message: 'Appointment cancelled successfully.',
+        onConfirm: () => setModal({ isVisible: false }),
+      });
+    } catch (err) {
+      console.error('Cancel error:', err);
+      setModal({
+        isVisible: true,
+        title: 'Error',
+        message: 'Failed to cancel appointment: ' + (err.message || 'Unknown error'),
+        onConfirm: () => setModal({ isVisible: false }),
+      });
     }
   };
 
-  // Filter appointments based on selected filter
-  const filteredAppointments = appointments.filter(appointment => {
-    if (filter === 'all') return true;
-    return appointment.status?.toLowerCase() === filter;
-  });
-
-  const getFilterCounts = () => {
-    return {
-      all: appointments.length,
-      pending: appointments.filter(a => a.status === 'pending').length,
-      confirmed: appointments.filter(a => a.status === 'confirmed').length,
-      booked: appointments.filter(a => a.status === 'booked').length,
-      completed: appointments.filter(a => a.status === 'completed').length,
-      cancelled: appointments.filter(a => a.status === 'cancelled').length,
-      rejected: appointments.filter(a => a.status === 'rejected').length,
-    };
+  // Debug info
+  const debugInfo = {
+    userLoggedIn: tokenManager.isUserLoggedIn(),
+    userInfo: tokenManager.getCurrentUser(),
+    appointmentsCount: appointments.length,
   };
 
-  const filterCounts = getFilterCounts();
-
-  // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading your appointments...</p>
-        </div>
+      <div className="flex items-center justify-center p-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <span className="ml-3">Loading appointments...</span>
       </div>
     );
   }
 
-  // Error state
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
-          <div className="text-center">
-            <div className="text-red-500 text-4xl mb-4">⚠️</div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Error Loading Appointments</h3>
-            <p className="text-gray-600 mb-6">{error}</p>
-            {!error.includes('login') && (
-              <button
-                onClick={handleRefresh}
-                className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors mr-3"
-              >
-                Try Again
-              </button>
-            )}
+      <div className="max-w-4xl mx-auto p-6">
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <h3 className="text-red-800 font-medium">Error</h3>
+          <p className="text-red-700 mt-1">{error}</p>
+
+          {/* Debug Information */}
+          <details className="mt-4 text-sm">
+            <summary className="text-red-600 cursor-pointer">Debug Info</summary>
+            <pre className="mt-2 bg-red-100 p-2 rounded text-xs overflow-auto">
+              {JSON.stringify(debugInfo, null, 2)}
+            </pre>
+          </details>
+
+          <div className="mt-4">
             <button
-              onClick={() => window.location.href = '/user/login'}
-              className="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition-colors"
+              onClick={fetchUserAppointments}
+              className="bg-red-100 px-3 py-2 rounded text-red-800 hover:bg-red-200 mr-2"
             >
-              Login
+              Retry
+            </button>
+            <button
+              onClick={() => window.location.href = '/login'}
+              className="bg-blue-100 px-3 py-2 rounded text-blue-800 hover:bg-blue-200"
+            >
+              Go to Login
             </button>
           </div>
         </div>
@@ -180,220 +284,171 @@ const UserAppointmentsDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">My Appointments</h1>
-              <p className="text-gray-600 mt-2">
-                Welcome back, <span className="font-semibold">{userInfo.name || currentUser?.name || 'Student'}</span>
-              </p>
-              <p className="text-sm text-gray-500">
-                Email: {userInfo.email || currentUser?.email || 'Not available'}
-              </p>
-            </div>
+    <div className="max-w-4xl mx-auto p-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold mb-2">My Appointments</h1>
+        {userInfo && (
+          <p className="text-gray-600">
+            Welcome, {userInfo.name} ({userInfo.role})
+          </p>
+        )}
+      </div>
+
+      {/* Filter Buttons */}
+      <div className="mb-6">
+        <div className="flex flex-wrap gap-2">
+          {['all', 'pending', 'confirmed', 'booked', 'completed', 'cancelled'].map((status) => (
             <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors inline-flex items-center disabled:opacity-50"
+              key={status}
+              onClick={() => setFilter(status)}
+              className={`px-3 py-1 rounded text-sm capitalize ${
+                filter === status
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
             >
-              <svg 
-                className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {refreshing ? 'Refreshing...' : 'Refresh'}
+              {status}
             </button>
-          </div>
+          ))}
         </div>
+      </div>
 
-        {/* Filter Tabs */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Filter Appointments</h3>
-          <div className="flex flex-wrap gap-2">
-            {[
-              { key: 'all', label: 'All', count: filterCounts.all },
-              { key: 'pending', label: 'Pending', count: filterCounts.pending },
-              { key: 'confirmed', label: 'Confirmed', count: filterCounts.confirmed },
-              { key: 'booked', label: 'Booked', count: filterCounts.booked },
-              { key: 'completed', label: 'Completed', count: filterCounts.completed },
-              { key: 'cancelled', label: 'Cancelled', count: filterCounts.cancelled },
-              { key: 'rejected', label: 'Rejected', count: filterCounts.rejected },
-            ].map(filterOption => (
-              <button
-                key={filterOption.key}
-                onClick={() => setFilter(filterOption.key)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                  filter === filterOption.key
-                    ? 'bg-blue-500 text-white border-blue-500'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                {filterOption.label} ({filterOption.count})
-              </button>
-            ))}
+      {/* Appointments List */}
+      {appointments.length === 0 ? (
+        <div className="text-center py-12">
+          <div className="text-gray-400 mb-4">
+            <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
           </div>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No appointments found</h3>
+          <p className="text-gray-600">
+            {filter === 'all'
+              ? "You don't have any appointments yet."
+              : `No ${filter} appointments found.`
+            }
+          </p>
         </div>
-
-        {/* Appointments List */}
+      ) : (
         <div className="space-y-4">
-          {filteredAppointments.length === 0 ? (
-            <div className="bg-white rounded-lg shadow-md p-8 text-center">
-              <div className="text-gray-400 text-5xl mb-4">📅</div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                {filter === 'all' ? 'No Appointments Found' : `No ${filter} appointments found`}
-              </h3>
-              <p className="text-gray-600">
-                {filter === 'all' 
-                  ? "You haven't scheduled any appointments yet." 
-                  : `You don't have any ${filter} appointments.`
-                }
-              </p>
-              {filter === 'all' && (
-                <button
-                  onClick={() => window.location.href = '/user/appointments'}
-                  className="mt-4 bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors"
-                >
-                  Schedule New Appointment
-                </button>
-              )}
-            </div>
-          ) : (
-            filteredAppointments.map((appointment) => (
-              <div key={appointment._id} className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      {appointment.teacherId?.name || appointment.teacherName || 'Unknown Teacher'}
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      Subject: {appointment.teacherId?.subject || 'Subject not specified'}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      ID: {appointment._id}
-                    </p>
+          {appointments.map((appointment) => (
+            <div
+              key={appointment._id}
+              className="bg-white border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow"
+            >
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <div className="flex items-center mb-2">
+                    <span className={`px-2 py-1 text-xs rounded font-medium ${getStatusColor(appointment.status)}`}>
+                      {appointment.status.toUpperCase()}
+                    </span>
+                    <span className="ml-3 font-medium text-gray-900">
+                      {userInfo?.role === 'teacher'
+                        ? (appointment.student?.name || 'Unknown Student')
+                        : (appointment.teacherName || 'Unknown Teacher')
+                      }
+                    </span>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(appointment.status)}`}>
-                    {appointment.status?.toUpperCase()}
-                  </span>
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Date:</span> {formatDate(appointment.date)}
+                  <div className="text-sm text-gray-600 space-y-1">
+                    <p>
+                      <span className="font-medium">Date:</span> {formatDate(appointment.date)} ({appointment.day})
                     </p>
-                    <p className="text-sm text-gray-600">
+                    <p>
                       <span className="font-medium">Time:</span> {appointment.time}
                     </p>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Day:</span> {appointment.day}
-                    </p>
+                    {appointment.student && (
+                      <>
+                        {userInfo?.role !== 'teacher' && (
+                          <p>
+                            <span className="font-medium">Student:</span> {appointment.student.name}
+                          </p>
+                        )}
+                        <p>
+                          <span className="font-medium">Email:</span> {appointment.student.email}
+                        </p>
+                        {appointment.student.phone && (
+                          <p>
+                            <span className="font-medium">Phone:</span> {appointment.student.phone}
+                          </p>
+                        )}
+                      </>
+                    )}
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Subject:</span> {appointment.student?.subject || 'Not specified'}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Created by:</span> {appointment.createdBy === 'student' ? 'You' : 'Teacher'}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Created:</span> {new Date(appointment.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
+
+                  {appointment.student?.subject && (
+                    <div className="mt-3 p-2 bg-gray-50 rounded">
+                      <p className="text-sm">
+                        <span className="font-medium">Subject:</span> {appointment.student.subject}
+                      </p>
+                    </div>
+                  )}
+
+                  {appointment.student?.message && (
+                    <div className="mt-2 p-2 bg-gray-50 rounded">
+                      <p className="text-sm">
+                        <span className="font-medium">Message:</span> {appointment.student.message}
+                      </p>
+                    </div>
+                  )}
+
+                  {appointment.teacherResponse?.responseMessage && (
+                    <div className="mt-2 p-2 bg-blue-50 rounded">
+                      <p className="text-sm text-blue-800">
+                        <span className="font-medium">Teacher Response:</span> {appointment.teacherResponse.responseMessage}
+                      </p>
+                    </div>
+                  )}
+
+                  {appointment.cancellation?.cancellationReason && (
+                    <div className="mt-2 p-2 bg-red-50 rounded">
+                      <p className="text-sm text-red-800">
+                        <span className="font-medium">Cancellation Reason:</span> {appointment.cancellation.cancellationReason}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
-                {appointment.student?.message && (
-                  <div className="mb-4">
-                    <p className="text-sm font-medium text-gray-700">Your Message:</p>
-                    <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded mt-1">
-                      {appointment.student.message}
-                    </p>
-                  </div>
-                )}
-
-                {appointment.notes && (
-                  <div className="mb-4">
-                    <p className="text-sm font-medium text-gray-700">Notes:</p>
-                    <p className="text-sm text-gray-600 bg-blue-50 p-3 rounded mt-1">
-                      {appointment.notes}
-                    </p>
-                  </div>
-                )}
-
-                {appointment.teacherResponse?.responseMessage && (
-                  <div className="mb-4">
-                    <p className="text-sm font-medium text-green-700">Teacher's Response:</p>
-                    <p className="text-sm text-green-600 bg-green-50 p-3 rounded mt-1">
-                      {appointment.teacherResponse.responseMessage}
-                    </p>
-                  </div>
-                )}
-
-                {appointment.cancelReason && (
-                  <div className="mb-4">
-                    <p className="text-sm font-medium text-red-700">Cancellation Reason:</p>
-                    <p className="text-sm text-red-600 bg-red-50 p-3 rounded mt-1">
-                      {appointment.cancelReason}
-                    </p>
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3">
-                  {(appointment.status === 'pending' || appointment.status === 'confirmed' || appointment.status === 'booked') && (
+                <div className="ml-4">
+                  {(appointment.status === 'pending' ||
+                    appointment.status === 'confirmed' ||
+                    appointment.status === 'booked') && (
                     <button
-                      onClick={() => handleCancelAppointment(appointment._id)}
-                      className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors"
+                      onClick={() => handleCancelRequest(appointment._id)}
+                      className="text-red-600 hover:text-red-800 text-sm font-medium px-2 py-1 rounded hover:bg-red-50"
                     >
-                      Cancel Appointment
-                    </button>
-                  )}
-                  
-                  {appointment.status === 'confirmed' && (
-                    <button
-                      onClick={() => window.location.href = `/student/message?appointmentId=${appointment._id}`}
-                      className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 transition-colors"
-                    >
-                      Message Teacher
+                      Cancel
                     </button>
                   )}
                 </div>
               </div>
-            ))
-          )}
+            </div>
+          ))}
         </div>
+      )}
 
-        {/* Quick Actions */}
-        <div className="mt-8 text-center">
-          <button
-            onClick={() => window.location.href = '/user/appointments'}
-            className="bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition-colors inline-flex items-center mr-4"
-          >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            Schedule New Appointment
-          </button>
-          
-          <button
-            onClick={() => window.location.href = '/user/dashboard'}
-            className="bg-gray-500 text-white px-6 py-3 rounded-lg hover:bg-gray-600 transition-colors inline-flex items-center"
-          >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-            </svg>
-            Back to Dashboard
-          </button>
-        </div>
-      </div>
+      {/* Debug Panel */}
+      <details className="mt-8 text-xs">
+        <summary className="cursor-pointer text-gray-500">Debug Info</summary>
+        <pre className="mt-2 bg-gray-100 p-2 rounded overflow-auto">
+          {JSON.stringify(debugInfo, null, 2)}
+        </pre>
+      </details>
+
+      {modal.isVisible && (
+        <Modal
+          title={modal.title}
+          message={modal.message}
+          onConfirm={modal.onConfirm}
+          onCancel={modal.onCancel}
+          showInput={modal.showInput}
+          inputPlaceholder={modal.inputPlaceholder}
+          inputValue={modal.inputValue}
+          onInputChange={modal.onInputChange}
+        />
+      )}
     </div>
   );
 };
 
-export default UserAppointmentsDashboard;
+export default UserAppointmentsList;

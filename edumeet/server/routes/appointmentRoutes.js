@@ -13,14 +13,8 @@ const {
   getTeacherPendingRequests,
   getTeacherAppointments,
   getAppointmentStats,
-  // NEW IMPORTS - Add these
-  getCurrentUserAppointments,
-  getCurrentUserUpcomingAppointments,
-  getCurrentUserAppointmentHistory
+  getStudentAppointments
 } = require('../controllers/appointmentController');
-
-// Import auth middleware
-const { protect } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -200,35 +194,32 @@ const cancellationValidation = [
     .withMessage('Cancellation reason cannot exceed 500 characters')
 ];
 
+// 1. Specific non-parameterized routes
 router.get('/stats', getAppointmentStats);
 
-router.get('/my-appointments', protect, getCurrentUserAppointments);
-router.get('/my-appointments/history', protect, getCurrentUserAppointmentHistory);
-
-// 3. Teacher-specific routes (specific paths)
+// 2. Specific parameterized routes (Teacher & Student)
 router.get('/teacher/:teacherId/pending', getTeacherPendingRequests);
 router.get('/teacher/:teacherId', getTeacherAppointments);
+router.get('/student/:email', getStudentAppointments); // <-- CRITICAL FIX: MOVED THIS ROUTE HERE
 
-// 4. Student requests appointment (specific path)
-router.post('/request', protect, requestAppointmentValidation, handleValidationErrors, requestAppointment);
+// 3. POST routes (no conflict with GET)
+router.post('/request', requestAppointmentValidation, handleValidationErrors, requestAppointment);
+router.post('/book', teacherBookingValidation, handleValidationErrors, teacherBookAppointment);
 
-// 5. Teacher books appointment directly (specific path)
-router.post('/book', protect, teacherBookingValidation, handleValidationErrors, teacherBookAppointment);
-
-// 6. CRITICAL FIX: Appointment action routes (specific paths with parameters)
+// 4. CRITICAL FIX: Appointment action routes (specific paths with parameters)
 // These MUST come before the generic /:id routes
-router.put('/:id/accept', protect, responseValidation, handleValidationErrors, acceptAppointmentRequest);
-router.put('/:id/reject', protect, responseValidation, handleValidationErrors, rejectAppointmentRequest);
-router.put('/:id/complete', protect, completeAppointment);
-router.put('/:id/cancel', protect, cancellationValidation, handleValidationErrors, cancelAppointment);
+router.put('/:id/accept', responseValidation, handleValidationErrors, acceptAppointmentRequest);
+router.put('/:id/reject', responseValidation, handleValidationErrors, rejectAppointmentRequest);
+router.put('/:id/complete', completeAppointment);
+router.put('/:id/cancel', cancellationValidation, handleValidationErrors, cancelAppointment);
 
-// 7. Generic parameterized routes (MUST be last)
+// 5. Generic parameterized routes (MUST be last)
 router.get('/', getAllAppointments);
-router.get('/:id', getAppointmentById);
-router.put('/:id', protect, updateAppointmentValidation, handleValidationErrors, updateAppointment);
-router.delete('/:id', protect, cancellationValidation, handleValidationErrors, cancelAppointment);
+router.get('/:id', getAppointmentById); // <-- This is now in its correct, last position
+router.put('/:id', updateAppointmentValidation, handleValidationErrors, updateAppointment);
+router.delete('/:id', cancellationValidation, handleValidationErrors, cancelAppointment);
 
-// 8. Legacy route for backward compatibility (maps to request)
-router.post('/', protect, requestAppointmentValidation, handleValidationErrors, requestAppointment);
+// 6. Legacy route for backward compatibility (maps to request)
+router.post('/', requestAppointmentValidation, handleValidationErrors, requestAppointment);
 
 module.exports = router;
