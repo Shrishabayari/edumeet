@@ -1,200 +1,177 @@
 import React, { useState, useEffect } from 'react';
+import { apiMethods, tokenManager } from '../../services/api';
 
-// The following is a mock API service to simulate fetching data from your backend.
-// In a real application, you would replace this with actual fetch or axios calls
-// to your `/api/v1/appointments/me` endpoint.
-const mockApiMethods = {
-  getCurrentUserAppointments: () => {
-    return new Promise((resolve, reject) => {
-      // Simulate network delay
-      setTimeout(() => {
-        // Mock data structure to match the frontend component's expectations
-        const mockAppointments = [
-          {
-            _id: 'appt1',
-            status: 'pending',
-            date: '2025-09-25T10:00:00Z',
-            time: '10:00 AM',
-            day: 'Thursday',
-            teacher: { name: 'Mr. David Johnson', email: 'david.j@example.com' },
-            teacherName: 'Mr. David Johnson',
-            student: { name: 'Jane Doe', email: 'jane.d@example.com', phone: '555-1234', subject: 'Algebra' },
-            createdBy: 'student',
-            notes: 'Need help with linear equations.'
-          },
-          {
-            _id: 'appt2',
-            status: 'confirmed',
-            date: '2025-10-01T14:30:00Z',
-            time: '02:30 PM',
-            day: 'Wednesday',
-            teacher: { name: 'Ms. Emily White', email: 'emily.w@example.com' },
-            teacherName: 'Ms. Emily White',
-            student: { name: 'Jane Doe', email: 'jane.d@example.com', subject: 'Biology' },
-            createdBy: 'student',
-            teacherResponse: { responseMessage: 'Confirmed. Looking forward to our session.' },
-          },
-          {
-            _id: 'appt3',
-            status: 'completed',
-            date: '2025-08-20T09:00:00Z',
-            time: '09:00 AM',
-            day: 'Tuesday',
-            teacher: { name: 'Mr. David Johnson', email: 'david.j@example.com' },
-            teacherName: 'Mr. David Johnson',
-            student: { name: 'Jane Doe', email: 'jane.d@example.com', subject: 'History' },
-            createdBy: 'student',
-            notes: 'Covered World War II topics.'
-          },
-          {
-            _id: 'appt4',
-            status: 'canceled',
-            date: '2025-09-30T11:00:00Z',
-            time: '11:00 AM',
-            day: 'Tuesday',
-            teacher: { name: 'Mr. David Johnson', email: 'david.j@example.com' },
-            teacherName: 'Mr. David Johnson',
-            student: { name: 'Jane Doe', email: 'jane.d@example.com', subject: 'Chemistry' },
-            createdBy: 'student',
-          },
-        ];
-
-        // Group appointments and calculate stats
-        const grouped = mockAppointments.reduce((acc, appt) => {
-          const status = appt.status.toLowerCase();
-          if (!acc[status]) {
-            acc[status] = [];
-          }
-          acc[status].push(appt);
-          return acc;
-        }, {});
-
-        const stats = {
-          total: mockAppointments.length,
-          pending: grouped.pending?.length || 0,
-          confirmed: grouped.confirmed?.length || 0,
-          booked: grouped.booked?.length || 0,
-          completed: grouped.completed?.length || 0,
-          cancelled: grouped.canceled?.length || 0,
-          // Assuming 'confirmed' and 'booked' are considered upcoming for this mock data
-          upcoming: (grouped.confirmed?.length || 0) + (grouped.booked?.length || 0),
-        };
-
-        const userInfo = {
-          name: 'Jane Doe',
-          role: 'student',
-        };
-
-        resolve({
-          data: {
-            success: true,
-            data: { appointments: mockAppointments, grouped, stats },
-            userInfo,
-          },
-        });
-      }, 1500); // 1.5 second delay
-    });
-  },
-};
-
-// Main App component
-const Appp = () => {
+const UserAppointmentsDashboard = () => {
   const [appointments, setAppointments] = useState([]);
-  const [grouped, setGrouped] = useState({});
-  const [stats, setStats] = useState({});
-  const [userInfo, setUserInfo] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [userInfo, setUserInfo] = useState({});
   const [filter, setFilter] = useState('all');
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Fetch user's appointments
-  useEffect(() => {
-    fetchMyAppointments();
-  }, []);
+  // Check if user is logged in
+  const isLoggedIn = tokenManager.isUserLoggedIn();
+  const currentUser = tokenManager.getCurrentUser();
 
-  const fetchMyAppointments = async () => {
+  const fetchUserAppointments = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const response = await mockApiMethods.getCurrentUserAppointments();
+      // Check if user is logged in
+      if (!isLoggedIn) {
+        throw new Error('Please login to view your appointments');
+      }
+
+      console.log('🔄 Fetching appointments for current user...');
+      const response = await apiMethods.getCurrentUserAppointments();
 
       if (response.data.success) {
-        setAppointments(response.data.data.appointments);
-        setGrouped(response.data.data.grouped);
-        setStats(response.data.data.stats);
-        setUserInfo(response.data.userInfo);
+        const appointmentsData = response.data.data?.appointments || response.data.appointments || [];
+        const userData = response.data.data?.userInfo || response.data.userInfo || currentUser;
+        
+        setAppointments(appointmentsData);
+        setUserInfo(userData);
+        console.log('✅ Appointments fetched successfully:', appointmentsData.length);
+      } else {
+        throw new Error('Failed to fetch appointments');
       }
+
     } catch (err) {
-      console.error('Error fetching appointments:', err);
-      setError(err.message || 'Failed to fetch appointments');
+      console.error('❌ Error fetching appointments:', err);
+      
+      // Handle specific error cases
+      if (err.message.includes('401') || err.message.includes('Unauthorized')) {
+        setError('Your session has expired. Please login again.');
+        // Redirect to login after a short delay
+        setTimeout(() => {
+          window.location.href = '/user/login';
+        }, 2000);
+      } else if (err.message.includes('Cannot connect to server')) {
+        setError('Cannot connect to server. Please check your internet connection.');
+      } else {
+        setError(err.message || 'Failed to fetch appointments');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // Get filtered appointments based on current filter
-  const getFilteredAppointments = () => {
-    if (filter === 'all') return appointments;
-    // Map 'cancelled' and 'rejected' to the same filter group if needed, or handle separately
-    return grouped[filter] || [];
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchUserAppointments();
+    setRefreshing(false);
   };
 
-  // Function to handle appointment actions (stubbed out for this mock)
-  const handleAction = (appointmentId, action) => {
-    console.log(`Performing ${action} on appointment ${appointmentId}`);
-    // In a real app, this would trigger an API call and then refresh the data
-    // For this mock, we'll just log and then force a data refresh to show state change
-    setTimeout(() => {
-      fetchMyAppointments();
-    }, 500);
-  };
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchUserAppointments();
+    } else {
+      setError('Please login to view your appointments');
+      setLoading(false);
+    }
+  }, []);
 
-  const getStatusBadgeColor = (status) => {
+  const getStatusColor = (status) => {
     const colors = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      confirmed: 'bg-green-100 text-green-800',
-      booked: 'bg-blue-100 text-blue-800',
-      completed: 'bg-gray-100 text-gray-800',
-      canceled: 'bg-red-100 text-red-800',
-      rejected: 'bg-red-100 text-red-800'
+      pending: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+      confirmed: 'bg-green-100 text-green-800 border-green-300',
+      booked: 'bg-blue-100 text-blue-800 border-blue-300',
+      completed: 'bg-gray-100 text-gray-800 border-gray-300',
+      cancelled: 'bg-red-100 text-red-800 border-red-300',
+      rejected: 'bg-red-100 text-red-800 border-red-300'
     };
-    return colors[status.toLowerCase()] || 'bg-gray-100 text-gray-800';
+    return colors[status?.toLowerCase()] || 'bg-gray-100 text-gray-800 border-gray-300';
   };
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } catch {
+      return 'Invalid Date';
+    }
   };
 
-  // Conditional rendering for loading and error states
+  const handleCancelAppointment = async (appointmentId) => {
+    if (!window.confirm('Are you sure you want to cancel this appointment?')) {
+      return;
+    }
+
+    try {
+      console.log('🔄 Cancelling appointment:', appointmentId);
+      await apiMethods.cancelAppointment(appointmentId, 'Cancelled by student');
+      
+      // Show success message
+      alert('Appointment cancelled successfully');
+      
+      // Refresh the list
+      await handleRefresh();
+      
+    } catch (error) {
+      console.error('❌ Error cancelling appointment:', error);
+      alert(error.message || 'Failed to cancel appointment. Please try again.');
+    }
+  };
+
+  // Filter appointments based on selected filter
+  const filteredAppointments = appointments.filter(appointment => {
+    if (filter === 'all') return true;
+    return appointment.status?.toLowerCase() === filter;
+  });
+
+  const getFilterCounts = () => {
+    return {
+      all: appointments.length,
+      pending: appointments.filter(a => a.status === 'pending').length,
+      confirmed: appointments.filter(a => a.status === 'confirmed').length,
+      booked: appointments.filter(a => a.status === 'booked').length,
+      completed: appointments.filter(a => a.status === 'completed').length,
+      cancelled: appointments.filter(a => a.status === 'cancelled').length,
+      rejected: appointments.filter(a => a.status === 'rejected').length,
+    };
+  };
+
+  const filterCounts = getFilterCounts();
+
+  // Loading state
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-screen bg-gray-100">
-        <div className="flex flex-col items-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-          <p className="mt-4 text-gray-600">Loading appointments...</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading your appointments...</p>
         </div>
       </div>
     );
   }
 
+  // Error state
   if (error) {
     return (
-      <div className="flex justify-center items-center h-screen bg-gray-100">
-        <div className="bg-white rounded-lg shadow-xl p-8 max-w-lg w-full">
-          <h3 className="text-xl font-medium text-red-800">Error fetching data</h3>
-          <div className="mt-4 text-sm text-red-700">{error}</div>
-          <div className="mt-6 flex justify-end">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+          <div className="text-center">
+            <div className="text-red-500 text-4xl mb-4">⚠️</div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Error Loading Appointments</h3>
+            <p className="text-gray-600 mb-6">{error}</p>
+            {!error.includes('login') && (
+              <button
+                onClick={handleRefresh}
+                className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors mr-3"
+              >
+                Try Again
+              </button>
+            )}
             <button
-              onClick={fetchMyAppointments}
-              className="px-4 py-2 bg-red-600 text-white font-medium rounded-md hover:bg-red-700 transition-colors"
+              onClick={() => window.location.href = '/user/login'}
+              className="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition-colors"
             >
-              Try Again
+              Login
             </button>
           </div>
         </div>
@@ -203,107 +180,220 @@ const Appp = () => {
   }
 
   return (
-    <div className="font-sans antialiased bg-gray-100 min-h-screen">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        {/* Header Section */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 leading-tight">My Appointments Dashboard</h1>
-          <p className="mt-2 text-gray-600 text-lg">
-            Welcome, <span className="font-semibold text-blue-600">{userInfo.name}</span>!
-          </p>
-          <p className="text-sm text-gray-500 mt-1">Your role: {userInfo.role}</p>
-        </div>
-
-        {/* Statistics Cards Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-xl shadow p-6 border-b-4 border-blue-500">
-            <p className="text-sm font-medium text-gray-600">Total Appointments</p>
-            <p className="text-3xl font-semibold text-gray-900 mt-1">{stats.total}</p>
-          </div>
-          <div className="bg-white rounded-xl shadow p-6 border-b-4 border-yellow-500">
-            <p className="text-sm font-medium text-gray-600">Pending</p>
-            <p className="text-3xl font-semibold text-yellow-600 mt-1">{stats.pending}</p>
-          </div>
-          <div className="bg-white rounded-xl shadow p-6 border-b-4 border-green-500">
-            <p className="text-sm font-medium text-gray-600">Confirmed</p>
-            <p className="text-3xl font-semibold text-green-600 mt-1">{stats.confirmed}</p>
-          </div>
-          <div className="bg-white rounded-xl shadow p-6 border-b-4 border-gray-500">
-            <p className="text-sm font-medium text-gray-600">Completed</p>
-            <p className="text-3xl font-semibold text-gray-600 mt-1">{stats.completed}</p>
-          </div>
-        </div>
-
-        {/* Filter Tabs Section */}
-        <div className="mb-6 bg-white rounded-xl shadow p-4">
-          <div className="flex flex-wrap space-x-4 sm:space-x-6">
-            {[
-              { key: 'all', label: 'All', count: stats.total },
-              { key: 'pending', label: 'Pending', count: stats.pending },
-              { key: 'confirmed', label: 'Confirmed', count: stats.confirmed },
-              { key: 'completed', label: 'Completed', count: stats.completed },
-              { key: 'canceled', label: 'Canceled', count: stats.canceled },
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setFilter(tab.key)}
-                className={`py-2 px-4 rounded-full font-medium text-sm transition-colors duration-200
-                  ${filter === tab.key
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                  }`}
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">My Appointments</h1>
+              <p className="text-gray-600 mt-2">
+                Welcome back, <span className="font-semibold">{userInfo.name || currentUser?.name || 'Student'}</span>
+              </p>
+              <p className="text-sm text-gray-500">
+                Email: {userInfo.email || currentUser?.email || 'Not available'}
+              </p>
+            </div>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors inline-flex items-center disabled:opacity-50"
+            >
+              <svg 
+                className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
               >
-                {tab.label} ({tab.count})
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+
+        {/* Filter Tabs */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Filter Appointments</h3>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { key: 'all', label: 'All', count: filterCounts.all },
+              { key: 'pending', label: 'Pending', count: filterCounts.pending },
+              { key: 'confirmed', label: 'Confirmed', count: filterCounts.confirmed },
+              { key: 'booked', label: 'Booked', count: filterCounts.booked },
+              { key: 'completed', label: 'Completed', count: filterCounts.completed },
+              { key: 'cancelled', label: 'Cancelled', count: filterCounts.cancelled },
+              { key: 'rejected', label: 'Rejected', count: filterCounts.rejected },
+            ].map(filterOption => (
+              <button
+                key={filterOption.key}
+                onClick={() => setFilter(filterOption.key)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                  filter === filterOption.key
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                {filterOption.label} ({filterOption.count})
               </button>
             ))}
           </div>
         </div>
 
-        {/* Appointments List Section */}
-        <div className="space-y-6">
-          {getFilteredAppointments().length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-xl shadow">
-              <p className="text-gray-500 text-lg">No appointments found for this status.</p>
+        {/* Appointments List */}
+        <div className="space-y-4">
+          {filteredAppointments.length === 0 ? (
+            <div className="bg-white rounded-lg shadow-md p-8 text-center">
+              <div className="text-gray-400 text-5xl mb-4">📅</div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                {filter === 'all' ? 'No Appointments Found' : `No ${filter} appointments found`}
+              </h3>
+              <p className="text-gray-600">
+                {filter === 'all' 
+                  ? "You haven't scheduled any appointments yet." 
+                  : `You don't have any ${filter} appointments.`
+                }
+              </p>
+              {filter === 'all' && (
+                <button
+                  onClick={() => window.location.href = '/user/appointments'}
+                  className="mt-4 bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                  Schedule New Appointment
+                </button>
+              )}
             </div>
           ) : (
-            getFilteredAppointments().map((appointment) => (
-              <div key={appointment._id} className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3">
-                      <h3 className="text-lg font-bold text-gray-900">
-                        {`Appointment with ${appointment.teacherName}`}
-                      </h3>
-                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeColor(appointment.status)}`}>
-                        {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm text-gray-600"><span className="font-medium">Date:</span> {formatDate(appointment.date)}</p>
-                        <p className="text-sm text-gray-600"><span className="font-medium">Time:</span> {appointment.time}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-600"><span className="font-medium">Teacher:</span> {appointment.teacherName}</p>
-                        <p className="text-sm text-gray-600"><span className="font-medium">Subject:</span> {appointment.student.subject}</p>
-                      </div>
-                    </div>
-                    
-                    {appointment.notes && (
-                      <p className="mt-3 text-sm text-gray-700">
-                        <span className="font-medium">Notes:</span> {appointment.notes}
-                      </p>
-                    )}
+            filteredAppointments.map((appointment) => (
+              <div key={appointment._id} className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {appointment.teacherId?.name || appointment.teacherName || 'Unknown Teacher'}
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      Subject: {appointment.teacherId?.subject || 'Subject not specified'}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      ID: {appointment._id}
+                    </p>
                   </div>
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(appointment.status)}`}>
+                    {appointment.status?.toUpperCase()}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Date:</span> {formatDate(appointment.date)}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Time:</span> {appointment.time}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Day:</span> {appointment.day}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Subject:</span> {appointment.student?.subject || 'Not specified'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Created by:</span> {appointment.createdBy === 'student' ? 'You' : 'Teacher'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Created:</span> {new Date(appointment.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+
+                {appointment.student?.message && (
+                  <div className="mb-4">
+                    <p className="text-sm font-medium text-gray-700">Your Message:</p>
+                    <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded mt-1">
+                      {appointment.student.message}
+                    </p>
+                  </div>
+                )}
+
+                {appointment.notes && (
+                  <div className="mb-4">
+                    <p className="text-sm font-medium text-gray-700">Notes:</p>
+                    <p className="text-sm text-gray-600 bg-blue-50 p-3 rounded mt-1">
+                      {appointment.notes}
+                    </p>
+                  </div>
+                )}
+
+                {appointment.teacherResponse?.responseMessage && (
+                  <div className="mb-4">
+                    <p className="text-sm font-medium text-green-700">Teacher's Response:</p>
+                    <p className="text-sm text-green-600 bg-green-50 p-3 rounded mt-1">
+                      {appointment.teacherResponse.responseMessage}
+                    </p>
+                  </div>
+                )}
+
+                {appointment.cancelReason && (
+                  <div className="mb-4">
+                    <p className="text-sm font-medium text-red-700">Cancellation Reason:</p>
+                    <p className="text-sm text-red-600 bg-red-50 p-3 rounded mt-1">
+                      {appointment.cancelReason}
+                    </p>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3">
+                  {(appointment.status === 'pending' || appointment.status === 'confirmed' || appointment.status === 'booked') && (
+                    <button
+                      onClick={() => handleCancelAppointment(appointment._id)}
+                      className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors"
+                    >
+                      Cancel Appointment
+                    </button>
+                  )}
+                  
+                  {appointment.status === 'confirmed' && (
+                    <button
+                      onClick={() => window.location.href = `/student/message?appointmentId=${appointment._id}`}
+                      className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 transition-colors"
+                    >
+                      Message Teacher
+                    </button>
+                  )}
                 </div>
               </div>
             ))
           )}
+        </div>
+
+        {/* Quick Actions */}
+        <div className="mt-8 text-center">
+          <button
+            onClick={() => window.location.href = '/user/appointments'}
+            className="bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition-colors inline-flex items-center mr-4"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            Schedule New Appointment
+          </button>
+          
+          <button
+            onClick={() => window.location.href = '/user/dashboard'}
+            className="bg-gray-500 text-white px-6 py-3 rounded-lg hover:bg-gray-600 transition-colors inline-flex items-center"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+            </svg>
+            Back to Dashboard
+          </button>
         </div>
       </div>
     </div>
   );
 };
 
-export default Appp;
+export default UserAppointmentsDashboard;
