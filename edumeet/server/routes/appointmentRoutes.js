@@ -1,5 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const { protect } = require('../middleware/auth'); // Import the protect middleware
+
 const {
   getAllAppointments,
   getAppointmentById,
@@ -13,7 +15,9 @@ const {
   getTeacherPendingRequests,
   getTeacherAppointments,
   getAppointmentStats,
-  getStudentAppointments
+  getStudentAppointments,
+  getCurrentUserAppointments,        // Add this import
+  getCurrentUserAppointmentHistory   // Add this import
 } = require('../controllers/appointmentController');
 
 const router = express.Router();
@@ -44,7 +48,6 @@ const appointmentValidation = [
     .notEmpty()
     .withMessage('Time is required')
     .custom((value) => {
-      // Accept various time formats
       const validTimes = [
         '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
         '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM',
@@ -57,7 +60,6 @@ const appointmentValidation = [
         return true;
       }
       
-      // Also accept any time format that looks like a time
       const timeRegex = /^([0-9]{1,2}):([0-9]{2})\s?(AM|PM)(\s?-\s?([0-9]{1,2}):([0-9]{2})\s?(AM|PM))?$/i;
       if (timeRegex.test(value)) {
         return true;
@@ -74,7 +76,6 @@ const appointmentValidation = [
       if (isNaN(date.getTime())) {
         throw new Error('Invalid date format');
       }
-      // Check if date is in the future
       if (date < new Date()) {
         throw new Error('Appointment date must be in the future');
       }
@@ -95,7 +96,6 @@ const appointmentValidation = [
     .optional()
     .custom((value) => {
       if (!value || value.trim() === '') return true;
-      // More flexible phone validation
       const phoneRegex = /^[\+]?[\d\s\-\(\)]{7,20}$/;
       if (phoneRegex.test(value)) {
         return true;
@@ -130,7 +130,7 @@ const requestAppointmentValidation = [
     })
 ];
 
-// Teacher direct booking validation (no teacherId needed as it comes from auth)
+// Teacher direct booking validation
 const teacherBookingValidation = [
   ...appointmentValidation,
   body('notes')
@@ -194,32 +194,37 @@ const cancellationValidation = [
     .withMessage('Cancellation reason cannot exceed 500 characters')
 ];
 
-// 1. Specific non-parameterized routes
+// CRITICAL: Order matters! Most specific routes first
+
+// 1. Stats route (no parameters)
 router.get('/stats', getAppointmentStats);
 
-// 2. Specific parameterized routes (Teacher & Student)
+// 2. NEW - Current user routes (MUST be before parameterized routes)
+router.get('/my-appointments', protect, getCurrentUserAppointments);
+router.get('/my-appointments/history', protect, getCurrentUserAppointmentHistory);
+
+// 3. Specific parameterized routes
 router.get('/teacher/:teacherId/pending', getTeacherPendingRequests);
 router.get('/teacher/:teacherId', getTeacherAppointments);
-router.get('/student/:email', getStudentAppointments); // <-- CRITICAL FIX: MOVED THIS ROUTE HERE
+router.get('/student/:email', getStudentAppointments);
 
-// 3. POST routes (no conflict with GET)
+// 4. POST routes
 router.post('/request', requestAppointmentValidation, handleValidationErrors, requestAppointment);
 router.post('/book', teacherBookingValidation, handleValidationErrors, teacherBookAppointment);
 
-// 4. CRITICAL FIX: Appointment action routes (specific paths with parameters)
-// These MUST come before the generic /:id routes
+// 5. Appointment action routes (specific paths with parameters)
 router.put('/:id/accept', responseValidation, handleValidationErrors, acceptAppointmentRequest);
 router.put('/:id/reject', responseValidation, handleValidationErrors, rejectAppointmentRequest);
 router.put('/:id/complete', completeAppointment);
 router.put('/:id/cancel', cancellationValidation, handleValidationErrors, cancelAppointment);
 
-// 5. Generic parameterized routes (MUST be last)
+// 6. Generic parameterized routes (MUST be last)
 router.get('/', getAllAppointments);
-router.get('/:id', getAppointmentById); // <-- This is now in its correct, last position
+router.get('/:id', getAppointmentById);
 router.put('/:id', updateAppointmentValidation, handleValidationErrors, updateAppointment);
 router.delete('/:id', cancellationValidation, handleValidationErrors, cancelAppointment);
 
-// 6. Legacy route for backward compatibility (maps to request)
+// 7. Legacy route for backward compatibility
 router.post('/', requestAppointmentValidation, handleValidationErrors, requestAppointment);
 
 module.exports = router;

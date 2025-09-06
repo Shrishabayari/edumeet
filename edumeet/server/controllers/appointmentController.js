@@ -754,6 +754,164 @@ const getStudentAppointments = async (req, res) => {
   }
 };
 
+const getCurrentUserAppointments = async (req, res) => {
+  try {
+    console.log('=== GET CURRENT USER APPOINTMENTS ===');
+    console.log('User from request:', { 
+      id: req.user?._id, 
+      email: req.user?.email, 
+      role: req.user?.role 
+    });
+    
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required. Please log in to view appointments.'
+      });
+    }
+
+    const { status, limit = 50, page = 1, startDate, endDate } = req.query;
+    
+    let filter;
+    let userInfo = {
+      name: req.user.name,
+      email: req.user.email,
+      role: req.user.role || 'student',
+      id: req.user._id
+    };
+
+    if (req.user.role === 'teacher') {
+      // For teachers, show appointments where they are the teacherId
+      filter = { teacherId: req.user._id };
+      console.log('Teacher appointment filter:', filter);
+    } else {
+      // For students/regular users, find appointments by student email
+      filter = { 'student.email': req.user.email };
+      console.log('Student appointment filter:', filter);
+    }
+    
+    // Add status filter if provided and not 'all'
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+    
+    // Date range filtering
+    if (startDate || endDate) {
+      filter.date = {};
+      if (startDate) filter.date.$gte = new Date(startDate);
+      if (endDate) filter.date.$lte = new Date(endDate);
+    }
+    
+    console.log('Final filter:', filter);
+    
+    // Execute query with pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const appointments = await Appointment.find(filter)
+      .populate('teacherId', 'name email phone subject')
+      .sort({ date: -1, createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(skip);
+    
+    const totalCount = await Appointment.countDocuments(filter);
+    
+    console.log(`Found ${appointments.length} appointments for user: ${req.user.email}`);
+    
+    res.json({
+      success: true,
+      data: {
+        appointments,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalCount / parseInt(limit)),
+          totalCount,
+          hasNext: skip + parseInt(limit) < totalCount,
+          hasPrev: parseInt(page) > 1
+        }
+      },
+      userInfo,
+      message: `Retrieved ${appointments.length} appointments`
+    });
+    
+  } catch (error) {
+    console.error('Error fetching current user appointments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch appointments',
+      error: error.message,
+      debug: process.env.NODE_ENV === 'development' ? {
+        userEmail: req.user?.email,
+        userRole: req.user?.role,
+        userId: req.user?._id
+      } : undefined
+    });
+  }
+};
+
+// Get appointment history for current user
+const getCurrentUserAppointmentHistory = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    const { limit = 20, page = 1 } = req.query;
+    
+    let filter;
+    
+    if (req.user.role === 'teacher') {
+      filter = { 
+        teacherId: req.user._id,
+        status: { $in: ['completed', 'cancelled', 'rejected'] }
+      };
+    } else {
+      filter = { 
+        'student.email': req.user.email,
+        status: { $in: ['completed', 'cancelled', 'rejected'] }
+      };
+    }
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const appointments = await Appointment.find(filter)
+      .populate('teacherId', 'name email phone subject')
+      .sort({ updatedAt: -1 })
+      .limit(parseInt(limit))
+      .skip(skip);
+    
+    const totalCount = await Appointment.countDocuments(filter);
+    
+    res.json({
+      success: true,
+      data: {
+        appointments,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalCount / parseInt(limit)),
+          totalCount,
+          hasNext: skip + parseInt(limit) < totalCount,
+          hasPrev: parseInt(page) > 1
+        }
+      },
+      userInfo: {
+        name: req.user.name,
+        email: req.user.email,
+        role: req.user.role || 'student',
+        id: req.user._id
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching appointment history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch appointment history',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllAppointments,
   getAppointmentById,
@@ -768,6 +926,8 @@ module.exports = {
   getTeacherAppointments,
   getAppointmentStats,
   getStudentAppointments,
+  getCurrentUserAppointments,
+  getCurrentUserAppointmentHistory,
   // Legacy method for backward compatibility
   bookAppointment: requestAppointment
 };
