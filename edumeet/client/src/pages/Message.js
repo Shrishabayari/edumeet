@@ -21,6 +21,24 @@ const MessageBoard = () => {
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
 
+  // FIXED: Dynamic API URL detection
+  const getApiUrl = () => {
+    // Check if we have an environment variable first
+    if (process.env.REACT_APP_API_URL) {
+      return process.env.REACT_APP_API_URL;
+    }
+    
+    // If we're in production (deployed), use the production URL
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return 'https://edumeet.onrender.com'; // Your Render backend URL
+    }
+    
+    // Default to localhost for development
+    return 'http://localhost:5000';
+  };
+
+  const API_URL = getApiUrl();
+
   // Available reactions
   const reactions = [
     { id: 'heart', icon: Heart, label: 'Heart', color: 'text-red-500' },
@@ -96,7 +114,7 @@ const MessageBoard = () => {
     detectUserType();
   }, []);
 
-  // Initialize socket connection
+  // FIXED: Initialize socket connection with dynamic URL
   useEffect(() => {
     if (!authToken || !userRole || !userName) {
       console.log('Missing auth requirements:', { authToken: !!authToken, userRole, userName });
@@ -108,27 +126,32 @@ const MessageBoard = () => {
       socketRef.current.disconnect();
     }
 
-    console.log('Attempting to connect with:', { 
+    console.log('Attempting to connect to:', API_URL);
+    console.log('With auth:', { 
       role: userRole, 
       name: userName, 
       token: authToken.substring(0, 20) + '...' 
     });
 
-    // Connect to socket with better error handling
-    socketRef.current = io('http://localhost:5000', {
+    // FIXED: Connect to socket with dynamic URL and better error handling
+    socketRef.current = io(API_URL, {
       auth: { 
         token: authToken,
         role: userRole,
         name: userName
       },
       transports: ['websocket', 'polling'],
-      timeout: 10000,
-      forceNew: true
+      timeout: 20000, // Increased timeout for production
+      forceNew: true,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000
     });
 
     // Connection events
     socketRef.current.on('connect', () => {
-      console.log('Socket connected successfully as:', userRole);
+      console.log('Socket connected successfully to:', API_URL, 'as:', userRole);
       setIsConnected(true);
       setError('');
       setConnectionAttempts(0);
@@ -152,7 +175,7 @@ const MessageBoard = () => {
       setIsConnected(false);
       setConnectionAttempts(prev => prev + 1);
       
-      if (err.message.includes('Authentication error')) {
+      if (err.message.includes('Authentication error') || err.message.includes('Authentication failed')) {
         setError('Authentication failed. Please login again.');
         // Clear invalid tokens
         localStorage.removeItem('teacherToken');
@@ -164,6 +187,23 @@ const MessageBoard = () => {
       } else if (err.message.includes('No token provided')) {
         setError('No authentication token found. Please login.');
       }
+    });
+
+    socketRef.current.on('reconnect', (attemptNumber) => {
+      console.log('Reconnected after', attemptNumber, 'attempts');
+      setError('');
+      setConnectionAttempts(0);
+    });
+
+    socketRef.current.on('reconnect_attempt', (attemptNumber) => {
+      console.log('Reconnection attempt:', attemptNumber);
+      setConnectionAttempts(attemptNumber);
+      setError(`Reconnecting... (attempt ${attemptNumber})`);
+    });
+
+    socketRef.current.on('reconnect_error', (error) => {
+      console.error('Reconnection failed:', error);
+      setError('Failed to reconnect. Please refresh the page.');
     });
 
     // Message events
@@ -200,7 +240,7 @@ const MessageBoard = () => {
         socketRef.current.disconnect();
       }
     };
-  }, [roomId, authToken, userRole, userName]);
+  }, [roomId, authToken, userRole, userName, API_URL]);
 
   // Auto-scroll to bottom
   const scrollToBottom = () => {
@@ -211,11 +251,12 @@ const MessageBoard = () => {
     scrollToBottom();
   }, [messages]);
 
-  // FIXED: Load initial messages with proper authentication headers
+  // FIXED: Load initial messages with dynamic API URL
   useEffect(() => {
     if (authToken && userRole) {
       loadMessages();
-    }// eslint-disable-next-line
+    }
+    // eslint-disable-next-line
   }, [roomId, authToken, userRole]);
 
   const loadMessages = async () => {
@@ -223,8 +264,8 @@ const MessageBoard = () => {
     
     setIsLoading(true);
     try {
-      // FIXED: Use the correct endpoint structure and headers
-      const response = await fetch(`http://localhost:5000/api/messages/room/${roomId}`, {
+      // FIXED: Use dynamic API URL
+      const response = await fetch(`${API_URL}/messages/room/${roomId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -235,7 +276,7 @@ const MessageBoard = () => {
       if (response.ok) {
         const data = await response.json();
         console.log('Loaded messages:', data);
-        // FIXED: Handle different possible response structures
+        // Handle different possible response structures
         const messagesArray = data.data?.messages || data.messages || data.data || [];
         setMessages(messagesArray);
       } else if (response.status === 401) {
@@ -392,6 +433,9 @@ const MessageBoard = () => {
                 <p className="text-blue-100 mt-1">
                   Connected as: <span className="font-semibold">{userName}</span> 
                   ({userRole === 'teacher' ? 'Teacher' : 'Student'})
+                </p>
+                <p className="text-blue-200 text-sm mt-1">
+                  Server: {API_URL}
                 </p>
               </div>
               <div className="flex items-center gap-4">

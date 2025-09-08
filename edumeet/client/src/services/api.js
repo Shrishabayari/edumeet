@@ -1,11 +1,28 @@
 import axios from 'axios';
 
-// Prioritize environment variable, then remote server, then local development server
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://edumeet.onrender.com' || 'http://localhost:5000';
+// FIXED: Dynamic API URL detection
+const getApiUrl = () => {
+  // Environment variable takes priority
+  if (process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL;
+  }
+  
+  // If we're in production (deployed), use the production URL
+  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return 'https://edumeet.onrender.com'; // Your Render backend URL
+  }
+  
+  // Default to localhost for development
+  return 'http://localhost:5000';
+};
+
+const API_BASE_URL = getApiUrl();
+
+console.log('🔗 API Base URL:', API_BASE_URL);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000,
+  timeout: 30000, // Increased timeout for production
   headers: {
     'Content-Type': 'application/json',
   },
@@ -116,87 +133,89 @@ api.interceptors.response.use(
   }
 );
 
-// API endpoints object (unchanged)
+// API endpoints object
 export const endpoints = {
   // Auth endpoints (for regular users)
   auth: {
-    register: '/auth/register',
-    login: '/auth/login',
-    logout: '/auth/logout',
-    profile: '/auth/profile',
-    verifyToken: '/auth/verify-token',
+    register: '/api/auth/register',
+    login: '/api/auth/login',
+    logout: '/api/auth/logout',
+    profile: '/api/auth/profile',
+    verifyToken: '/api/auth/verify-token',
   },
 
   // Teacher endpoints
   teachers: {
-    getAll: '/teachers',
-    getById: (id) => `/teachers/${id}`,
-    create: '/teachers',
-    update: (id) => `/teachers/${id}`,
-    delete: (id) => `/teachers/${id}`,
-    permanentDelete: (id) => `/teachers/${id}/permanent`,
-    getStats: '/teachers/stats',
-    getByDepartment: (department) => `/teachers/department/${department}`,
+    getAll: '/api/teachers',
+    getById: (id) => `/api/teachers/${id}`,
+    create: '/api/teachers',
+    update: (id) => `/api/teachers/${id}`,
+    delete: (id) => `/api/teachers/${id}`,
+    permanentDelete: (id) => `/api/teachers/${id}/permanent`,
+    getStats: '/api/teachers/stats',
+    getByDepartment: (department) => `/api/teachers/department/${department}`,
     
     // Teacher Authentication routes
-    login: '/teachers/login',
-    sendSetupLink: '/teachers/send-setup-link',
-    setupAccount: (token) => `/teachers/setup-account/${token}`,
-    profile: '/teachers/profile',
-    logout: '/teachers/logout',
+    login: '/api/teachers/login',
+    sendSetupLink: '/api/teachers/send-setup-link',
+    setupAccount: (token) => `/api/teachers/setup-account/${token}`,
+    profile: '/api/teachers/profile',
+    logout: '/api/teachers/logout',
   },
 
   // Updated appointment endpoints with new workflow
   appointments: {
     // General appointment routes
-    getAll: '/appointments',
-    getById: (id) => `/appointments/${id}`,
-    getStats: '/appointments/stats',
+    getAll: '/api/appointments',
+    getById: (id) => `/api/appointments/${id}`,
+    getStats: '/api/appointments/stats',
     
     // Student workflow - request appointment (needs teacher approval)
-    request: '/appointments/request',
+    request: '/api/appointments/request',
     
     // Teacher workflow - direct booking (no approval needed)
-    book: '/appointments/book',
+    book: '/api/appointments/book',
     
     // Teacher response routes
-    accept: (id) => `/appointments/${id}/accept`,
-    reject: (id) => `/appointments/${id}/reject`,
-    complete: (id) => `/appointments/${id}/complete`,
+    accept: (id) => `/api/appointments/${id}/accept`,
+    reject: (id) => `/api/appointments/${id}/reject`,
+    complete: (id) => `/api/appointments/${id}/complete`,
     
     // Common routes
-    update: (id) => `/appointments/${id}`,
-    cancel: (id) => `/appointments/${id}/cancel`,
+    update: (id) => `/api/appointments/${id}`,
+    cancel: (id) => `/api/appointments/${id}/cancel`,
     
     // Teacher-specific routes
-    getByTeacher: (teacherId) => `/appointments/teacher/${teacherId}`,
-    getTeacherPending: (teacherId) => `/appointments/teacher/${teacherId}/pending`,
+    getByTeacher: (teacherId) => `/api/appointments/teacher/${teacherId}`,
+    getTeacherPending: (teacherId) => `/api/appointments/teacher/${teacherId}/pending`,
   },
 
   // Admin endpoints
   admin: {
-    register: '/admin/register',
-    login: '/admin/login',
-    profile: '/admin/profile',
-    updateProfile: '/admin/profile',
-    dashboardStats: '/admin/dashboard/stats',
-    getUsers: '/admin/users',
-    deleteUser: (userId) => `/admin/users/${userId}`,
-    getAllAppointments: '/admin/appointments',
-    updateTeacherStatus: (teacherId) => `/admin/teachers/${teacherId}/status`,
-    getPendingRegistrations: '/auth/admin/pending',
-    getAllUsers: '/auth/admin/users',
-    approveUser: (id) => `/auth/admin/approve/${id}`,
-    rejectUser: (id) => `/auth/admin/reject/${id}`,
+    register: '/api/admin/register',
+    login: '/api/admin/login',
+    profile: '/api/admin/profile',
+    updateProfile: '/api/admin/profile',
+    dashboardStats: '/api/admin/dashboard/stats',
+    getUsers: '/api/admin/users',
+    deleteUser: (userId) => `/api/admin/users/${userId}`,
+    getAllAppointments: '/api/admin/appointments',
+    updateTeacherStatus: (teacherId) => `/api/admin/teachers/${teacherId}/status`,
+    getPendingRegistrations: '/api/auth/admin/pending',
+    getAllUsers: '/api/auth/admin/users',
+    approveUser: (id) => `/api/auth/admin/approve/${id}`,
+    rejectUser: (id) => `/api/auth/admin/reject/${id}`,
   },
+  
+  // FIXED: Message endpoints with proper API prefix
   messages: {
-  getByRoom: (roomId) => `/messages/room/${roomId}`,
-  delete: (id) => `/messages/${id}`,
-  getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
-}
+    getByRoom: (roomId) => `/api/messages/room/${roomId}`,
+    delete: (id) => `/api/messages/${id}`,
+    getRoomStats: (roomId) => `/api/messages/room/${roomId}/stats`
+  }
 };
 
-// API methods (unchanged - they'll now use the fixed token retrieval)
+// API methods (updated with better error handling for production)
 export const apiMethods = {
   // Auth Operations
   register: (userData) => api.post(endpoints.auth.register, userData),
@@ -235,51 +254,51 @@ export const apiMethods = {
   },
 
   // Improved acceptAppointmentRequest API method
-acceptAppointmentRequest: async (id, responseMessage = '') => {
-  try {
-    console.log('🔄 Accepting appointment request:', id);
-    console.log('Response message:', responseMessage);
-    
-    // Validate ID format on frontend too
-    if (!id || id.length !== 24) {
-      throw new Error('Invalid appointment ID format');
-    }
-    
-    const response = await api.put(endpoints.appointments.accept(id), { 
-      responseMessage: responseMessage.trim() 
-    });
-    
-    console.log('✅ Appointment accepted successfully:', response.data);
-    return response;
-    
-  } catch (error) {
-    console.error('❌ Error accepting appointment:', error);
-    
-    // Enhanced error handling
-    if (error.response) {
-      const { status, data } = error.response;
-      console.error(`HTTP ${status}:`, data);
+  acceptAppointmentRequest: async (id, responseMessage = '') => {
+    try {
+      console.log('🔄 Accepting appointment request:', id);
+      console.log('Response message:', responseMessage);
       
-      // Provide more specific error messages
-      switch (status) {
-        case 404:
-          throw new Error('Appointment not found or may have been already processed');
-        case 400:
-          throw new Error(data.message || 'Invalid request - check appointment status');
-        case 403:
-          throw new Error('You do not have permission to accept this appointment');
-        case 409:
-          throw new Error('Appointment has already been processed');
-        default:
-          throw new Error(data.message || `Server error (${status}). Please try again.`);
+      // Validate ID format on frontend too
+      if (!id || id.length !== 24) {
+        throw new Error('Invalid appointment ID format');
       }
-    } else if (error.request) {
-      throw new Error('Cannot connect to server. Please check your internet connection.');
-    } else {
-      throw new Error(error.message || 'An unexpected error occurred');
+      
+      const response = await api.put(endpoints.appointments.accept(id), { 
+        responseMessage: responseMessage.trim() 
+      });
+      
+      console.log('✅ Appointment accepted successfully:', response.data);
+      return response;
+      
+    } catch (error) {
+      console.error('❌ Error accepting appointment:', error);
+      
+      // Enhanced error handling
+      if (error.response) {
+        const { status, data } = error.response;
+        console.error(`HTTP ${status}:`, data);
+        
+        // Provide more specific error messages
+        switch (status) {
+          case 404:
+            throw new Error('Appointment not found or may have been already processed');
+          case 400:
+            throw new Error(data.message || 'Invalid request - check appointment status');
+          case 403:
+            throw new Error('You do not have permission to accept this appointment');
+          case 409:
+            throw new Error('Appointment has already been processed');
+          default:
+            throw new Error(data.message || `Server error (${status}). Please try again.`);
+        }
+      } else if (error.request) {
+        throw new Error('Cannot connect to server. Please check your internet connection.');
+      } else {
+        throw new Error(error.message || 'An unexpected error occurred');
+      }
     }
-  }
-},
+  },
 
   rejectAppointmentRequest: (id, responseMessage = '') => {
     console.log(`🔄 Teacher rejecting appointment request: ${id}`);
@@ -433,18 +452,18 @@ acceptAppointmentRequest: async (id, responseMessage = '') => {
 export const tokenManager = {
   // User token methods - FIXED to handle both storage types
   setUserToken: (token, persistent = false) => {
-  console.log('🔧 setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
-  
-  if (persistent) {
-    localStorage.setItem('userToken', token);
-    sessionStorage.removeItem('userToken'); // Clear from session
-    console.log('✅ Token stored in localStorage');
-  } else {
-    sessionStorage.setItem('userToken', token);
-    localStorage.removeItem('userToken'); // Clear from localStorage  
-    console.log('✅ Token stored in sessionStorage');
-  }
-},
+    console.log('🔧 setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
+    
+    if (persistent) {
+      localStorage.setItem('userToken', token);
+      sessionStorage.removeItem('userToken'); // Clear from session
+      console.log('✅ Token stored in localStorage');
+    } else {
+      sessionStorage.setItem('userToken', token);
+      localStorage.removeItem('userToken'); // Clear from localStorage  
+      console.log('✅ Token stored in sessionStorage');
+    }
+  },
   
   getUserToken: () => getTokenFromStorage('userToken'),
   
@@ -498,12 +517,12 @@ export const tokenManager = {
     sessionStorage.clear();
   },
 
-  // ADDED: Helper method to check if user is logged in
+  // Helper method to check if user is logged in
   isUserLoggedIn: () => {
     return !!getTokenFromStorage('userToken');
   },
 
-  // ADDED: Helper method to get current user info from either storage
+  // Helper method to get current user info from either storage
   getCurrentUser: () => {
     let user = localStorage.getItem('user');
     if (!user) {
@@ -512,7 +531,7 @@ export const tokenManager = {
     return user ? JSON.parse(user) : null;
   },
 
-  // ADDED: Helper method to get current user role
+  // Helper method to get current user role
   getCurrentUserRole: () => {
     let role = localStorage.getItem('userRole');
     if (!role) {
@@ -522,7 +541,7 @@ export const tokenManager = {
   }
 };
 
-// Constants (unchanged)
+// Constants
 export const constants = {
   DEPARTMENTS: [
     'Computer Science',

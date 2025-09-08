@@ -54,14 +54,14 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Allowed Origins
 const allowedOrigins = [
   'http://localhost:3000',
-  'https://edumeet-1.onrender.com',
-  'https://edumeet.onrender.com'
+  'https://edumeet-1.onrender.com', // Your deployed frontend URL
+  'https://edumeet.onrender.com',   // Alternative if you have this too
+  // Add your actual deployed frontend URL here if different
 ];
 
-// Socket.io setup with CORS
+// Socket.io setup with CORS - UPDATED
 const io = socketIo(server, {
   cors: {
     origin: allowedOrigins,
@@ -69,12 +69,16 @@ const io = socketIo(server, {
     credentials: true
   },
   transports: ['websocket', 'polling'],
-  allowEIO3: true
+  allowEIO3: true,
+  // Add these options for better production support
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
-// CORS Middleware
+// CORS Middleware - UPDATED with better production handling
 app.use(cors({
   origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) {
       console.log('[CORS] No origin - allowing request (Postman or same-origin)');
       return callback(null, true);
@@ -85,6 +89,12 @@ app.use(cors({
       return callback(null, true);
     } else {
       console.error(`[CORS] Blocked origin: ${origin}`);
+      // In production, you might want to be more lenient during debugging
+      if (process.env.NODE_ENV === 'production') {
+        // Log the blocked origin but still allow it for debugging
+        console.warn(`[CORS] WARNING: Allowing blocked origin in production for debugging: ${origin}`);
+        return callback(null, true);
+      }
       return callback(new Error(`CORS error: ${origin} not allowed`));
     }
   },
