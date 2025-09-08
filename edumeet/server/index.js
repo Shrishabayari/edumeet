@@ -14,7 +14,7 @@ const jwt = require('jsonwebtoken');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/adminRoutes');
 const teacherRoutes = require('./routes/teacherRoutes');
-const appointmentRoutes = require('./routes/appointmentRoutes');
+const appointmentRoutes = require('./routes/appointmentRoute');
 const messageRoutes = require('./routes/messageRoutes');
 
 // Import database connection

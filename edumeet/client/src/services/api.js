@@ -11,21 +11,22 @@ const api = axios.create({
   },
 });
 
-// Helper function to get token from either storage location
+// FIXED: Helper function to get token from either storage location
 const getTokenFromStorage = (tokenType = 'userToken') => {
+  // First check localStorage, then sessionStorage
   let token = localStorage.getItem(tokenType);
   if (!token) {
     token = sessionStorage.getItem(tokenType);
   }
   
   if (process.env.NODE_ENV === 'development' && token) {
-    console.log(`Found ${tokenType} in ${localStorage.getItem(tokenType) ? 'localStorage' : 'sessionStorage'}`);
+    console.log(`🔍 Found ${tokenType} in ${localStorage.getItem(tokenType) ? 'localStorage' : 'sessionStorage'}`);
   }
   
   return token;
 };
 
-// Request interceptor
+// Request interceptor - FIXED to check both storage locations
 api.interceptors.request.use(
   (config) => {
     let token = null;
@@ -44,32 +45,32 @@ api.interceptors.request.use(
     }
 
     if (process.env.NODE_ENV === 'development') {
-      console.log(`API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+      console.log(`🔄 API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
       if (token) {
-        console.log(`  Token Used: ${token.substring(0, 20)}...`);
+        console.log(`   Token Used: ${token.substring(0, 20)}...`);
       } else {
-        console.log('  No token sent for this request.');
+        console.log('   No token sent for this request.');
       }
     }
     return config;
   },
   (error) => {
-    console.error('Request Error:', error);
+    console.error('❌ Request Error:', error);
     return Promise.reject(error);
   }
 );
 
-// Response interceptor
+// Response interceptor - FIXED to clear tokens from both storage locations
 api.interceptors.response.use(
   (response) => {
     if (process.env.NODE_ENV === 'development') {
-      console.log(`API Response: ${response.status} ${response.config.url}`);
+      console.log(`✅ API Response: ${response.status} ${response.config.url}`);
       console.log('Response data:', response.data);
     }
     return response;
   },
   (error) => {
-    console.error('API Error:', error);
+    console.error('❌ API Error:', error);
 
     if (error.response) {
       const { status, data, config } = error.response;
@@ -115,6 +116,7 @@ api.interceptors.response.use(
   }
 );
 
+// API endpoints object (unchanged)
 export const endpoints = {
   // Auth endpoints (for regular users)
   auth: {
@@ -151,10 +153,6 @@ export const endpoints = {
     getById: (id) => `/appointments/${id}`,
     getStats: '/appointments/stats',
     
-    // User-specific routes - FIXED
-    getCurrentUser: '/appointments/my-appointments',
-    getCurrentUserHistory: '/appointments/my-appointments/history',
-
     // Student workflow - request appointment (needs teacher approval)
     request: '/appointments/request',
     
@@ -191,15 +189,14 @@ export const endpoints = {
     approveUser: (id) => `/auth/admin/approve/${id}`,
     rejectUser: (id) => `/auth/admin/reject/${id}`,
   },
-  
   messages: {
-    getByRoom: (roomId) => `/messages/room/${roomId}`,
-    delete: (id) => `/messages/${id}`,
-    getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
-  }
+  getByRoom: (roomId) => `/messages/room/${roomId}`,
+  delete: (id) => `/messages/${id}`,
+  getRoomStats: (roomId) => `/messages/room/${roomId}/stats`
+}
 };
 
-// API methods
+// API methods (unchanged - they'll now use the fixed token retrieval)
 export const apiMethods = {
   // Auth Operations
   register: (userData) => api.post(endpoints.auth.register, userData),
@@ -226,165 +223,78 @@ export const apiMethods = {
   getTeacherProfile: () => api.get(endpoints.teachers.profile),
   teacherLogout: () => api.post(endpoints.teachers.logout),
 
-  // FIXED: Current User Appointments - Using correct endpoint
-  getCurrentUserAppointments: (params = {}) => {
-    console.log('Getting current user appointments with params:', params);
-    return api.get(endpoints.appointments.getCurrentUser, { params });
-  },
-
-  getCurrentUserAppointmentHistory: (params = {}) => {
-    console.log('Getting current user appointment history with params:', params);
-    return api.get(endpoints.appointments.getCurrentUserHistory, { params });
-  },
-
-  // Enhanced method with error handling and retry
-  getCurrentUserAppointmentsWithRetry: async (params = {}, maxRetries = 3) => {
-    let lastError = null;
-    
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        console.log(`Getting user appointments attempt ${i + 1}/${maxRetries}`);
-        const response = await api.get(endpoints.appointments.getCurrentUser, { params });
-        console.log(`User appointments retrieved on attempt ${i + 1}`);
-        return response;
-      } catch (error) {
-        lastError = error;
-        console.log(`Attempt ${i + 1} failed:`, error.message);
-        
-        // Don't retry on client errors (4xx)
-        if (error.response?.status >= 400 && error.response?.status < 500) {
-          break;
-        }
-        
-        // Wait before retrying (exponential backoff)
-        if (i < maxRetries - 1) {
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
-        }
-      }
-    }
-    
-    throw lastError || new Error('All attempts to get user appointments failed');
-  },
-
-  // Get user appointments by status
-  getCurrentUserAppointmentsByStatus: (status, params = {}) => {
-    console.log(`Getting current user ${status} appointments`);
-    return api.get(endpoints.appointments.getCurrentUser, { 
-      params: { ...params, status } 
-    });
-  },
-
-  // Get user appointments in date range
-  getCurrentUserAppointmentsInRange: (startDate, endDate, params = {}) => {
-    console.log('Getting current user appointments in date range:', { startDate, endDate });
-    return api.get(endpoints.appointments.getCurrentUser, { 
-      params: { 
-        ...params, 
-        startDate: startDate.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0]
-      } 
-    });
-  },
-
-  // Convenience methods for specific appointment types
-  getCurrentUserPendingAppointments: (params = {}) => {
-    return apiMethods.getCurrentUserAppointmentsByStatus('pending', params);
-  },
-
-  getCurrentUserConfirmedAppointments: (params = {}) => {
-    return apiMethods.getCurrentUserAppointmentsByStatus('confirmed', params);
-  },
-
-  getCurrentUserBookedAppointments: (params = {}) => {
-    return apiMethods.getCurrentUserAppointmentsByStatus('booked', params);
-  },
-
-  getCurrentUserCompletedAppointments: (params = {}) => {
-    return apiMethods.getCurrentUserAppointmentsByStatus('completed', params);
-  },
-
-  getCurrentUserCancelledAppointments: (params = {}) => {
-    return apiMethods.getCurrentUserAppointmentsByStatus('cancelled', params);
-  },
-
-  getCurrentUserRejectedAppointments: (params = {}) => {
-    return apiMethods.getCurrentUserAppointmentsByStatus('rejected', params);
-  },
-
-  // Regular Appointment Operations
+  // Appointment Operations
   requestAppointment: (appointmentData) => {
-    console.log('Student requesting appointment:', appointmentData);
+    console.log('🔄 Student requesting appointment:', appointmentData);
     return api.post(endpoints.appointments.request, appointmentData);
   },
 
   teacherBookAppointment: (appointmentData) => {
-    console.log('Teacher booking appointment directly:', appointmentData);
+    console.log('🔄 Teacher booking appointment directly:', appointmentData);
     return api.post(endpoints.appointments.book, appointmentData);
   },
 
   // Improved acceptAppointmentRequest API method
-  acceptAppointmentRequest: async (id, responseMessage = '') => {
-    try {
-      console.log('Accepting appointment request:', id);
-      console.log('Response message:', responseMessage);
-      
-      if (!id || id.length !== 24) {
-        throw new Error('Invalid appointment ID format');
-      }
-      
-      const response = await api.put(endpoints.appointments.accept(id), { 
-        responseMessage: responseMessage.trim() 
-      });
-      
-      console.log('Appointment accepted successfully:', response.data);
-      return response;
-      
-    } catch (error) {
-      console.error('Error accepting appointment:', error);
-      
-      if (error.response) {
-        const { status, data } = error.response;
-        console.error(`HTTP ${status}:`, data);
-        
-        switch (status) {
-          case 404:
-            throw new Error('Appointment not found or may have been already processed');
-          case 400:
-            throw new Error(data.message || 'Invalid request - check appointment status');
-          case 403:
-            throw new Error('You do not have permission to accept this appointment');
-          case 409:
-            throw new Error('Appointment has already been processed');
-          default:
-            throw new Error(data.message || `Server error (${status}). Please try again.`);
-        }
-      } else if (error.request) {
-        throw new Error('Cannot connect to server. Please check your internet connection.');
-      } else {
-        throw new Error(error.message || 'An unexpected error occurred');
-      }
+acceptAppointmentRequest: async (id, responseMessage = '') => {
+  try {
+    console.log('🔄 Accepting appointment request:', id);
+    console.log('Response message:', responseMessage);
+    
+    // Validate ID format on frontend too
+    if (!id || id.length !== 24) {
+      throw new Error('Invalid appointment ID format');
     }
-  },
+    
+    const response = await api.put(endpoints.appointments.accept(id), { 
+      responseMessage: responseMessage.trim() 
+    });
+    
+    console.log('✅ Appointment accepted successfully:', response.data);
+    return response;
+    
+  } catch (error) {
+    console.error('❌ Error accepting appointment:', error);
+    
+    // Enhanced error handling
+    if (error.response) {
+      const { status, data } = error.response;
+      console.error(`HTTP ${status}:`, data);
+      
+      // Provide more specific error messages
+      switch (status) {
+        case 404:
+          throw new Error('Appointment not found or may have been already processed');
+        case 400:
+          throw new Error(data.message || 'Invalid request - check appointment status');
+        case 403:
+          throw new Error('You do not have permission to accept this appointment');
+        case 409:
+          throw new Error('Appointment has already been processed');
+        default:
+          throw new Error(data.message || `Server error (${status}). Please try again.`);
+      }
+    } else if (error.request) {
+      throw new Error('Cannot connect to server. Please check your internet connection.');
+    } else {
+      throw new Error(error.message || 'An unexpected error occurred');
+    }
+  }
+},
 
   rejectAppointmentRequest: (id, responseMessage = '') => {
-    console.log(`Teacher rejecting appointment request: ${id}`);
+    console.log(`🔄 Teacher rejecting appointment request: ${id}`);
     return api.put(endpoints.appointments.reject(id), { responseMessage });
   },
 
   completeAppointment: (id) => {
-    console.log(`Completing appointment: ${id}`);
+    console.log(`🔄 Completing appointment: ${id}`);
     return api.put(endpoints.appointments.complete(id));
   },
 
   getAllAppointments: (params = {}) => api.get(endpoints.appointments.getAll, { params }),
   getAppointmentById: (id) => api.get(endpoints.appointments.getById(id)),
   updateAppointment: (id, data) => api.put(endpoints.appointments.update(id), data),
-  
-  cancelAppointment: (id, reason = '') => {
-    console.log(`Cancelling appointment: ${id}, reason: ${reason}`);
-    return api.put(endpoints.appointments.cancel(id), { reason });
-  },
-  
+  cancelAppointment: (id, reason = '') => api.put(endpoints.appointments.cancel(id), { reason }),
   getAppointmentStats: () => api.get(endpoints.appointments.getStats),
 
   getTeacherAppointments: (teacherId, params = {}) => {
@@ -436,13 +346,13 @@ export const apiMethods = {
 
     for (let i = 0; i < maxRetries; i++) {
       try {
-        console.log(`Requesting appointment attempt ${i + 1}/${maxRetries}`);
+        console.log(`🔄 Requesting appointment attempt ${i + 1}/${maxRetries}`);
         const response = await api.post(endpoints.appointments.request, appointmentData);
-        console.log(`Appointment requested successfully on attempt ${i + 1}`);
+        console.log(`✅ Appointment requested successfully on attempt ${i + 1}`);
         return response;
       } catch (error) {
         lastError = error;
-        console.log(`Request attempt ${i + 1} failed:`, error.message);
+        console.log(`❌ Request attempt ${i + 1} failed:`, error.message);
         
         if (error.response?.status === 400 || error.response?.status === 409) {
           break;
@@ -516,25 +426,25 @@ export const apiMethods = {
       isValid: errors.length === 0,
       errors
     };
-  },
+  }
 };
 
-// Token management utilities
+// FIXED: Token management utilities - now handle both storage locations
 export const tokenManager = {
-  // User token methods
+  // User token methods - FIXED to handle both storage types
   setUserToken: (token, persistent = false) => {
-    console.log('setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
-    
-    if (persistent) {
-      localStorage.setItem('userToken', token);
-      sessionStorage.removeItem('userToken');
-      console.log('Token stored in localStorage');
-    } else {
-      sessionStorage.setItem('userToken', token);
-      localStorage.removeItem('userToken');    
-      console.log('Token stored in sessionStorage');
-    }
-  },
+  console.log('🔧 setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
+  
+  if (persistent) {
+    localStorage.setItem('userToken', token);
+    sessionStorage.removeItem('userToken'); // Clear from session
+    console.log('✅ Token stored in localStorage');
+  } else {
+    sessionStorage.setItem('userToken', token);
+    localStorage.removeItem('userToken'); // Clear from localStorage  
+    console.log('✅ Token stored in sessionStorage');
+  }
+},
   
   getUserToken: () => getTokenFromStorage('userToken'),
   
@@ -547,7 +457,7 @@ export const tokenManager = {
     sessionStorage.removeItem('userRole');
   },
   
-  // Admin token methods
+  // Admin token methods - FIXED to handle both storage types
   setAdminToken: (token, persistent = false) => {
     if (persistent) {
       localStorage.setItem('adminToken', token);
@@ -565,7 +475,7 @@ export const tokenManager = {
     sessionStorage.removeItem('adminToken');
   },
   
-  // Teacher token methods
+  // Teacher token methods - FIXED to handle both storage types
   setTeacherToken: (token, persistent = false) => {
     if (persistent) {
       localStorage.setItem('teacherToken', token);
@@ -588,12 +498,12 @@ export const tokenManager = {
     sessionStorage.clear();
   },
 
-  // Helper method to check if user is logged in
+  // ADDED: Helper method to check if user is logged in
   isUserLoggedIn: () => {
     return !!getTokenFromStorage('userToken');
   },
 
-  // Helper method to get current user info from either storage
+  // ADDED: Helper method to get current user info from either storage
   getCurrentUser: () => {
     let user = localStorage.getItem('user');
     if (!user) {
@@ -602,7 +512,7 @@ export const tokenManager = {
     return user ? JSON.parse(user) : null;
   },
 
-  // Helper method to get current user role
+  // ADDED: Helper method to get current user role
   getCurrentUserRole: () => {
     let role = localStorage.getItem('userRole');
     if (!role) {
@@ -612,7 +522,7 @@ export const tokenManager = {
   }
 };
 
-// Constants
+// Constants (unchanged)
 export const constants = {
   DEPARTMENTS: [
     'Computer Science',
@@ -639,17 +549,17 @@ export const constants = {
   ],
   
   APPOINTMENT_STATUSES: [
-    'pending',      
-    'confirmed',    
-    'rejected',     
-    'cancelled',    
-    'completed',    
-    'booked'          
+    'pending',    
+    'confirmed',  
+    'rejected',   
+    'cancelled',  
+    'completed',  
+    'booked'      
   ],
 
   APPOINTMENT_TYPES: {
-    STUDENT_REQUEST: 'student_request',    
-    TEACHER_BOOKING: 'teacher_booking'      
+    STUDENT_REQUEST: 'student_request',  
+    TEACHER_BOOKING: 'teacher_booking'   
   }
 };
 

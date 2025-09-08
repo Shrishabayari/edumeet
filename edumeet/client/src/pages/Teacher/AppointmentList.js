@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Calendar, CheckCircle, XCircle, AlertCircle, Clock, CheckSquare, Users, BookOpen } from 'lucide-react';
+import { User, Calendar, CheckCircle, XCircle, AlertCircle, Clock, Users, BookOpen } from 'lucide-react';
 import { apiMethods } from '../../services/api';
 import TeacherNavbar from '../../components/teacherNavbar';
 
