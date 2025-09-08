@@ -1,613 +1,428 @@
 import React, { useState, useEffect } from 'react';
-import { apiMethods, tokenManager } from '../../services/api';
+import { User, Calendar, CheckCircle, XCircle, AlertCircle, Clock, Users, BookOpen, Shield } from 'lucide-react';
+import { apiMethods } from '../../services/api';
+import UserNavbar from '../../components/userNavbar';
 
-const UserAppointmentsList = () => {
-  const [appointments, setAppointments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [filter, setFilter] = useState('all');
-  const [userInfo, setUserInfo] = useState(null);
-  const [pagination, setPagination] = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [statusCounts, setStatusCounts] = useState({});
+const UserAppointmentList = ({ initialAppointments = [], onAppointmentUpdate }) => {
+  const [appointments, setAppointments] = useState(initialAppointments);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [updatingStatus, setUpdatingStatus] = useState(null);
+  const [showPermissionMessage, setShowPermissionMessage] = useState(false);
 
-  useEffect(() => {
-    fetchUserAppointments();
-  }, [filter, currentPage]);
-
-  const fetchUserAppointments = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      if (!tokenManager.isUserLoggedIn()) {
-        setError('Please log in to view your appointments');
-        setLoading(false);
-        return;
-      }
-
-      console.log('Fetching appointments with filter:', filter, 'page:', currentPage);
-
-      const params = { 
-        page: currentPage, 
-        limit: 10 
-      };
-      
-      // Add status filter if it's not 'all'
-      if (filter !== 'all') {
-        params.status = filter;
-      }
-
-      const response = await apiMethods.getCurrentUserAppointments(params);
-      
-      console.log('API Response:', response.data);
-      
-      if (response.data.success) {
-        const appointmentsData = response.data.data.appointments || [];
-        const userInfoData = response.data.userInfo || null;
-        const paginationData = response.data.data.pagination || null;
-        
-        setAppointments(appointmentsData);
-        setUserInfo(userInfoData);
-        setPagination(paginationData);
-        
-        // Calculate status counts for all appointments (not just current page)
-        await fetchStatusCounts();
-        
-        console.log('Loaded appointments:', appointmentsData.length);
-      } else {
-        setError(response.data.message || 'Failed to fetch appointments');
-      }
-    } catch (err) {
-      console.error('Error fetching appointments:', err);
-      
-      if (err.response?.status === 401) {
-        setError('Your session has expired. Please log in again.');
-        setTimeout(() => {
-          tokenManager.removeUserToken();
-          window.location.href = '/login';
-        }, 2000);
-      } else if (err.response?.status === 400) {
-        setError('Invalid request. Please check your login status.');
-      } else if (err.response?.status === 404) {
-        setError('Appointments endpoint not found. Please contact support.');
-      } else if (err.response?.status === 500) {
-        setError('Server error. Please try again later.');
-      } else {
-        setError(err.message || 'Failed to fetch appointments. Please check your connection.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Fetch status counts for filter buttons
-  const fetchStatusCounts = async () => {
-    try {
-      const statusesToCount = ['all', 'pending', 'confirmed', 'booked', 'completed', 'cancelled', 'rejected'];
-      const counts = {};
-
-      // Get count for all appointments
-      const allResponse = await apiMethods.getCurrentUserAppointments({ limit: 1000 });
-      if (allResponse.data.success) {
-        const allAppointments = allResponse.data.data.appointments;
-        counts.all = allAppointments.length;
-        
-        // Count by status
-        statusesToCount.slice(1).forEach(status => {
-          counts[status] = allAppointments.filter(apt => apt.status === status).length;
-        });
-      }
-
-      setStatusCounts(counts);
-    } catch (error) {
-      console.warn('Failed to fetch status counts:', error);
-    }
-  };
-
-  const formatDate = (dateString) => {
+  // Helper function to format date for display
+  const formatDateForDisplay = (dateString) => {
     try {
       const date = new Date(dateString);
       return date.toLocaleDateString('en-US', {
-        year: 'numeric',
+        weekday: 'short',
         month: 'short',
-        day: 'numeric',
-        weekday: 'short'
+        day: 'numeric'
       });
-    } catch (e) {
-      return 'Invalid Date';
+    } catch (error) {
+      return dateString;
     }
   };
 
-  const formatDateTime = (dateString) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch (e) {
-      return 'Invalid Date';
-    }
-  };
-
-  const getStatusColor = (status) => {
-    const colors = {
-      pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-      confirmed: 'bg-green-100 text-green-800 border-green-200',
-      booked: 'bg-blue-100 text-blue-800 border-blue-200',
-      completed: 'bg-gray-100 text-gray-800 border-gray-200',
-      cancelled: 'bg-red-100 text-red-800 border-red-200',
-      rejected: 'bg-red-100 text-red-800 border-red-200'
+  // Helper function to get status color and icon
+  const getStatusDisplay = (status) => {
+    const statusConfig = {
+      pending: {
+        color: 'text-amber-700',
+        bgColor: 'bg-gradient-to-r from-amber-50 to-orange-50',
+        borderColor: 'border-amber-200',
+        icon: Clock,
+        label: 'Pending Review',
+        dotColor: 'bg-amber-400'
+      },
+      confirmed: {
+        color: 'text-blue-700',
+        bgColor: 'bg-gradient-to-r from-blue-50 to-indigo-50',
+        borderColor: 'border-blue-200',
+        icon: CheckCircle,
+        label: 'Confirmed',
+        dotColor: 'bg-blue-400'
+      },
+      completed: {
+        color: 'text-purple-700',
+        bgColor: 'bg-gradient-to-r from-purple-50 to-violet-50',
+        borderColor: 'border-purple-200',
+        icon: CheckCircle,
+        label: 'Completed',
+        dotColor: 'bg-purple-400'
+      },
+      cancelled: {
+        color: 'text-red-700',
+        bgColor: 'bg-gradient-to-r from-red-50 to-pink-50',
+        borderColor: 'border-red-200',
+        icon: XCircle,
+        label: 'Cancelled',
+        dotColor: 'bg-red-400'
+      },
+      rejected: {
+        color: 'text-red-700',
+        bgColor: 'bg-gradient-to-r from-red-50 to-rose-50',
+        borderColor: 'border-red-200',
+        icon: XCircle,
+        label: 'Rejected',
+        dotColor: 'bg-red-400'
+      }
     };
-    return colors[status] || 'bg-gray-100 text-gray-800 border-gray-200';
+
+    return statusConfig[status?.toLowerCase()] || statusConfig.pending;
   };
 
-  const getStatusIcon = (status) => {
-    const icons = {
-      pending: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-      confirmed: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-      booked: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
-      ),
-      completed: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-      ),
-      cancelled: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      ),
-      rejected: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      )
-    };
-    return icons[status] || icons.pending;
-  };
-
-  const handleCancelAppointment = async (appointmentId, appointmentStatus) => {
-    if (!appointmentId) {
-      alert('Invalid appointment ID');
-      return;
-    }
-
-    // Check if appointment can be cancelled
-    const cancellableStatuses = ['pending', 'confirmed', 'booked'];
-    if (!cancellableStatuses.includes(appointmentStatus)) {
-      alert('This appointment cannot be cancelled');
-      return;
-    }
-
-    const confirmCancel = window.confirm('Are you sure you want to cancel this appointment? This action cannot be undone.');
-    if (!confirmCancel) return;
-
+  const fetchAppointments = React.useCallback(async () => {
+    setLoading(true);
+    setError('');
     try {
-      const reason = prompt('Please provide a reason for cancellation (optional):');
-      if (reason === null) return; // User clicked cancel
+      const response = await apiMethods.getAllAppointments();
+      let appointmentsArray = [];
+      const data = response.data;
 
-      setLoading(true);
-      await apiMethods.cancelAppointment(appointmentId, reason);
-      
-      // Refresh the appointments list
-      await fetchUserAppointments();
-      
-      alert('Appointment cancelled successfully');
-    } catch (err) {
-      console.error('Cancel error:', err);
-      alert('Failed to cancel appointment: ' + (err.message || 'Unknown error'));
+      if (Array.isArray(data)) {
+        appointmentsArray = data;
+      } else if (data && Array.isArray(data.appointments)) {
+        appointmentsArray = data.appointments;
+      } else if (data && Array.isArray(data.data)) {
+        appointmentsArray = data.data;
+      } else if (data && data.success && Array.isArray(data.data)) {
+        appointmentsArray = data.data;
+      } else {
+        console.warn('Appointments API returned unexpected data format:', data);
+        appointmentsArray = [];
+      }
+      setAppointments(appointmentsArray);
+      if (onAppointmentUpdate) {
+        onAppointmentUpdate(appointmentsArray);
+      }
+    } catch (error) {
+      console.error('Error fetching appointments:', error);
+      setError('Failed to load appointments. Please try again.');
+      setAppointments([]);
     } finally {
       setLoading(false);
     }
+  }, [onAppointmentUpdate]);
+
+  useEffect(() => {
+    fetchAppointments();
+  }, [fetchAppointments]);
+
+  // Function to handle permission denied message
+  const showPermissionDenied = () => {
+    setShowPermissionMessage(true);
+    setTimeout(() => {
+      setShowPermissionMessage(false);
+    }, 4000);
   };
 
-  const handlePageChange = (newPage) => {
-    if (newPage >= 1 && newPage <= (pagination?.totalPages || 1)) {
-      setCurrentPage(newPage);
+  // Function to handle status change attempts (only allow cancel for users)
+  const handleStatusChange = (appointmentId, newStatus) => {
+    if (newStatus !== 'cancelled') {
+      showPermissionDenied();
+      return;
+    }
+    cancelAppointment(appointmentId);
+  };
+
+  const cancelAppointment = async (appointmentId) => {
+    if (!window.confirm('Are you sure you want to cancel this appointment?')) {
+      return;
+    }
+    
+    setUpdatingStatus(appointmentId);
+    setError('');
+    
+    try {
+      let response;
+      
+      try {
+        response = await apiMethods.cancelAppointment(appointmentId, 'Cancelled by student');
+      } catch (error) {
+        console.log('Cancel method failed, using direct update:', error.message);
+        response = await apiMethods.updateAppointment(appointmentId, { 
+          status: 'cancelled',
+          updatedBy: 'student',
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      console.log('Cancel response:', response.data);
+
+      setAppointments(prevAppointments =>
+        prevAppointments.map(apt =>
+          (apt.id || apt._id) === appointmentId
+            ? { ...apt, status: 'cancelled' }
+            : apt
+        )
+      );
+
+      if (onAppointmentUpdate) {
+        const updatedAppointments = appointments.map(apt =>
+          (apt.id || apt._id) === appointmentId
+            ? { ...apt, status: 'cancelled' }
+            : apt
+        );
+        onAppointmentUpdate(updatedAppointments);
+      }
+
+      setError('Appointment cancelled successfully!');
+      setTimeout(() => setError(''), 3000);
+
+    } catch (error) {
+      console.error('Error cancelling appointment:', error);
+      console.error('Error details:', error.response?.data);
+      
+      const errorMessage = error.response?.data?.message || error.message || 'Unknown error occurred';
+      setError(`Failed to cancel appointment: ${errorMessage}`);
+    } finally {
+      setUpdatingStatus(null);
     }
   };
 
-  const handleFilterChange = (newFilter) => {
-    setFilter(newFilter);
-    setCurrentPage(1); // Reset to first page when changing filter
-  };
-
-  // Loading state
-  if (loading && appointments.length === 0) {
-    return (
-      <div className="flex items-center justify-center min-h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading your appointments...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-          <div className="flex items-center mb-4">
-            <svg className="w-6 h-6 text-red-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h3 className="text-lg font-medium text-red-800">Error Loading Appointments</h3>
-          </div>
-          <p className="text-red-700 mb-6">{error}</p>
-          
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={fetchUserAppointments}
-              disabled={loading}
-              className="bg-red-100 hover:bg-red-200 text-red-800 px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {loading ? 'Retrying...' : 'Try Again'}
-            </button>
-            <button
-              onClick={() => window.location.href = '/login'}
-              className="bg-blue-100 hover:bg-blue-200 text-blue-800 px-4 py-2 rounded-lg transition-colors"
-            >
-              Go to Login
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const safeAppointments = Array.isArray(appointments) ? appointments : [];
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-3">My Appointments</h1>
-        {userInfo && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-lg font-medium text-blue-900">
-                  Welcome, {userInfo.name}
-                </p>
-                <p className="text-blue-700">
-                  {userInfo.email} • {userInfo.role?.charAt(0).toUpperCase() + userInfo.role?.slice(1)}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50">
+      <UserNavbar/>
+      
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header Section */}
+        <div className="mb-8">
+          <div className="flex items-center space-x-3 mb-2">
+            <div className="p-2 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg">
+              <Calendar className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">All Appointments</h1>
+              <p className="text-gray-600 mt-1">View and manage your consultation sessions</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-4 text-sm text-gray-500">
+            <div className="flex items-center space-x-1">
+              <Users className="w-4 h-4" />
+              <span>{safeAppointments.length} Total</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <Clock className="w-4 h-4" />
+              <span>{safeAppointments.filter(apt => apt.status === 'pending').length} Pending</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Permission Denied Message */}
+        {showPermissionMessage && (
+          <div className="mb-8 rounded-2xl border-2 p-6 bg-gradient-to-r from-orange-50/80 to-red-50/80 border-orange-200 shadow-orange-100/50 shadow-lg backdrop-blur-sm transition-all duration-300">
+            <div className="flex items-start space-x-3">
+              <div className="p-2 rounded-full bg-orange-100">
+                <Shield className="w-5 h-5 text-orange-600" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-orange-800">Access Denied</p>
+                <p className="text-orange-700">
+                  You don't have the authority to change appointment status. Only teachers can modify appointment status. You can only cancel your appointments.
                 </p>
               </div>
-              {pagination && (
-                <div className="text-right">
-                  <p className="text-2xl font-bold text-blue-900">{pagination.totalCount}</p>
-                  <p className="text-sm text-blue-700">Total Appointments</p>
-                </div>
-              )}
+              <button
+                onClick={() => setShowPermissionMessage(false)}
+                className="p-1 rounded-full hover:bg-white/50 transition-colors text-orange-600 hover:text-orange-800"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
             </div>
           </div>
         )}
-      </div>
 
-      {/* Filter Buttons */}
-      <div className="mb-8">
-        <div className="flex flex-wrap gap-3">
-          {['all', 'pending', 'confirmed', 'booked', 'completed', 'cancelled', 'rejected'].map((status) => (
-            <button
-              key={status}
-              onClick={() => handleFilterChange(status)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all duration-200 ${
-                filter === status
-                  ? 'bg-blue-600 text-white shadow-md transform scale-105'
-                  : 'bg-white text-gray-700 border-2 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-              }`}
-            >
-              {getStatusIcon(status)}
-              <span className="capitalize">{status}</span>
-              <span className={`px-2 py-0.5 text-xs rounded-full font-semibold ${
-                filter === status 
-                  ? 'bg-blue-700 text-blue-100' 
-                  : 'bg-gray-100 text-gray-600'
+        {/* Error/Success Message */}
+        {error && (
+          <div className={`mb-8 rounded-2xl border-2 p-6 backdrop-blur-sm transition-all duration-300 ${
+            error.includes('successfully') 
+              ? 'bg-gradient-to-r from-emerald-50/80 to-green-50/80 border-emerald-200 shadow-emerald-100/50 shadow-lg' 
+              : 'bg-gradient-to-r from-red-50/80 to-pink-50/80 border-red-200 shadow-red-100/50 shadow-lg'
+          }`}>
+            <div className="flex items-start space-x-3">
+              <div className={`p-2 rounded-full ${
+                error.includes('successfully') ? 'bg-emerald-100' : 'bg-red-100'
               }`}>
-                {statusCounts[status] || 0}
-              </span>
-            </button>
-          ))}
+                <AlertCircle className={`w-5 h-5 ${
+                  error.includes('successfully') ? 'text-emerald-600' : 'text-red-600'
+                }`} />
+              </div>
+              <div className="flex-1">
+                <p className={`font-semibold ${
+                  error.includes('successfully') ? 'text-emerald-800' : 'text-red-800'
+                }`}>
+                  {error.includes('successfully') ? 'Success' : 'Error'}
+                </p>
+                <p className={error.includes('successfully') ? 'text-emerald-700' : 'text-red-700'}>
+                  {error}
+                </p>
+              </div>
+              <button
+                onClick={() => setError('')}
+                className={`p-1 rounded-full hover:bg-white/50 transition-colors ${
+                  error.includes('successfully') ? 'text-emerald-600 hover:text-emerald-800' : 'text-red-600 hover:text-red-800'
+                }`}
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Loading Overlay */}
+        {loading && (
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-white rounded-3xl p-8 shadow-2xl border border-gray-100 max-w-sm w-full mx-4">
+              <div className="text-center">
+                <div className="relative mx-auto w-16 h-16 mb-6">
+                  <div className="absolute inset-0 rounded-full border-4 border-gray-200"></div>
+                  <div className="absolute inset-0 rounded-full border-4 border-blue-600 border-t-transparent animate-spin"></div>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Loading Appointments</h3>
+                <p className="text-gray-600">Please wait while we fetch your data...</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Appointments Grid */}
+        <div className="space-y-6">
+          {safeAppointments.length === 0 && !loading ? (
+            <div className="bg-white rounded-3xl shadow-xl border border-gray-100 p-16 text-center">
+              <div className="max-w-md mx-auto">
+                <div className="w-24 h-24 mx-auto mb-6 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
+                  <Calendar className="w-12 h-12 text-gray-400" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900 mb-3">No Appointments Yet</h3>
+                <p className="text-gray-500 mb-6">You haven't booked any appointments yet. Start by scheduling a consultation with your teacher.</p>
+                <div className="inline-flex items-center space-x-2 text-blue-600">
+                  <BookOpen className="w-4 h-4" />
+                  <span className="text-sm font-medium">Ready to schedule your first session</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            safeAppointments.map(appointment => {
+              const statusDisplay = getStatusDisplay(appointment.status);
+              const StatusIcon = statusDisplay.icon;
+              const appointmentId = appointment.id || appointment._id;
+              const isUpdating = updatingStatus === appointmentId;
+              const canCancel = appointment.status !== 'cancelled' && appointment.status !== 'completed';
+
+              return (
+                <div 
+                  key={appointmentId} 
+                  className="group bg-white rounded-3xl shadow-lg border border-gray-100 p-8 hover:shadow-2xl hover:border-gray-200 transition-all duration-300 hover:-translate-y-1"
+                >
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-6 lg:space-y-0">
+                    {/* Appointment Info */}
+                    <div className="flex items-start space-x-6">
+                      {/* Avatar */}
+                      <div className="relative">
+                        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 rounded-2xl shadow-lg flex items-center justify-center">
+                          <User className="w-8 h-8 text-white" />
+                        </div>
+                        <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full border-3 border-white ${statusDisplay.dotColor}`}></div>
+                      </div>
+
+                      {/* Details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-3 mb-2">
+                          <h3 className="text-xl font-bold text-gray-900 truncate">
+                            {appointment.teacher?.name || appointment.teacherId?.name || 'Teacher Name'}
+                          </h3>
+                          <div className={`px-3 py-1 rounded-full border ${statusDisplay.bgColor} ${statusDisplay.borderColor}`}>
+                            <div className="flex items-center space-x-2">
+                              <StatusIcon className={`w-4 h-4 ${statusDisplay.color}`} />
+                              <span className={`text-sm font-semibold ${statusDisplay.color}`}>
+                                {statusDisplay.label}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 text-gray-600">
+                          <p className="flex items-center space-x-2">
+                            <span className="font-medium text-gray-900">Teacher Email:</span>
+                            <span>{appointment.teacher?.email || appointment.teacherId?.email}</span>
+                          </p>
+                          <p className="flex items-center space-x-2">
+                            <span className="font-medium text-gray-900">Date:</span>
+                            <span>{formatDateForDisplay(appointment.date || appointment.appointmentDate)}</span>
+                          </p>
+                          <p className="flex items-center space-x-2">
+                            <span className="font-medium text-gray-900">Time:</span>
+                            <span>{appointment.day} at {appointment.time}</span>
+                          </p>
+                          <p className="flex items-center space-x-2">
+                            <span className="font-medium text-gray-900">Subject:</span>
+                            <span className="px-2 py-1 bg-gray-100 rounded-lg text-sm">
+                              {appointment.subject || 'General Consultation'}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex flex-col items-center space-y-4">
+                      {/* Status Display (Read-only) */}
+                      <div className="w-full">
+                        <select
+                          value={appointment.status || 'pending'}
+                          onChange={(e) => handleStatusChange(appointmentId, e.target.value)}
+                          disabled={isUpdating}
+                          className="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl px-4 py-3 text-sm font-medium cursor-pointer focus:outline-none focus:ring-4 focus:ring-orange-500/20 focus:border-orange-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-sm hover:shadow-md hover:bg-gray-100"
+                          title="Only teachers can change appointment status"
+                        >
+                          <option value="pending">📋 Pending Review</option>
+                          <option value="confirmed">✅ Confirmed</option>
+                          <option value="completed">🎯 Completed</option>
+                          <option value="cancelled">❌ Cancelled</option>
+                          <option value="rejected">🚫 Rejected</option>
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1 text-center">
+                          Status managed by teacher
+                        </p>
+                      </div>
+
+                      {/* Cancel Button */}
+                      {canCancel && (
+                        <button
+                          onClick={() => cancelAppointment(appointmentId)}
+                          disabled={isUpdating}
+                          className="w-full bg-gradient-to-r from-red-500 to-pink-600 text-white px-6 py-3 rounded-2xl font-semibold hover:from-red-600 hover:to-pink-700 transition-all duration-200 disabled:opacity-50 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:cursor-not-allowed"
+                        >
+                          {isUpdating ? (
+                            <div className="flex items-center justify-center space-x-2">
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              <span>Cancelling...</span>
+                            </div>
+                          ) : (
+                            '❌ Cancel Appointment'
+                          )}
+                        </button>
+                      )}
+
+                      {!canCancel && (
+                        <div className="w-full text-center">
+                          <p className="text-sm text-gray-500 bg-gray-50 px-4 py-2 rounded-xl">
+                            {appointment.status === 'cancelled' ? 'Appointment Cancelled' : 'Appointment Completed'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
-
-      {/* Loading overlay for page changes */}
-      {loading && appointments.length > 0 && (
-        <div className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 flex items-center gap-4">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-            <span>Updating appointments...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Appointments List */}
-      {appointments.length === 0 ? (
-        <div className="text-center py-20">
-          <div className="text-gray-400 mb-6">
-            <svg className="mx-auto h-20 w-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          </div>
-          <h3 className="text-2xl font-medium text-gray-900 mb-3">No appointments found</h3>
-          <p className="text-gray-600 text-lg mb-6">
-            {filter === 'all' 
-              ? "You don't have any appointments yet. Book your first appointment to get started!" 
-              : `No ${filter} appointments found. Try selecting a different filter or create a new appointment.`
-            }
-          </p>
-          <button
-            onClick={() => handleFilterChange('all')}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            View All Appointments
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {appointments.map((appointment) => (
-            <div 
-              key={appointment._id} 
-              className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-lg transition-shadow duration-200 overflow-hidden"
-            >
-              {/* Appointment Header */}
-              <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${getStatusColor(appointment.status)}`}>
-                      {appointment.status.toUpperCase()}
-                    </span>
-                    <h3 className="text-xl font-semibold text-gray-900">
-                      {userInfo?.role === 'teacher' ? appointment.student.name : appointment.teacherName}
-                    </h3>
-                  </div>
-                  <div className="text-right text-sm text-gray-500">
-                    <p>ID: #{appointment._id.slice(-8)}</p>
-                    <p>{formatDate(appointment.createdAt)}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Appointment Body */}
-              <div className="p-6">
-                {/* Main Details Grid */}
-                <div className="grid md:grid-cols-2 gap-6 mb-6">
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                        <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">Appointment Date</p>
-                        <p className="text-lg font-semibold text-gray-900">{formatDate(appointment.date)}</p>
-                        <p className="text-sm text-gray-600">{appointment.day}</p>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                        <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">Time</p>
-                        <p className="text-lg font-semibold text-gray-900">{appointment.time}</p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                        <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">Student</p>
-                        <p className="text-lg font-semibold text-gray-900">{appointment.student.name}</p>
-                        <p className="text-sm text-gray-600">{appointment.student.email}</p>
-                      </div>
-                    </div>
-                    
-                    {appointment.student.phone && (
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-                          <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                          </svg>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-500">Phone</p>
-                          <p className="text-lg font-semibold text-gray-900">{appointment.student.phone}</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Subject */}
-                {appointment.student.subject && (
-                  <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                    <div className="flex items-center gap-2 mb-2">
-                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                      </svg>
-                      <span className="font-semibold text-blue-900">Subject</span>
-                    </div>
-                    <p className="text-blue-800">{appointment.student.subject}</p>
-                  </div>
-                )}
-
-                {/* Message */}
-                {appointment.student.message && (
-                  <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                      </svg>
-                      <span className="font-semibold text-gray-700">Message</span>
-                    </div>
-                    <p className="text-gray-700 leading-relaxed">{appointment.student.message}</p>
-                  </div>
-                )}
-
-                {/* Teacher Response */}
-                {appointment.teacherResponse?.responseMessage && (
-                  <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span className="font-semibold text-green-800">Teacher Response</span>
-                    </div>
-                    <p className="text-green-800 leading-relaxed mb-2">{appointment.teacherResponse.responseMessage}</p>
-                    {appointment.teacherResponse.respondedAt && (
-                      <p className="text-xs text-green-600">
-                        Responded: {formatDateTime(appointment.teacherResponse.respondedAt)}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Cancellation Info */}
-                {appointment.cancellation?.cancellationReason && (
-                  <div className="mb-4 p-4 bg-red-50 rounded-lg border border-red-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                      <span className="font-semibold text-red-800">Cancellation Details</span>
-                    </div>
-                    <p className="text-red-800 leading-relaxed mb-2">{appointment.cancellation.cancellationReason}</p>
-                    <p className="text-xs text-red-600">
-                      Cancelled by: {appointment.cancellation.cancelledBy} • {formatDateTime(appointment.cancellation.cancelledAt)}
-                    </p>
-                  </div>
-                )}
-
-                {/* Footer */}
-                <div className="flex justify-between items-center pt-4 border-t border-gray-100">
-                  <div className="flex flex-wrap gap-4 text-sm text-gray-500">
-                    <span>Created: {formatDateTime(appointment.createdAt)}</span>
-                    <span>Updated: {formatDateTime(appointment.updatedAt)}</span>
-                    <span className="bg-gray-100 px-2 py-1 rounded text-xs">
-                      Created by: {appointment.createdBy}
-                    </span>
-                  </div>
-
-                  {/* Action Buttons */}
-                  {['pending', 'confirmed', 'booked'].includes(appointment.status) && (
-                    <button
-                      onClick={() => handleCancelAppointment(appointment._id, appointment.status)}
-                      disabled={loading}
-                      className="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                      Cancel Appointment
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      
-      {/* Pagination */}
-      {pagination && pagination.totalPages > 1 && (
-        <div className="mt-8 bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-gray-600">
-              Showing {Math.min((pagination.currentPage - 1) * 10 + 1, pagination.totalCount)} to{' '}
-              {Math.min(pagination.currentPage * 10, pagination.totalCount)} of {pagination.totalCount} appointments
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handlePageChange(pagination.currentPage - 1)}
-                disabled={!pagination.hasPrev || loading}
-                className="px-4 py-2 text-sm bg-white border border-gray-300 text-gray-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors flex items-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                Previous
-              </button>
-              
-              <div className="flex items-center gap-1">
-                {[...Array(Math.min(pagination.totalPages, 5))].map((_, index) => {
-                  let pageNumber;
-                  if (pagination.totalPages <= 5) {
-                    pageNumber = index + 1;
-                  } else {
-                    const current = pagination.currentPage;
-                    const total = pagination.totalPages;
-                    if (current <= 3) {
-                      pageNumber = index + 1;
-                    } else if (current >= total - 2) {
-                      pageNumber = total - 4 + index;
-                    } else {
-                      pageNumber = current - 2 + index;
-                    }
-                  }
-                  
-                  const isCurrentPage = pageNumber === pagination.currentPage;
-                  
-                  return (
-                    <button
-                      key={pageNumber}
-                      onClick={() => handlePageChange(pageNumber)}
-                      disabled={loading}
-                      className={`px-3 py-2 text-sm rounded-lg transition-colors disabled:cursor-not-allowed ${
-                        isCurrentPage
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      {pageNumber}
-                    </button>
-                  );
-                })}
-              </div>
-              
-              <button
-                onClick={() => handlePageChange(pagination.currentPage + 1)}
-                disabled={!pagination.hasNext || loading}
-                className="px-4 py-2 text-sm bg-white border border-gray-300 text-gray-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors flex items-center gap-2"
-              >
-                Next
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
 
-export default UserAppointmentsList;
+export default UserAppointmentList;
