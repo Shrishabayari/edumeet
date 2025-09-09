@@ -4,12 +4,12 @@ import io from 'socket.io-client';
 
 // Import the respective navbars
 import UserNavbar from "../components/userNavbar";
-import TeacherNavbar from "../components/teacherNavbar"; // Adjust path as needed
+import TeacherNavbar from "../components/teacherNavbar";
 
 const MessageBoard = () => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
-  const [userRole, setUserRole] = useState(''); // Will be determined from auth
+  const [userRole, setUserRole] = useState('');
   const [userName, setUserName] = useState('');
   const [roomId, setRoomId] = useState('general');
   const [isConnected, setIsConnected] = useState(false);
@@ -21,23 +21,24 @@ const MessageBoard = () => {
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  // FIXED: Dynamic API URL detection
+  // FIXED: Simple and clear API URL - NO /api/ suffix to avoid double path
   const getApiUrl = () => {
-    // Check if we have an environment variable first
+    // Production environment
+    if (process.env.NODE_ENV === 'production' || window.location.hostname === 'edumeet-1.onrender.com') {
+      return 'https://edumeet.onrender.com';
+    }
+    
+    // Development environment
     if (process.env.REACT_APP_API_URL) {
       return process.env.REACT_APP_API_URL;
     }
     
-    // If we're in production (deployed), use the production URL
-    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      return 'https://edumeet.onrender.com'; // Your Render backend URL
-    }
-    
-    // Default to localhost for development
     return 'http://localhost:5000';
   };
 
-  const API_URL = getApiUrl();
+  const API_BASE_URL = getApiUrl();
+
+  console.log('API Base URL:', API_BASE_URL);
 
   // Available reactions
   const reactions = [
@@ -46,9 +47,11 @@ const MessageBoard = () => {
     { id: 'star', icon: Star, label: 'Star', color: 'text-yellow-500' },
   ];
 
-  // FIXED: Better token and user detection
+  // User detection with proper token validation
   useEffect(() => {
     const detectUserType = () => {
+      console.log('Detecting user type...');
+      
       // Check for teacher authentication first
       const teacherToken = localStorage.getItem('teacherToken') || sessionStorage.getItem('teacherToken');
       const teacherData = localStorage.getItem('teacher') || sessionStorage.getItem('teacher');
@@ -59,12 +62,18 @@ const MessageBoard = () => {
       const userData = localStorage.getItem('user') || localStorage.getItem('student') ||
                       sessionStorage.getItem('user') || sessionStorage.getItem('student');
 
+      console.log('Auth check:', {
+        hasTeacherToken: !!teacherToken,
+        hasUserToken: !!userToken,
+        hasTeacherData: !!teacherData,
+        hasUserData: !!userData
+      });
+
       let detectedRole = '';
       let detectedName = '';
       let detectedToken = '';
 
-      if (teacherToken) {
-        // User is a teacher
+      if (teacherToken && teacherToken.trim() !== '') {
         detectedRole = 'teacher';
         detectedToken = teacherToken;
         
@@ -79,8 +88,7 @@ const MessageBoard = () => {
         } else {
           detectedName = 'Teacher';
         }
-      } else if (userToken) {
-        // User is a student
+      } else if (userToken && userToken.trim() !== '') {
         detectedRole = 'student';
         detectedToken = userToken;
         
@@ -97,16 +105,16 @@ const MessageBoard = () => {
         }
       }
 
-      if (detectedRole && detectedToken) {
+      if (detectedRole && detectedToken && detectedName) {
+        console.log('User detected:', { role: detectedRole, name: detectedName });
         setUserRole(detectedRole);
         setUserName(detectedName);
         setAuthToken(detectedToken);
         setError('');
-        console.log('Detected user:', { role: detectedRole, name: detectedName, hasToken: !!detectedToken });
         return true;
       } else {
-        setError('Please login to use the message board');
         console.log('No valid authentication found');
+        setError('Please login to use the message board');
         return false;
       }
     };
@@ -114,133 +122,143 @@ const MessageBoard = () => {
     detectUserType();
   }, []);
 
-  // FIXED: Initialize socket connection with dynamic URL
+  // FIXED: Socket connection with proper error handling
   useEffect(() => {
     if (!authToken || !userRole || !userName) {
-      console.log('Missing auth requirements:', { authToken: !!authToken, userRole, userName });
+      console.log('Missing auth requirements:', { 
+        hasToken: !!authToken, 
+        role: userRole, 
+        name: userName 
+      });
       return;
     }
 
     // Disconnect existing socket if any
     if (socketRef.current) {
+      console.log('Disconnecting existing socket');
       socketRef.current.disconnect();
     }
 
-    console.log('Attempting to connect to:', API_URL);
-    console.log('With auth:', { 
-      role: userRole, 
-      name: userName, 
-      token: authToken.substring(0, 20) + '...' 
-    });
+    console.log('Attempting socket connection to:', API_BASE_URL);
 
-    // FIXED: Connect to socket with dynamic URL and better error handling
-    socketRef.current = io(API_URL, {
+    // FIXED: Clean socket configuration
+    socketRef.current = io(API_BASE_URL, {
       auth: { 
         token: authToken,
         role: userRole,
         name: userName
       },
-      transports: ['websocket', 'polling'],
-      timeout: 20000, // Increased timeout for production
+      transports: ['polling', 'websocket'], // Try polling first, then websocket
+      timeout: 20000,
       forceNew: true,
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
+      path: '/socket.io/' // Default Socket.IO path
     });
 
-    // Connection events
+    // Connection event handlers
     socketRef.current.on('connect', () => {
-      console.log('Socket connected successfully to:', API_URL, 'as:', userRole);
+      console.log('Socket connected successfully');
       setIsConnected(true);
       setError('');
       setConnectionAttempts(0);
       
-      // Join the room
+      // Join the room after connection
+      console.log('Joining room:', roomId);
       socketRef.current.emit('join-room', roomId);
-      console.log('Joined room:', roomId);
     });
 
     socketRef.current.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason);
       setIsConnected(false);
+      
       if (reason === 'io server disconnect') {
         setError('Server disconnected. Attempting to reconnect...');
+      } else if (reason === 'transport close' || reason === 'transport error') {
+        setError('Connection lost. Reconnecting...');
       }
     });
 
     socketRef.current.on('connect_error', (err) => {
-      console.error('Connection error:', err);
-      setError('Connection failed: ' + err.message);
+      console.error('Socket connection error:', err);
       setIsConnected(false);
       setConnectionAttempts(prev => prev + 1);
       
-      if (err.message.includes('Authentication error') || err.message.includes('Authentication failed')) {
+      if (err.message.includes('Authentication') || err.message.includes('auth')) {
         setError('Authentication failed. Please login again.');
-        // Clear invalid tokens
-        localStorage.removeItem('teacherToken');
-        localStorage.removeItem('userToken');
-        localStorage.removeItem('studentToken');
-        sessionStorage.removeItem('teacherToken');
-        sessionStorage.removeItem('userToken');
-        sessionStorage.removeItem('studentToken');
-      } else if (err.message.includes('No token provided')) {
-        setError('No authentication token found. Please login.');
+      } else if (err.message.includes('Invalid namespace')) {
+        setError('Connection configuration error. Please refresh the page.');
+      } else if (err.message.includes('CORS')) {
+        setError('Connection blocked by server policy. Please contact support.');
+      } else {
+        setError(`Connection failed: ${err.message || 'Network error'}`);
       }
     });
 
     socketRef.current.on('reconnect', (attemptNumber) => {
-      console.log('Reconnected after', attemptNumber, 'attempts');
+      console.log('Socket reconnected after', attemptNumber, 'attempts');
       setError('');
       setConnectionAttempts(0);
+      setIsConnected(true);
     });
 
     socketRef.current.on('reconnect_attempt', (attemptNumber) => {
       console.log('Reconnection attempt:', attemptNumber);
       setConnectionAttempts(attemptNumber);
-      setError(`Reconnecting... (attempt ${attemptNumber})`);
+      setError(`Reconnecting... (attempt ${attemptNumber}/10)`);
     });
 
     socketRef.current.on('reconnect_error', (error) => {
       console.error('Reconnection failed:', error);
-      setError('Failed to reconnect. Please refresh the page.');
     });
 
-    // Message events
+    socketRef.current.on('reconnect_failed', () => {
+      console.error('All reconnection attempts failed');
+      setError('Failed to reconnect. Please refresh the page.');
+      setConnectionAttempts(0);
+    });
+
+    // Message event handlers
     socketRef.current.on('new-message', (message) => {
       console.log('Received new message:', message);
       setMessages(prev => [...prev, message]);
-      scrollToBottom();
     });
 
     socketRef.current.on('message-updated', (updatedMessage) => {
       console.log('Message updated:', updatedMessage);
       setMessages(prev => prev.map(msg => 
-        msg.id === updatedMessage.id ? updatedMessage : msg
+        (msg.id || msg._id) === (updatedMessage.id || updatedMessage._id) ? updatedMessage : msg
       ));
     });
 
     socketRef.current.on('error', (error) => {
       console.error('Socket error:', error);
-      setError(error.message || 'An error occurred');
+      setError(error.message || 'Socket error occurred');
     });
 
     // Room events
+    socketRef.current.on('room-joined', (data) => {
+      console.log('Successfully joined room:', data.roomId);
+    });
+
     socketRef.current.on('user-joined', (data) => {
-      console.log('User joined:', data);
+      console.log('User joined room:', data);
     });
 
     socketRef.current.on('user-left', (data) => {
-      console.log('User left:', data);
+      console.log('User left room:', data);
     });
 
     return () => {
       if (socketRef.current) {
         console.log('Cleaning up socket connection');
         socketRef.current.disconnect();
+        socketRef.current = null;
       }
     };
-  }, [roomId, authToken, userRole, userName, API_URL]);
+  }, [roomId, authToken, userRole, userName, API_BASE_URL]);
 
   // Auto-scroll to bottom
   const scrollToBottom = () => {
@@ -251,21 +269,28 @@ const MessageBoard = () => {
     scrollToBottom();
   }, [messages]);
 
-  // FIXED: Load initial messages with dynamic API URL
+  // FIXED: Load messages with correct URL construction
   useEffect(() => {
     if (authToken && userRole) {
       loadMessages();
     }
-    // eslint-disable-next-line
   }, [roomId, authToken, userRole]);
 
   const loadMessages = async () => {
-    if (!authToken) return;
+    if (!authToken) {
+      console.log('No auth token for loading messages');
+      return;
+    }
     
     setIsLoading(true);
     try {
-      // FIXED: Use dynamic API URL
-      const response = await fetch(`${API_URL}/messages/room/${roomId}`, {
+      // FIXED: Construct URL carefully to avoid double /api/
+      const endpoint = `/messages/room/${roomId}`;
+      const fullURL = API_BASE_URL + endpoint;
+      
+      console.log('Loading messages from:', fullURL);
+      
+      const response = await fetch(fullURL, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -273,25 +298,43 @@ const MessageBoard = () => {
         }
       });
       
+      console.log('Messages API response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
-        console.log('Loaded messages:', data);
+        console.log('Loaded messages response:', data);
+        
         // Handle different possible response structures
-        const messagesArray = data.data?.messages || data.messages || data.data || [];
+        let messagesArray = [];
+        if (data.success && data.data) {
+          messagesArray = data.data.messages || data.data || [];
+        } else if (data.messages) {
+          messagesArray = data.messages;
+        } else if (Array.isArray(data)) {
+          messagesArray = data;
+        }
+        
+        console.log('Setting messages:', messagesArray);
         setMessages(messagesArray);
-      } else if (response.status === 401) {
-        setError('Authentication failed. Please login again.');
-        // Clear tokens and redirect
-        localStorage.clear();
-        sessionStorage.clear();
+        
       } else {
-        console.error('Failed to load messages:', response.status, response.statusText);
-        const errorData = await response.json().catch(() => ({}));
-        setError(errorData.message || 'Failed to load previous messages');
+        const errorText = await response.text();
+        console.error('Failed to load messages:', response.status, errorText);
+        
+        if (response.status === 401) {
+          setError('Authentication failed. Please login again.');
+          // Clear invalid tokens
+          localStorage.removeItem(userRole === 'teacher' ? 'teacherToken' : 'userToken');
+          sessionStorage.removeItem(userRole === 'teacher' ? 'teacherToken' : 'userToken');
+        } else if (response.status === 404) {
+          setError('Messages endpoint not found. Please contact support.');
+        } else {
+          setError(`Failed to load messages: ${response.status}`);
+        }
       }
     } catch (error) {
       console.error('Error loading messages:', error);
-      setError('Error loading messages: ' + error.message);
+      setError(`Network error loading messages: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -300,6 +343,7 @@ const MessageBoard = () => {
   const handleSendMessage = () => {
     if (!newMessage.trim()) {
       setError('Please enter a message');
+      setTimeout(() => setError(''), 3000);
       return;
     }
 
@@ -309,14 +353,18 @@ const MessageBoard = () => {
     }
 
     if (!socketRef.current || !isConnected) {
-      setError('Not connected to server. Please try again.');
+      setError('Not connected to server. Please wait for connection.');
       return;
     }
 
-    console.log('Sending message as:', { role: userRole, name: userName });
+    console.log('Sending message:', {
+      text: newMessage,
+      roomId,
+      as: `${userName} (${userRole})`
+    });
 
     socketRef.current.emit('send-message', {
-      text: newMessage,
+      text: newMessage.trim(),
       roomId
     });
 
@@ -325,27 +373,44 @@ const MessageBoard = () => {
   };
 
   const handleReaction = (messageId, reactionType) => {
-    if (userRole !== 'teacher' || !socketRef.current) return;
+    if (userRole !== 'teacher') {
+      setError('Only teachers can add reactions');
+      setTimeout(() => setError(''), 3000);
+      return;
+    }
+    
+    if (!socketRef.current || !isConnected) {
+      setError('Not connected to server');
+      return;
+    }
 
     console.log('Adding reaction:', { messageId, reactionType });
     socketRef.current.emit('add-reaction', {
-      messageId,
+      messageId: messageId || messageId,
       reactionType
     });
   };
 
   const formatTime = (timestamp) => {
-    return new Date(timestamp).toLocaleTimeString();
+    try {
+      return new Date(timestamp).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return 'Invalid time';
+    }
   };
 
   const handleRoomChange = (newRoomId) => {
+    console.log('Changing room from', roomId, 'to', newRoomId);
+    
     if (socketRef.current && isConnected) {
       socketRef.current.emit('leave-room', roomId);
-      setRoomId(newRoomId);
-      setMessages([]);
-    } else {
-      setRoomId(newRoomId);
     }
+    
+    setRoomId(newRoomId);
+    setMessages([]); // Clear messages when switching rooms
   };
 
   const handleLogout = () => {
@@ -354,19 +419,9 @@ const MessageBoard = () => {
       socketRef.current.disconnect();
     }
     
-    // Clear all auth data from both storage types
-    localStorage.removeItem('teacherToken');
-    localStorage.removeItem('teacher');
-    localStorage.removeItem('userToken');
-    localStorage.removeItem('studentToken');
-    localStorage.removeItem('user');
-    localStorage.removeItem('student');
-    sessionStorage.removeItem('teacherToken');
-    sessionStorage.removeItem('teacher');
-    sessionStorage.removeItem('userToken');
-    sessionStorage.removeItem('studentToken');
-    sessionStorage.removeItem('user');
-    sessionStorage.removeItem('student');
+    // Clear all auth data
+    localStorage.clear();
+    sessionStorage.clear();
     
     // Reset state
     setUserRole('');
@@ -374,17 +429,18 @@ const MessageBoard = () => {
     setAuthToken('');
     setIsConnected(false);
     setMessages([]);
-    setError('Logged out. Please login again.');
+    setError('Logged out successfully');
     
-    // Redirect to home or login page
-    window.location.href = '/';
+    // Redirect to home
+    setTimeout(() => {
+      window.location.href = '/';
+    }, 1000);
   };
 
   // Show login message if not authenticated
   if (!authToken || !userRole) {
     return (
       <div className="min-h-screen">
-        {/* Show default navbar or no navbar when not authenticated */}
         <div className="max-w-4xl mx-auto p-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
           <div className="bg-white rounded-lg shadow-lg p-8 text-center">
             <MessageCircle className="h-16 w-16 mx-auto mb-4 text-gray-300" />
@@ -417,7 +473,6 @@ const MessageBoard = () => {
 
   return (
     <div className="min-h-screen">
-      {/* Render navbar based on user role */}
       {userRole === 'teacher' ? <TeacherNavbar /> : <UserNavbar />}
       
       <div className="max-w-4xl mx-auto p-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
@@ -435,14 +490,14 @@ const MessageBoard = () => {
                   ({userRole === 'teacher' ? 'Teacher' : 'Student'})
                 </p>
                 <p className="text-blue-200 text-sm mt-1">
-                  Server: {API_URL}
+                  Server: {API_BASE_URL} | Room: {roomId}
                 </p>
               </div>
               <div className="flex items-center gap-4">
                 <span className={`text-sm px-3 py-1 rounded-full flex items-center gap-2 ${
                   isConnected ? 'bg-green-500' : 'bg-red-500'
                 }`}>
-                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-200' : 'bg-red-200'}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-200' : 'bg-red-200'} animate-pulse`}></div>
                   {isConnected ? 'Connected' : 'Disconnected'}
                 </span>
                 <button
@@ -458,10 +513,10 @@ const MessageBoard = () => {
           {/* Error Display */}
           {error && (
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 m-4 rounded flex items-center gap-2">
-              <AlertCircle className="h-5 w-5" />
-              {error}
+              <AlertCircle className="h-5 w-5 flex-shrink-0" />
+              <span className="flex-1">{error}</span>
               {connectionAttempts > 0 && (
-                <span className="ml-auto text-sm">
+                <span className="text-sm">
                   (Attempt {connectionAttempts})
                 </span>
               )}
@@ -476,6 +531,7 @@ const MessageBoard = () => {
                 value={roomId}
                 onChange={(e) => handleRoomChange(e.target.value)}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={!isConnected}
               >
                 <option value="general">General Discussion</option>
                 <option value="cs101">CS101 - Computer Science</option>
@@ -489,7 +545,7 @@ const MessageBoard = () => {
           </div>
 
           {/* Messages Display */}
-          <div className="p-6 max-h-96 overflow-y-auto">
+          <div className="p-6 max-h-96 overflow-y-auto bg-gray-50">
             {isLoading ? (
               <div className="text-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
@@ -499,13 +555,15 @@ const MessageBoard = () => {
               <div className="text-center py-12 text-gray-500">
                 <MessageCircle className="h-16 w-16 mx-auto mb-4 text-gray-300" />
                 <p className="text-lg">No messages yet in {roomId}</p>
-                <p className="text-sm">Start a conversation!</p>
+                <p className="text-sm">
+                  {isConnected ? 'Start a conversation!' : 'Waiting for connection...'}
+                </p>
               </div>
             ) : (
               <div className="space-y-4">
-                {messages.map((message) => (
+                {messages.map((message, index) => (
                   <div
-                    key={message.id || message._id}
+                    key={message.id || message._id || index}
                     className={`p-4 rounded-lg ${
                       message.role === 'student' 
                         ? 'bg-blue-50 border-l-4 border-blue-500' 
@@ -535,10 +593,10 @@ const MessageBoard = () => {
                       </div>
                     </div>
                     
-                    <p className="text-gray-800 mb-3">{message.text}</p>
+                    <p className="text-gray-800 mb-3 whitespace-pre-wrap">{message.text}</p>
                     
                     {/* Reactions */}
-                    <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-200">
                       {userRole === 'teacher' && message.role === 'student' && (
                         <div className="flex gap-1">
                           {reactions.map((reaction) => {
@@ -548,11 +606,13 @@ const MessageBoard = () => {
                               <button
                                 key={reaction.id}
                                 onClick={() => handleReaction(message.id || message._id, reaction.id)}
-                                className={`flex items-center gap-1 px-2 py-1 rounded-full transition-colors ${
+                                disabled={!isConnected}
+                                className={`flex items-center gap-1 px-2 py-1 rounded-full transition-colors disabled:opacity-50 ${
                                   count > 0 
                                     ? 'bg-gray-100 text-gray-700' 
                                     : 'hover:bg-gray-100 text-gray-500'
                                 }`}
+                                title={`Add ${reaction.label}`}
                               >
                                 <ReactionIcon className={`h-4 w-4 ${reaction.color}`} />
                                 {count > 0 && <span className="text-xs">{count}</span>}
@@ -563,16 +623,17 @@ const MessageBoard = () => {
                       )}
                       
                       {/* Display reactions for all users */}
-                      {message.role === 'student' && message.reactions && Object.keys(message.reactions).length > 0 && (
-                        <div className="flex gap-1 ml-auto">
+                      {message.reactions && Object.keys(message.reactions).some(key => message.reactions[key] > 0) && (
+                        <div className="flex gap-2 ml-auto">
                           {Object.entries(message.reactions).map(([reactionId, count]) => {
+                            if (count === 0) return null;
                             const reaction = reactions.find(r => r.id === reactionId);
-                            if (!reaction || count === 0) return null;
+                            if (!reaction) return null;
                             const ReactionIcon = reaction.icon;
                             return (
                               <div key={reactionId} className={`flex items-center gap-1 ${reaction.color}`}>
                                 <ReactionIcon className="h-4 w-4" />
-                                <span className="text-xs">{count}</span>
+                                <span className="text-xs font-medium">{count}</span>
                               </div>
                             );
                           })}
@@ -587,16 +648,22 @@ const MessageBoard = () => {
           </div>
 
           {/* Message Input */}
-          <div className="p-6 border-t bg-gray-50">
+          <div className="p-6 border-t bg-white">
             <div className="flex gap-3">
               <input
                 type="text"
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
                 placeholder={`${userRole === 'student' ? 'Ask a question or share a thought...' : 'Send a message to students...'}`}
-                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                 disabled={!isConnected}
+                maxLength={1000}
               />
               <button
                 onClick={handleSendMessage}
@@ -608,12 +675,24 @@ const MessageBoard = () => {
               </button>
             </div>
             
-            {!isConnected && (
-              <p className="text-sm text-red-500 mt-2">Connecting to server... Please wait</p>
-            )}
+            <div className="flex justify-between items-center mt-2">
+              <div className="text-sm text-gray-500">
+                {!isConnected ? (
+                  <span className="text-red-500">Connecting to server...</span>
+                ) : (
+                  <span className="text-green-600">Connected and ready to chat</span>
+                )}
+              </div>
+              
+              <div className="text-xs text-gray-400">
+                {newMessage.length}/1000 characters
+              </div>
+            </div>
             
             {userRole === 'teacher' && isConnected && (
-              <p className="text-sm text-green-600 mt-2">As a teacher, you can react to student messages with hearts, thumbs up, or stars</p>
+              <p className="text-sm text-green-600 mt-2">
+                As a teacher, you can react to student messages with hearts, thumbs up, or stars
+              </p>
             )}
           </div>
         </div>
@@ -625,7 +704,7 @@ const MessageBoard = () => {
             <div className="bg-blue-50 p-4 rounded-lg">
               <h3 className="font-semibold text-blue-800 mb-2">For Students:</h3>
               <ul className="text-sm text-blue-700 space-y-1">
-                <li>• Automatically identified when you login as a student</li>
+                <li>• Login and join different class rooms</li>
                 <li>• Send messages to ask questions in real-time</li>
                 <li>• Share thoughts and ideas instantly</li>
                 <li>• View teacher reactions on your messages</li>
@@ -636,13 +715,24 @@ const MessageBoard = () => {
             <div className="bg-green-50 p-4 rounded-lg">
               <h3 className="font-semibold text-green-800 mb-2">For Teachers:</h3>
               <ul className="text-sm text-green-700 space-y-1">
-                <li>• Automatically identified when you login as a teacher</li>
+                <li>• Login and moderate class discussions</li>
                 <li>• React to student messages with emojis</li>
                 <li>• Send messages to the class instantly</li>
                 <li>• Provide real-time feedback and encouragement</li>
                 <li>• Monitor multiple class rooms</li>
               </ul>
             </div>
+          </div>
+          
+          <div className="mt-4 p-4 bg-yellow-50 rounded-lg border-l-4 border-yellow-400">
+            <h4 className="font-semibold text-yellow-800 mb-2">Debug Info:</h4>
+            <ul className="text-sm text-yellow-700 space-y-1">
+              <li>• API Base URL: {API_BASE_URL}</li>
+              <li>• Socket Connected: {isConnected ? 'Yes' : 'No'}</li>
+              <li>• Current Room: {roomId}</li>
+              <li>• User Role: {userRole}</li>
+              <li>• Messages Loaded: {messages.length}</li>
+            </ul>
           </div>
         </div>
       </div>

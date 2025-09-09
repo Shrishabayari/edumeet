@@ -1,36 +1,48 @@
 import axios from 'axios';
 
-// FIXED: Dynamic API URL detection
+// FIXED: Better API URL detection logic - NO /api/ suffix
 const getApiUrl = () => {
-  // Environment variable takes priority
+  // Environment variable takes highest priority
   if (process.env.REACT_APP_API_URL) {
+    console.log('🔗 Using API URL from env variable:', process.env.REACT_APP_API_URL);
     return process.env.REACT_APP_API_URL;
   }
   
-  // If we're in production (deployed), use the production URL
-  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    return 'https://edumeet.onrender.com'; // Your Render backend URL
+  // Detect production environment
+  const hostname = window.location.hostname;
+  const isProduction = hostname !== 'localhost' && hostname !== '127.0.0.1';
+  
+  if (isProduction) {
+    console.log('🔗 Production environment detected, using backend URL');
+    return 'https://edumeet.onrender.com'; // Your backend URL - NO /api/ here!
   }
   
-  // Default to localhost for development
-  return 'http://localhost:5000';
+  // Development fallback
+  console.log('🔗 Development environment, using localhost');
+  return 'http://localhost:5000'; // NO /api/ here either!
 };
 
 const API_BASE_URL = getApiUrl();
 
-console.log('🔗 API Base URL:', API_BASE_URL);
+console.log('🔗 Final API Base URL:', API_BASE_URL);
+console.log('🌍 Current environment:', {
+  hostname: window.location.hostname,
+  origin: window.location.origin,
+  nodeEnv: process.env.NODE_ENV
+});
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // Increased timeout for production
+  timeout: 30000, // 30 second timeout
   headers: {
     'Content-Type': 'application/json',
   },
+  // Add credentials for CORS
+  withCredentials: true,
 });
 
-// FIXED: Helper function to get token from either storage location
+// Enhanced helper function to get token from storage
 const getTokenFromStorage = (tokenType = 'userToken') => {
-  // First check localStorage, then sessionStorage
   let token = localStorage.getItem(tokenType);
   if (!token) {
     token = sessionStorage.getItem(tokenType);
@@ -43,7 +55,7 @@ const getTokenFromStorage = (tokenType = 'userToken') => {
   return token;
 };
 
-// Request interceptor - FIXED to check both storage locations
+// FIXED: Enhanced request interceptor with better token detection
 api.interceptors.request.use(
   (config) => {
     let token = null;
@@ -54,7 +66,9 @@ api.interceptors.request.use(
     } else if (config.url.startsWith('/teachers')) {
       token = getTokenFromStorage('teacherToken');
     } else {
-      token = getTokenFromStorage('userToken');
+      // Try multiple token types for regular users
+      token = getTokenFromStorage('userToken') || 
+              getTokenFromStorage('studentToken');
     }
 
     if (token) {
@@ -77,7 +91,7 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor - FIXED to clear tokens from both storage locations
+// Enhanced response interceptor with better error handling
 api.interceptors.response.use(
   (response) => {
     if (process.env.NODE_ENV === 'development') {
@@ -137,85 +151,76 @@ api.interceptors.response.use(
 export const endpoints = {
   // Auth endpoints (for regular users)
   auth: {
-    register: '/api/auth/register',
-    login: '/api/auth/login',
-    logout: '/api/auth/logout',
-    profile: '/api/auth/profile',
-    verifyToken: '/api/auth/verify-token',
+    register: '/auth/register',
+    login: '/auth/login',
+    logout: '/auth/logout',
+    profile: '/auth/profile',
+    verifyToken: '/auth/verify-token',
   },
 
   // Teacher endpoints
   teachers: {
-    getAll: '/api/teachers',
-    getById: (id) => `/api/teachers/${id}`,
-    create: '/api/teachers',
-    update: (id) => `/api/teachers/${id}`,
-    delete: (id) => `/api/teachers/${id}`,
-    permanentDelete: (id) => `/api/teachers/${id}/permanent`,
-    getStats: '/api/teachers/stats',
-    getByDepartment: (department) => `/api/teachers/department/${department}`,
+    getAll: '/teachers',
+    getById: (id) => `/teachers/${id}`,
+    create: '/teachers',
+    update: (id) => `/teachers/${id}`,
+    delete: (id) => `/teachers/${id}`,
+    permanentDelete: (id) => `/teachers/${id}/permanent`,
+    getStats: '/teachers/stats',
+    getByDepartment: (department) => `/teachers/department/${department}`,
     
     // Teacher Authentication routes
-    login: '/api/teachers/login',
-    sendSetupLink: '/api/teachers/send-setup-link',
-    setupAccount: (token) => `/api/teachers/setup-account/${token}`,
-    profile: '/api/teachers/profile',
-    logout: '/api/teachers/logout',
+    login: '/teachers/login',
+    sendSetupLink: '/teachers/send-setup-link',
+    setupAccount: (token) => `/teachers/setup-account/${token}`,
+    profile: '/teachers/profile',
+    logout: '/teachers/logout',
   },
 
-  // Updated appointment endpoints with new workflow
+  // Appointment endpoints
   appointments: {
-    // General appointment routes
-    getAll: '/api/appointments',
-    getById: (id) => `/api/appointments/${id}`,
-    getStats: '/api/appointments/stats',
-    
-    // Student workflow - request appointment (needs teacher approval)
-    request: '/api/appointments/request',
-    
-    // Teacher workflow - direct booking (no approval needed)
-    book: '/api/appointments/book',
-    
-    // Teacher response routes
-    accept: (id) => `/api/appointments/${id}/accept`,
-    reject: (id) => `/api/appointments/${id}/reject`,
-    complete: (id) => `/api/appointments/${id}/complete`,
-    
-    // Common routes
-    update: (id) => `/api/appointments/${id}`,
-    cancel: (id) => `/api/appointments/${id}/cancel`,
-    
-    // Teacher-specific routes
-    getByTeacher: (teacherId) => `/api/appointments/teacher/${teacherId}`,
-    getTeacherPending: (teacherId) => `/api/appointments/teacher/${teacherId}/pending`,
+    getAll: '/appointments',
+    getById: (id) => `/appointments/${id}`,
+    getStats: '/appointments/stats',
+    request: '/appointments/request',
+    book: '/appointments/book',
+    accept: (id) => `/appointments/${id}/accept`,
+    reject: (id) => `/appointments/${id}/reject`,
+    complete: (id) => `/appointments/${id}/complete`,
+    update: (id) => `/appointments/${id}`,
+    cancel: (id) => `/appointments/${id}/cancel`,
+    getByTeacher: (teacherId) => `/appointments/teacher/${teacherId}`,
+    getTeacherPending: (teacherId) => `/appointments/teacher/${teacherId}/pending`,
   },
 
   // Admin endpoints
   admin: {
-    register: '/api/admin/register',
-    login: '/api/admin/login',
-    profile: '/api/admin/profile',
-    updateProfile: '/api/admin/profile',
-    dashboardStats: '/api/admin/dashboard/stats',
-    getUsers: '/api/admin/users',
-    deleteUser: (userId) => `/api/admin/users/${userId}`,
-    getAllAppointments: '/api/admin/appointments',
-    updateTeacherStatus: (teacherId) => `/api/admin/teachers/${teacherId}/status`,
-    getPendingRegistrations: '/api/auth/admin/pending',
-    getAllUsers: '/api/auth/admin/users',
-    approveUser: (id) => `/api/auth/admin/approve/${id}`,
-    rejectUser: (id) => `/api/auth/admin/reject/${id}`,
+    register: '/admin/register',
+    login: '/admin/login',
+    profile: '/admin/profile',
+    updateProfile: '/admin/profile',
+    dashboardStats: '/admin/dashboard/stats',
+    getUsers: '/admin/users',
+    deleteUser: (userId) => `/admin/users/${userId}`,
+    getAllAppointments: '/admin/appointments',
+    updateTeacherStatus: (teacherId) => `/admin/teachers/${teacherId}/status`,
+    getPendingRegistrations: '/auth/admin/pending',
+    getAllUsers: '/auth/admin/users',
+    approveUser: (id) => `/auth/admin/approve/${id}`,
+    rejectUser: (id) => `/auth/admin/reject/${id}`,
   },
   
   // FIXED: Message endpoints with proper API prefix
   messages: {
-    getByRoom: (roomId) => `/api/messages/room/${roomId}`,
-    delete: (id) => `/api/messages/${id}`,
-    getRoomStats: (roomId) => `/api/messages/room/${roomId}/stats`
+    getByRoom: (roomId) => `/messages/room/${roomId}`,
+    delete: (id) => `/messages/${id}`,
+    getRoomStats: (roomId) => `/messages/room/${roomId}/stats`,
+    getRooms: '/messages/rooms',
+    searchInRoom: (roomId) => `/messages/room/${roomId}/search`
   }
 };
 
-// API methods (updated with better error handling for production)
+// Enhanced API methods with better error handling
 export const apiMethods = {
   // Auth Operations
   register: (userData) => api.post(endpoints.auth.register, userData),
@@ -253,13 +258,11 @@ export const apiMethods = {
     return api.post(endpoints.appointments.book, appointmentData);
   },
 
-  // Improved acceptAppointmentRequest API method
   acceptAppointmentRequest: async (id, responseMessage = '') => {
     try {
       console.log('🔄 Accepting appointment request:', id);
       console.log('Response message:', responseMessage);
       
-      // Validate ID format on frontend too
       if (!id || id.length !== 24) {
         throw new Error('Invalid appointment ID format');
       }
@@ -274,12 +277,10 @@ export const apiMethods = {
     } catch (error) {
       console.error('❌ Error accepting appointment:', error);
       
-      // Enhanced error handling
       if (error.response) {
         const { status, data } = error.response;
         console.error(`HTTP ${status}:`, data);
         
-        // Provide more specific error messages
         switch (status) {
           case 404:
             throw new Error('Appointment not found or may have been already processed');
@@ -324,24 +325,6 @@ export const apiMethods = {
     return api.get(endpoints.appointments.getTeacherPending(teacherId));
   },
 
-  getConfirmedAppointments: (params = {}) => {
-    return api.get(endpoints.appointments.getAll, { 
-      params: { ...params, status: 'confirmed' } 
-    });
-  },
-
-  getDirectBookings: (params = {}) => {
-    return api.get(endpoints.appointments.getAll, { 
-      params: { ...params, status: 'booked', createdBy: 'teacher' } 
-    });
-  },
-
-  getPendingRequests: (params = {}) => {
-    return api.get(endpoints.appointments.getAll, { 
-      params: { ...params, status: 'pending', createdBy: 'student' } 
-    });
-  },
-
   // Admin Operations
   adminRegister: (adminData) => api.post(endpoints.admin.register, adminData),
   adminLogin: (credentials) => api.post(endpoints.admin.login, credentials),
@@ -358,109 +341,104 @@ export const apiMethods = {
   approveUser: (id) => api.put(endpoints.admin.approveUser(id)),
   rejectUser: (id, reason) => api.put(endpoints.admin.rejectUser(id), { reason }),
 
-  // Enhanced appointment booking with better error handling and retry logic
-  requestAppointmentWithRetry: async (appointmentData) => {
-    const maxRetries = 3;
-    let lastError = null;
+  // FIXED: Message Operations
+  getMessagesForRoom: async (roomId, params = {}) => {
+    try {
+      console.log(`🔄 Fetching messages for room: ${roomId}`);
+      const response = await api.get(endpoints.messages.getByRoom(roomId), { params });
+      console.log(`✅ Messages fetched for room: ${roomId}`, response.data);
+      return response;
+    } catch (error) {
+      console.error(`❌ Error fetching messages for room ${roomId}:`, error);
+      throw error;
+    }
+  },
 
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        console.log(`🔄 Requesting appointment attempt ${i + 1}/${maxRetries}`);
-        const response = await api.post(endpoints.appointments.request, appointmentData);
-        console.log(`✅ Appointment requested successfully on attempt ${i + 1}`);
-        return response;
-      } catch (error) {
-        lastError = error;
-        console.log(`❌ Request attempt ${i + 1} failed:`, error.message);
-        
-        if (error.response?.status === 400 || error.response?.status === 409) {
-          break;
-        }
-        
-        if (i < maxRetries - 1) {
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
-        }
+  deleteMessage: (messageId) => {
+    console.log(`🔄 Deleting message: ${messageId}`);
+    return api.delete(endpoints.messages.delete(messageId));
+  },
+
+  getRoomStats: (roomId) => {
+    console.log(`🔄 Getting room stats: ${roomId}`);
+    return api.get(endpoints.messages.getRoomStats(roomId));
+  },
+
+  getAllRooms: () => {
+    console.log('🔄 Getting all rooms');
+    return api.get(endpoints.messages.getRooms);
+  },
+
+  searchMessagesInRoom: (roomId, query, params = {}) => {
+    console.log(`🔍 Searching messages in room ${roomId} for: ${query}`);
+    return api.get(endpoints.messages.searchInRoom(roomId), { 
+      params: { q: query, ...params } 
+    });
+  },
+
+  // Enhanced error handling utilities
+  handleApiError: (error, context = '') => {
+    console.error(`API Error ${context}:`, error);
+    
+    if (error.response) {
+      const { status, data } = error.response;
+      
+      switch (status) {
+        case 400:
+          return `Bad Request: ${data.message || 'Invalid data provided'}`;
+        case 401:
+          return 'Authentication required. Please login again.';
+        case 403:
+          return 'Access denied. You do not have permission for this action.';
+        case 404:
+          return `Resource not found: ${data.message || 'The requested item could not be found'}`;
+        case 409:
+          return `Conflict: ${data.message || 'This action conflicts with current state'}`;
+        case 500:
+          return 'Server error. Please try again later.';
+        default:
+          return data.message || `HTTP Error ${status}`;
       }
-    }
-
-    throw lastError || new Error('All appointment request attempts failed');
-  },
-
-  bulkUpdateAppointments: async (updates) => {
-    const results = [];
-    for (const update of updates) {
-      try {
-        const result = await apiMethods.updateAppointment(update.id, update.data);
-        results.push({ success: true, id: update.id, data: result.data });
-      } catch (error) {
-        results.push({ success: false, id: update.id, error: error.message });
-      }
-    }
-    return results;
-  },
-
-  searchAppointments: (query, filters = {}) => {
-    const params = { search: query, ...filters };
-    return api.get(endpoints.appointments.getAll, { params });
-  },
-
-  searchTeachers: (query, filters = {}) => {
-    const params = { search: query, ...filters };
-    return api.get(endpoints.teachers.getAll, { params });
-  },
-
-  validateAppointmentData: (appointmentData, isTeacherBooking = false) => {
-    const errors = [];
-    
-    if (!appointmentData.day) {
-      errors.push('Day is required');
-    }
-    
-    if (!appointmentData.time) {
-      errors.push('Time is required');
-    }
-    
-    if (!appointmentData.date) {
-      errors.push('Date is required');
+    } else if (error.request) {
+      return 'Network error. Please check your internet connection.';
     } else {
-      const appointmentDate = new Date(appointmentData.date);
-      if (appointmentDate < new Date()) {
-        errors.push('Appointment date must be in the future');
-      }
+      return error.message || 'An unexpected error occurred';
     }
-    
-    if (!appointmentData.student?.name) {
-      errors.push('Student name is required');
+  },
+
+  // Connection test utility
+  testConnection: async () => {
+    try {
+      console.log('🔄 Testing API connection...');
+      const response = await api.get('/api/health');
+      console.log('✅ API connection test successful:', response.data);
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('❌ API connection test failed:', error);
+      return { 
+        success: false, 
+        error: apiMethods.handleApiError(error, 'connection test') 
+      };
     }
-    
-    if (!appointmentData.student?.email) {
-      errors.push('Student email is required');
-    }
-    
-    if (!isTeacherBooking && !appointmentData.teacherId) {
-      errors.push('Teacher ID is required');
-    }
-    
-    return {
-      isValid: errors.length === 0,
-      errors
-    };
   }
 };
 
-// FIXED: Token management utilities - now handle both storage locations
+// FIXED: Enhanced token management utilities
 export const tokenManager = {
-  // User token methods - FIXED to handle both storage types
+  // User token methods
   setUserToken: (token, persistent = false) => {
-    console.log('🔧 setUserToken called with:', { token: token?.substring(0, 20) + '...', persistent });
+    console.log('🔧 Setting user token:', { 
+      tokenPreview: token?.substring(0, 20) + '...', 
+      persistent 
+    });
     
     if (persistent) {
       localStorage.setItem('userToken', token);
-      sessionStorage.removeItem('userToken'); // Clear from session
+      sessionStorage.removeItem('userToken');
       console.log('✅ Token stored in localStorage');
     } else {
       sessionStorage.setItem('userToken', token);
-      localStorage.removeItem('userToken'); // Clear from localStorage  
+      localStorage.removeItem('userToken');
       console.log('✅ Token stored in sessionStorage');
     }
   },
@@ -474,9 +452,10 @@ export const tokenManager = {
     sessionStorage.removeItem('user');
     localStorage.removeItem('userRole');
     sessionStorage.removeItem('userRole');
+    console.log('🗑️ User tokens and data cleared');
   },
   
-  // Admin token methods - FIXED to handle both storage types
+  // Admin token methods
   setAdminToken: (token, persistent = false) => {
     if (persistent) {
       localStorage.setItem('adminToken', token);
@@ -492,10 +471,16 @@ export const tokenManager = {
   removeAdminToken: () => {
     localStorage.removeItem('adminToken');
     sessionStorage.removeItem('adminToken');
+    console.log('🗑️ Admin tokens cleared');
   },
   
-  // Teacher token methods - FIXED to handle both storage types
+  // Teacher token methods
   setTeacherToken: (token, persistent = false) => {
+    console.log('🔧 Setting teacher token:', { 
+      tokenPreview: token?.substring(0, 20) + '...', 
+      persistent 
+    });
+    
     if (persistent) {
       localStorage.setItem('teacherToken', token);
       sessionStorage.removeItem('teacherToken');
@@ -510,19 +495,24 @@ export const tokenManager = {
   removeTeacherToken: () => {
     localStorage.removeItem('teacherToken');
     sessionStorage.removeItem('teacherToken');
+    localStorage.removeItem('teacher');
+    sessionStorage.removeItem('teacher');
+    console.log('🗑️ Teacher tokens and data cleared');
   },
   
   clearAllTokens: () => {
     localStorage.clear();
     sessionStorage.clear();
+    console.log('🗑️ All tokens and storage cleared');
   },
 
-  // Helper method to check if user is logged in
-  isUserLoggedIn: () => {
-    return !!getTokenFromStorage('userToken');
-  },
+  // Helper methods
+  isUserLoggedIn: () => !!getTokenFromStorage('userToken'),
+  
+  isTeacherLoggedIn: () => !!getTokenFromStorage('teacherToken'),
+  
+  isAdminLoggedIn: () => !!getTokenFromStorage('adminToken'),
 
-  // Helper method to get current user info from either storage
   getCurrentUser: () => {
     let user = localStorage.getItem('user');
     if (!user) {
@@ -531,13 +521,34 @@ export const tokenManager = {
     return user ? JSON.parse(user) : null;
   },
 
-  // Helper method to get current user role
+  getCurrentTeacher: () => {
+    let teacher = localStorage.getItem('teacher');
+    if (!teacher) {
+      teacher = sessionStorage.getItem('teacher');
+    }
+    return teacher ? JSON.parse(teacher) : null;
+  },
+
   getCurrentUserRole: () => {
     let role = localStorage.getItem('userRole');
     if (!role) {
       role = sessionStorage.getItem('userRole');
     }
     return role;
+  },
+
+  // Token validation utility
+  isTokenExpired: (token) => {
+    if (!token) return true;
+    
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const currentTime = Date.now() / 1000;
+      return payload.exp < currentTime;
+    } catch (error) {
+      console.error('Error checking token expiration:', error);
+      return true;
+    }
   }
 };
 
@@ -579,7 +590,21 @@ export const constants = {
   APPOINTMENT_TYPES: {
     STUDENT_REQUEST: 'student_request',  
     TEACHER_BOOKING: 'teacher_booking'   
-  }
+  },
+
+  // Message-related constants
+  MESSAGE_ROOMS: [
+    { id: 'general', name: 'General Discussion' },
+    { id: 'cs101', name: 'CS101 - Computer Science' },
+    { id: 'math101', name: 'Math101 - Mathematics' },
+    { id: 'physics101', name: 'Physics101 - Physics' },
+  ],
+
+  REACTION_TYPES: [
+    { id: 'heart', emoji: '❤️', label: 'Heart' },
+    { id: 'thumbs', emoji: '👍', label: 'Thumbs Up' },
+    { id: 'star', emoji: '⭐', label: 'Star' }
+  ]
 };
 
 export default api;
