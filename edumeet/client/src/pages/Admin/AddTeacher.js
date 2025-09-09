@@ -229,9 +229,14 @@ const AddTeacher = ({ onTeacherAdded }) => {
 
   const InputField = ({ label, name, type = "text", icon: Icon, required = false, placeholder, ...props }) => (
     <div className="group">
-      <label className="block text-sm font-semibold text-gray-800 mb-3 items-center gap-2">
-        <Icon className="h-4 w-4 text-indigo-600" />
-        {label} {required && <span className="text-red-500 ml-1">*</span>}
+      <label className="flex items-center gap-3 text-sm font-semibold text-gray-800 mb-3">
+        <div className="flex items-center justify-center w-5 h-5">
+          <Icon className="h-4 w-4 text-indigo-600" />
+        </div>
+        <span className="flex-1">
+          {label}
+          {required && <span className="text-red-500 ml-1">*</span>}
+        </span>
       </label>
       <input
         type={type}
@@ -248,9 +253,14 @@ const AddTeacher = ({ onTeacherAdded }) => {
 
   const SelectField = ({ label, name, options, icon: Icon, required = false, placeholder = "Select an option", disabled = false }) => (
     <div className="group">
-      <label className="block text-sm font-semibold text-gray-800 mb-3 items-center gap-2">
-        <Icon className="h-4 w-4 text-indigo-600" />
-        {label} {required && <span className="text-red-500 ml-1">*</span>}
+      <label className="flex items-center gap-3 text-sm font-semibold text-gray-800 mb-3">
+        <div className="flex items-center justify-center w-5 h-5">
+          <Icon className="h-4 w-4 text-indigo-600" />
+        </div>
+        <span className="flex-1">
+          {label}
+          {required && <span className="text-red-500 ml-1">*</span>}
+        </span>
       </label>
       <select
         name={name}
@@ -411,8 +421,11 @@ const AddTeacher = ({ onTeacherAdded }) => {
                 </div>
                 
                 <div className="group">
-                  <label className="block text-sm font-semibold text-gray-800 mb-3">
-                    Professional Bio
+                  <label className="flex items-center gap-3 text-sm font-semibold text-gray-800 mb-3">
+                    <div className="flex items-center justify-center w-5 h-5">
+                      <FileText className="h-4 w-4 text-indigo-600" />
+                    </div>
+                    <span className="flex-1">Professional Bio</span>
                   </label>
                   <textarea
                     name="bio"
@@ -472,9 +485,11 @@ const AddTeacher = ({ onTeacherAdded }) => {
                 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-6">
                   <div className="group">
-                    <label className="block text-sm font-semibold text-gray-800 mb-3 items-center gap-2">
-                      <Eye className="h-4 w-4 text-indigo-600" />
-                      Password (Optional)
+                    <label className="flex items-center gap-3 text-sm font-semibold text-gray-800 mb-3">
+                      <div className="flex items-center justify-center w-5 h-5">
+                        <Eye className="h-4 w-4 text-indigo-600" />
+                      </div>
+                      <span className="flex-1">Password (Optional)</span>
                     </label>
                     <div className="relative">
                       <input
@@ -496,9 +511,11 @@ const AddTeacher = ({ onTeacherAdded }) => {
                   </div>
 
                   <div className="group">
-                    <label className="block text-sm font-semibold text-gray-800 mb-3 items-center gap-2">
-                      <Eye className="h-4 w-4 text-indigo-600" />
-                      Confirm Password
+                    <label className="flex items-center gap-3 text-sm font-semibold text-gray-800 mb-3">
+                      <div className="flex items-center justify-center w-5 h-5">
+                        <Eye className="h-4 w-4 text-indigo-600" />
+                      </div>
+                      <span className="flex-1">Confirm Password</span>
                     </label>
                     <input
                       type={showPassword ? "text" : "password"}

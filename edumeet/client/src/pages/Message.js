@@ -445,7 +445,7 @@ const MessageBoard = () => {
                 Teacher Login
               </a>
               <a 
-                href="/login" 
+                href="user/login" 
                 className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Student Login
@@ -481,7 +481,7 @@ const MessageBoard = () => {
                   ({userRole === 'teacher' ? 'Teacher' : 'Student'})
                 </p>
                 <p className="text-blue-200 text-sm mt-1">
-                  Server: {API_BASE_URL} | Room: {roomId}
+                   Room: {roomId}
                 </p>
               </div>
               <div className="flex items-center gap-4">

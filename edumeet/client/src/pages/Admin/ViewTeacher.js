@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Edit, Trash2, Save, X, Search, Users, BookOpen, Building2, AlertCircle, Key, Mail, Shield, Eye, EyeOff } from 'lucide-react';
+import { Edit, Trash2, Save, X, Search, Users, BookOpen, Building2, AlertCircle, Mail, Shield, Eye, EyeOff } from 'lucide-react';
 import api from '../../services/api';
 import AdminNavbar from '../../components/adminNavbar';
 
@@ -329,38 +329,6 @@ const ViewTeachers = () => {
     }
   };
 
-  const handleSendAccountSetup = async (teacherId) => {
-    try {
-      setError('');
-      setSuccess('');
-      
-      // API call to send account setup email
-      await api.post(`/teachers/${teacherId}/send-account-setup`);
-      
-      setSuccess('Account setup email sent successfully!');
-      console.log('Account setup email sent for teacher:', teacherId);
-    } catch (error) {
-      console.error('Error sending account setup email:', error);
-      setError(error.message || 'Failed to send account setup email');
-    }
-  };
-
-  const handleResetPassword = async (teacherId) => {
-    try {
-      setError('');
-      setSuccess('');
-      
-      // API call to send password reset email
-      await api.post(`/teachers/${teacherId}/reset-password`);
-      
-      setSuccess('Password reset email sent successfully!');
-      console.log('Password reset email sent for teacher:', teacherId);
-    } catch (error) {
-      console.error('Error sending password reset email:', error);
-      setError(error.message || 'Failed to send password reset email');
-    }
-  };
-
   const filteredTeachers = teachers.filter(teacher => {
     const matchesSearch = teacher.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          teacher.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -521,28 +489,9 @@ const ViewTeachers = () => {
                         <Trash2 className="h-4 w-4" />
                         </button>
                     </div>
-                    <div className="flex items-center space-x-2">
-                        {!teacher.hasAccount ? (
-                        <button
-                            onClick={() => handleSendAccountSetup(teacher._id)}
-                            className="bg-green-500 hover:bg-green-600 text-white p-2 rounded-lg transition-colors duration-200"
-                            title="Send Account Setup Email"
-                        >
-                            <Mail className="h-4 w-4" />
-                        </button>
-                        ) : (
-                        <button
-                            onClick={() => handleResetPassword(teacher._id)}
-                            className="bg-yellow-500 hover:bg-yellow-600 text-white p-2 rounded-lg transition-colors duration-200"
-                            title="Reset Password"
-                        >
-                            <Key className="h-4 w-4" />
-                        </button>
-                        )}
-                    </div>
-                    </div>
+                  </div>
                 </div>
-                </div>
+              </div>
             ))}
             </div>
 
@@ -780,22 +729,7 @@ const ViewTeachers = () => {
                         />
                         </div>
                     </div>
-
-                    <div className="mt-4">
-                        <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            name="sendSetupEmail"
-                            checked={formData.sendSetupEmail}
-                            onChange={handleInputChange}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-gray-700">
-                            Send account setup email to teacher
-                        </span>
-                        </label>
-                    </div>
-                    </div>
+                  </div>
                 )}
 
                 {/* Form Actions */}
