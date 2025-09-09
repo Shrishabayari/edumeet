@@ -21,24 +21,24 @@ const MessageBoard = () => {
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  // FIXED: Simple and clear API URL - NO /api/ suffix to avoid double path
+  // CORRECTED: Simplified API URL detection
   const getApiUrl = () => {
-    // Production environment
-    if (process.env.NODE_ENV === 'production' || window.location.hostname === 'edumeet-1.onrender.com') {
-      return 'https://edumeet.onrender.com';
+    // Check if we're on localhost (development)
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                       window.location.hostname === '127.0.0.1';
+    
+    if (isLocalhost) {
+      console.log('🏠 Development environment detected');
+      return 'http://localhost:5000';
     }
     
-    // Development environment
-    if (process.env.REACT_APP_API_URL) {
-      return process.env.REACT_APP_API_URL;
-    }
-    
-    return 'http://localhost:5000';
+    // For production, use your backend URL
+    console.log('🌍 Production environment detected');
+    return 'https://edumeet.onrender.com';
   };
 
   const API_BASE_URL = getApiUrl();
-
-  console.log('API Base URL:', API_BASE_URL);
+  console.log('🔗 API Base URL:', API_BASE_URL);
 
   // Available reactions
   const reactions = [
@@ -47,10 +47,10 @@ const MessageBoard = () => {
     { id: 'star', icon: Star, label: 'Star', color: 'text-yellow-500' },
   ];
 
-  // User detection with proper token validation
+  // CORRECTED: User detection with better token validation
   useEffect(() => {
     const detectUserType = () => {
-      console.log('Detecting user type...');
+      console.log('🔍 Detecting user type...');
       
       // Check for teacher authentication first
       const teacherToken = localStorage.getItem('teacherToken') || sessionStorage.getItem('teacherToken');
@@ -106,14 +106,14 @@ const MessageBoard = () => {
       }
 
       if (detectedRole && detectedToken && detectedName) {
-        console.log('User detected:', { role: detectedRole, name: detectedName });
+        console.log('✅ User detected:', { role: detectedRole, name: detectedName });
         setUserRole(detectedRole);
         setUserName(detectedName);
         setAuthToken(detectedToken);
         setError('');
         return true;
       } else {
-        console.log('No valid authentication found');
+        console.log('❌ No valid authentication found');
         setError('Please login to use the message board');
         return false;
       }
@@ -122,7 +122,7 @@ const MessageBoard = () => {
     detectUserType();
   }, []);
 
-  // FIXED: Socket connection with proper error handling
+  // CORRECTED: Socket connection with better error handling
   useEffect(() => {
     if (!authToken || !userRole || !userName) {
       console.log('Missing auth requirements:', { 
@@ -137,123 +137,113 @@ const MessageBoard = () => {
     if (socketRef.current) {
       console.log('Disconnecting existing socket');
       socketRef.current.disconnect();
+      socketRef.current = null;
     }
 
-    console.log('Attempting socket connection to:', API_BASE_URL);
+    console.log('🔌 Attempting socket connection to:', API_BASE_URL);
 
-    // FIXED: Clean socket configuration
+    // CORRECTED: Cleaner socket configuration
     socketRef.current = io(API_BASE_URL, {
       auth: { 
         token: authToken,
         role: userRole,
         name: userName
       },
-      transports: ['polling', 'websocket'], // Try polling first, then websocket
+      transports: ['websocket', 'polling'],
       timeout: 20000,
       forceNew: true,
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 5,
       reconnectionDelay: 2000,
       reconnectionDelayMax: 10000,
-      path: '/socket.io/' // Default Socket.IO path
+      upgrade: true,
+      rememberUpgrade: true
     });
 
     // Connection event handlers
     socketRef.current.on('connect', () => {
-      console.log('Socket connected successfully');
+      console.log('✅ Socket connected successfully');
       setIsConnected(true);
       setError('');
       setConnectionAttempts(0);
       
       // Join the room after connection
-      console.log('Joining room:', roomId);
+      console.log('🏠 Joining room:', roomId);
       socketRef.current.emit('join-room', roomId);
     });
 
     socketRef.current.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
+      console.log('🔴 Socket disconnected:', reason);
       setIsConnected(false);
       
       if (reason === 'io server disconnect') {
-        setError('Server disconnected. Attempting to reconnect...');
-      } else if (reason === 'transport close' || reason === 'transport error') {
+        setError('Server disconnected. Please refresh the page.');
+      } else {
         setError('Connection lost. Reconnecting...');
       }
     });
 
     socketRef.current.on('connect_error', (err) => {
-      console.error('Socket connection error:', err);
+      console.error('❌ Socket connection error:', err);
       setIsConnected(false);
       setConnectionAttempts(prev => prev + 1);
       
       if (err.message.includes('Authentication') || err.message.includes('auth')) {
         setError('Authentication failed. Please login again.');
-      } else if (err.message.includes('Invalid namespace')) {
-        setError('Connection configuration error. Please refresh the page.');
-      } else if (err.message.includes('CORS')) {
-        setError('Connection blocked by server policy. Please contact support.');
       } else {
         setError(`Connection failed: ${err.message || 'Network error'}`);
       }
     });
 
     socketRef.current.on('reconnect', (attemptNumber) => {
-      console.log('Socket reconnected after', attemptNumber, 'attempts');
+      console.log('🔄 Socket reconnected after', attemptNumber, 'attempts');
       setError('');
       setConnectionAttempts(0);
       setIsConnected(true);
     });
 
     socketRef.current.on('reconnect_attempt', (attemptNumber) => {
-      console.log('Reconnection attempt:', attemptNumber);
+      console.log('🔄 Reconnection attempt:', attemptNumber);
       setConnectionAttempts(attemptNumber);
-      setError(`Reconnecting... (attempt ${attemptNumber}/10)`);
-    });
-
-    socketRef.current.on('reconnect_error', (error) => {
-      console.error('Reconnection failed:', error);
+      setError(`Reconnecting... (attempt ${attemptNumber}/5)`);
     });
 
     socketRef.current.on('reconnect_failed', () => {
-      console.error('All reconnection attempts failed');
+      console.error('❌ All reconnection attempts failed');
       setError('Failed to reconnect. Please refresh the page.');
       setConnectionAttempts(0);
     });
 
     // Message event handlers
     socketRef.current.on('new-message', (message) => {
-      console.log('Received new message:', message);
+      console.log('📨 Received new message:', message);
       setMessages(prev => [...prev, message]);
     });
 
     socketRef.current.on('message-updated', (updatedMessage) => {
-      console.log('Message updated:', updatedMessage);
+      console.log('🔄 Message updated:', updatedMessage);
       setMessages(prev => prev.map(msg => 
         (msg.id || msg._id) === (updatedMessage.id || updatedMessage._id) ? updatedMessage : msg
       ));
     });
 
     socketRef.current.on('error', (error) => {
-      console.error('Socket error:', error);
+      console.error('⚠️ Socket error:', error);
       setError(error.message || 'Socket error occurred');
     });
 
     // Room events
     socketRef.current.on('room-joined', (data) => {
-      console.log('Successfully joined room:', data.roomId);
+      console.log('✅ Successfully joined room:', data.roomId);
     });
 
-    socketRef.current.on('user-joined', (data) => {
-      console.log('User joined room:', data);
-    });
-
-    socketRef.current.on('user-left', (data) => {
-      console.log('User left room:', data);
+    socketRef.current.on('connection-confirmed', (data) => {
+      console.log('✅ Connection confirmed:', data);
     });
 
     return () => {
       if (socketRef.current) {
-        console.log('Cleaning up socket connection');
+        console.log('🧹 Cleaning up socket connection');
         socketRef.current.disconnect();
         socketRef.current = null;
       }
@@ -269,7 +259,7 @@ const MessageBoard = () => {
     scrollToBottom();
   }, [messages]);
 
-  // FIXED: Load messages with correct URL construction
+  // CORRECTED: Load messages with better error handling
   useEffect(() => {
     if (authToken && userRole) {
       loadMessages();
@@ -278,17 +268,17 @@ const MessageBoard = () => {
 
   const loadMessages = async () => {
     if (!authToken) {
-      console.log('No auth token for loading messages');
+      console.log('❌ No auth token for loading messages');
       return;
     }
     
     setIsLoading(true);
     try {
-      // FIXED: Construct URL carefully to avoid double /api/
-      const endpoint = `/messages/room/${roomId}`;
+      // CORRECTED: Proper URL construction
+      const endpoint = `/api/messages/room/${roomId}`;
       const fullURL = API_BASE_URL + endpoint;
       
-      console.log('Loading messages from:', fullURL);
+      console.log('📂 Loading messages from:', fullURL);
       
       const response = await fetch(fullURL, {
         method: 'GET',
@@ -298,11 +288,11 @@ const MessageBoard = () => {
         }
       });
       
-      console.log('Messages API response status:', response.status);
+      console.log('📂 Messages API response status:', response.status);
       
       if (response.ok) {
         const data = await response.json();
-        console.log('Loaded messages response:', data);
+        console.log('📂 Loaded messages response:', data);
         
         // Handle different possible response structures
         let messagesArray = [];
@@ -314,12 +304,12 @@ const MessageBoard = () => {
           messagesArray = data;
         }
         
-        console.log('Setting messages:', messagesArray);
+        console.log('📂 Setting messages:', messagesArray.length, 'messages');
         setMessages(messagesArray);
         
       } else {
         const errorText = await response.text();
-        console.error('Failed to load messages:', response.status, errorText);
+        console.error('❌ Failed to load messages:', response.status, errorText);
         
         if (response.status === 401) {
           setError('Authentication failed. Please login again.');
@@ -329,11 +319,11 @@ const MessageBoard = () => {
         } else if (response.status === 404) {
           setError('Messages endpoint not found. Please contact support.');
         } else {
-          setError(`Failed to load messages: ${response.status}`);
+          setError(`Failed to load messages: Server error ${response.status}`);
         }
       }
     } catch (error) {
-      console.error('Error loading messages:', error);
+      console.error('❌ Error loading messages:', error);
       setError(`Network error loading messages: ${error.message}`);
     } finally {
       setIsLoading(false);
@@ -357,7 +347,7 @@ const MessageBoard = () => {
       return;
     }
 
-    console.log('Sending message:', {
+    console.log('📤 Sending message:', {
       text: newMessage,
       roomId,
       as: `${userName} (${userRole})`
@@ -384,7 +374,7 @@ const MessageBoard = () => {
       return;
     }
 
-    console.log('Adding reaction:', { messageId, reactionType });
+    console.log('👍 Adding reaction:', { messageId, reactionType });
     socketRef.current.emit('add-reaction', {
       messageId: messageId || messageId,
       reactionType
@@ -403,7 +393,7 @@ const MessageBoard = () => {
   };
 
   const handleRoomChange = (newRoomId) => {
-    console.log('Changing room from', roomId, 'to', newRoomId);
+    console.log('🔄 Changing room from', roomId, 'to', newRoomId);
     
     if (socketRef.current && isConnected) {
       socketRef.current.emit('leave-room', roomId);
@@ -417,6 +407,7 @@ const MessageBoard = () => {
     // Disconnect socket
     if (socketRef.current) {
       socketRef.current.disconnect();
+      socketRef.current = null;
     }
     
     // Clear all auth data
@@ -697,42 +688,30 @@ const MessageBoard = () => {
           </div>
         </div>
 
-        {/* Instructions */}
+        {/* Debug Info */}
         <div className="mt-6 bg-white rounded-lg shadow-lg p-6">
-          <h2 className="text-lg font-semibold mb-4 text-gray-800">How it works:</h2>
+          <h2 className="text-lg font-semibold mb-4 text-gray-800">Debug Information:</h2>
           <div className="grid md:grid-cols-2 gap-4">
             <div className="bg-blue-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-blue-800 mb-2">For Students:</h3>
+              <h3 className="font-semibold text-blue-800 mb-2">Connection Status:</h3>
               <ul className="text-sm text-blue-700 space-y-1">
-                <li>• Login and join different class rooms</li>
-                <li>• Send messages to ask questions in real-time</li>
-                <li>• Share thoughts and ideas instantly</li>
-                <li>• View teacher reactions on your messages</li>
-                <li>• Switch between different class rooms</li>
+                <li>• API Base URL: {API_BASE_URL}</li>
+                <li>• Socket Connected: {isConnected ? 'Yes' : 'No'}</li>
+                <li>• Current Room: {roomId}</li>
+                <li>• User Role: {userRole}</li>
+                <li>• Messages Loaded: {messages.length}</li>
               </ul>
             </div>
             
             <div className="bg-green-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-green-800 mb-2">For Teachers:</h3>
+              <h3 className="font-semibold text-green-800 mb-2">Environment Info:</h3>
               <ul className="text-sm text-green-700 space-y-1">
-                <li>• Login and moderate class discussions</li>
-                <li>• React to student messages with emojis</li>
-                <li>• Send messages to the class instantly</li>
-                <li>• Provide real-time feedback and encouragement</li>
-                <li>• Monitor multiple class rooms</li>
+                <li>• Hostname: {window.location.hostname}</li>
+                <li>• Protocol: {window.location.protocol}</li>
+                <li>• Port: {window.location.port || 'default'}</li>
+                <li>• Is Localhost: {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? 'Yes' : 'No'}</li>
               </ul>
             </div>
-          </div>
-          
-          <div className="mt-4 p-4 bg-yellow-50 rounded-lg border-l-4 border-yellow-400">
-            <h4 className="font-semibold text-yellow-800 mb-2">Debug Info:</h4>
-            <ul className="text-sm text-yellow-700 space-y-1">
-              <li>• API Base URL: {API_BASE_URL}</li>
-              <li>• Socket Connected: {isConnected ? 'Yes' : 'No'}</li>
-              <li>• Current Room: {roomId}</li>
-              <li>• User Role: {userRole}</li>
-              <li>• Messages Loaded: {messages.length}</li>
-            </ul>
           </div>
         </div>
       </div>
