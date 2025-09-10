@@ -98,6 +98,73 @@ const StudentScheduleAppointment = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Client-side validation function to replace the missing API method
+  const validateAppointmentData = (data) => {
+    const errors = [];
+    
+    // Required field validation
+    if (!data.teacherId || data.teacherId.trim() === '') {
+      errors.push('Teacher selection is required');
+    }
+    
+    if (!data.day || data.day.trim() === '') {
+      errors.push('Day selection is required');
+    }
+    
+    if (!data.time || data.time.trim() === '') {
+      errors.push('Time slot selection is required');
+    }
+    
+    if (!data.date || data.date.trim() === '') {
+      errors.push('Date selection is required');
+    } else {
+      // Validate date format and future date
+      const selectedDate = new Date(data.date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      if (isNaN(selectedDate.getTime())) {
+        errors.push('Invalid date format');
+      } else if (selectedDate < today) {
+        errors.push('Date must be in the future');
+      }
+    }
+    
+    // Student information validation
+    if (!data.student || typeof data.student !== 'object') {
+      errors.push('Student information is required');
+    } else {
+      if (!data.student.name || data.student.name.trim() === '') {
+        errors.push('Student name is required');
+      }
+      
+      if (!data.student.email || data.student.email.trim() === '') {
+        errors.push('Student email is required');
+      } else {
+        // Email format validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(data.student.email)) {
+          errors.push('Invalid email format');
+        }
+      }
+    }
+    
+    // Validate day is in allowed days
+    if (data.day && !DAYS_OF_WEEK.includes(data.day)) {
+      errors.push('Invalid day selection');
+    }
+    
+    // Validate time slot is in allowed slots
+    if (data.time && !AVAILABILITY_SLOTS.includes(data.time)) {
+      errors.push('Invalid time slot selection');
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors: errors
+    };
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     
@@ -147,8 +214,8 @@ const StudentScheduleAppointment = () => {
     setSubmitStatus({ type: '', message: '' });
 
     try {
-      // Use the API validation helper first
-      const validation = apiMethods.validateAppointmentData(formData, false);
+      // Use the local validation function instead of the missing API method
+      const validation = validateAppointmentData(formData);
       if (!validation.isValid) {
         setSubmitStatus({ type: 'error', message: validation.errors.join(', ') });
         setLoading(false);

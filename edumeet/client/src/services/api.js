@@ -220,6 +220,22 @@ export const endpoints = {
   }
 };
 
+// Constants for validation
+const AVAILABILITY_SLOTS = [
+  '9:00 AM - 10:00 AM',
+  '10:00 AM - 11:00 AM', 
+  '11:00 AM - 12:00 PM',
+  '12:00 PM - 1:00 PM',
+  '2:00 PM - 3:00 PM',
+  '3:00 PM - 4:00 PM',
+  '4:00 PM - 5:00 PM',
+  '5:00 PM - 6:00 PM'
+];
+
+const DAYS_OF_WEEK = [
+  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
+];
+
 // Enhanced API methods with better error handling
 export const apiMethods = {
   // Auth Operations
@@ -246,6 +262,80 @@ export const apiMethods = {
   setupTeacherAccount: (token, data) => api.post(endpoints.teachers.setupAccount(token), data),
   getTeacherProfile: () => api.get(endpoints.teachers.profile),
   teacherLogout: () => api.post(endpoints.teachers.logout),
+
+  // FIXED: Added missing validateAppointmentData function
+  validateAppointmentData: (data, isTeacherBooking = false) => {
+    const errors = [];
+    
+    // Required field validation
+    if (!data.teacherId || data.teacherId.trim() === '') {
+      errors.push('Teacher selection is required');
+    }
+    
+    if (!data.day || data.day.trim() === '') {
+      errors.push('Day selection is required');
+    }
+    
+    if (!data.time || data.time.trim() === '') {
+      errors.push('Time slot selection is required');
+    }
+    
+    if (!data.date || data.date.trim() === '') {
+      errors.push('Date selection is required');
+    } else {
+      // Validate date format and future date
+      const selectedDate = new Date(data.date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      if (isNaN(selectedDate.getTime())) {
+        errors.push('Invalid date format');
+      } else if (selectedDate < today) {
+        errors.push('Date must be in the future');
+      }
+    }
+    
+    // Student information validation (for student requests)
+    if (!isTeacherBooking) {
+      if (!data.student || typeof data.student !== 'object') {
+        errors.push('Student information is required');
+      } else {
+        if (!data.student.name || data.student.name.trim() === '') {
+          errors.push('Student name is required');
+        }
+        
+        if (!data.student.email || data.student.email.trim() === '') {
+          errors.push('Student email is required');
+        } else {
+          // Email format validation
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(data.student.email)) {
+            errors.push('Invalid email format');
+          }
+        }
+      }
+    }
+    
+    // Validate day is in allowed days
+    if (data.day && !DAYS_OF_WEEK.includes(data.day)) {
+      errors.push('Invalid day selection');
+    }
+    
+    // Validate time slot is in allowed slots
+    if (data.time && !AVAILABILITY_SLOTS.includes(data.time)) {
+      errors.push('Invalid time slot selection');
+    }
+    
+    // Additional teacher ID format validation (assuming MongoDB ObjectId)
+    if (data.teacherId && data.teacherId.length !== 24) {
+      errors.push('Invalid teacher ID format');
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors: errors
+    };
+  },
 
   // Appointment Operations
   requestAppointment: (appointmentData) => {
