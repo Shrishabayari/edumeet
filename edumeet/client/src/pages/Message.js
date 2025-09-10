@@ -263,7 +263,7 @@ const MessageBoard = () => {
   useEffect(() => {
     if (authToken && userRole) {
       loadMessages();
-    }
+    }// eslint-disable-next-line
   }, [roomId, authToken, userRole]);
 
   const loadMessages = async () => {
@@ -685,33 +685,6 @@ const MessageBoard = () => {
                 As a teacher, you can react to student messages with hearts, thumbs up, or stars
               </p>
             )}
-          </div>
-        </div>
-
-        {/* Debug Info */}
-        <div className="mt-6 bg-white rounded-lg shadow-lg p-6">
-          <h2 className="text-lg font-semibold mb-4 text-gray-800">Debug Information:</h2>
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-blue-800 mb-2">Connection Status:</h3>
-              <ul className="text-sm text-blue-700 space-y-1">
-                <li>• API Base URL: {API_BASE_URL}</li>
-                <li>• Socket Connected: {isConnected ? 'Yes' : 'No'}</li>
-                <li>• Current Room: {roomId}</li>
-                <li>• User Role: {userRole}</li>
-                <li>• Messages Loaded: {messages.length}</li>
-              </ul>
-            </div>
-            
-            <div className="bg-green-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-green-800 mb-2">Environment Info:</h3>
-              <ul className="text-sm text-green-700 space-y-1">
-                <li>• Hostname: {window.location.hostname}</li>
-                <li>• Protocol: {window.location.protocol}</li>
-                <li>• Port: {window.location.port || 'default'}</li>
-                <li>• Is Localhost: {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? 'Yes' : 'No'}</li>
-              </ul>
-            </div>
           </div>
         </div>
       </div>

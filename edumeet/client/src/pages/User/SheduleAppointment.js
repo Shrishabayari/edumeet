@@ -20,7 +20,7 @@ const DAYS_OF_WEEK = [
 
 const StudentScheduleAppointment = () => {
   const [activeTab] = useState('schedule');
-  const [teachers, setTeachers] = useState([]);// eslint-disable-next-line
+  const [teachers, setTeachers] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -117,6 +117,7 @@ const StudentScheduleAppointment = () => {
       }));
     }
     
+    // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
@@ -130,6 +131,7 @@ const StudentScheduleAppointment = () => {
       teacherName: selectedTeacher ? selectedTeacher.name : ''
     }));
     
+    // Clear teacher selection error
     if (errors.teacherId) {
       setErrors(prev => ({ ...prev, teacherId: '' }));
     }
@@ -145,6 +147,7 @@ const StudentScheduleAppointment = () => {
     setSubmitStatus({ type: '', message: '' });
 
     try {
+      // Use the API validation helper first
       const validation = apiMethods.validateAppointmentData(formData, false);
       if (!validation.isValid) {
         setSubmitStatus({ type: 'error', message: validation.errors.join(', ') });
@@ -152,6 +155,7 @@ const StudentScheduleAppointment = () => {
         return;
       }
 
+      // Use the requestAppointment method from your API
       const response = await apiMethods.requestAppointment(formData);
       
       if (response.data.success) {
@@ -166,6 +170,7 @@ const StudentScheduleAppointment = () => {
         });
         setErrors({});
         await loadAppointments();
+
       }
     } catch (error) {
       console.error('Error submitting appointment:', error);
@@ -180,9 +185,9 @@ const StudentScheduleAppointment = () => {
     switch (status) {
       case 'confirmed':
       case 'booked':
-        return <CheckCircle className="h-5 w-5 text-emerald-500" />;
+        return <CheckCircle className="h-5 w-5 text-green-500" />;
       case 'pending':
-        return <Clock className="h-5 w-5 text-amber-500" />;
+        return <Clock className="h-5 w-5 text-yellow-500" />;
       case 'rejected':
       case 'cancelled':
         return <XCircle className="h-5 w-5 text-red-500" />;
@@ -216,9 +221,9 @@ const StudentScheduleAppointment = () => {
     switch (status) {
       case 'confirmed':
       case 'booked':
-        return 'text-emerald-600';
+        return 'text-green-600';
       case 'pending':
-        return 'text-amber-600';
+        return 'text-yellow-600';
       case 'rejected':
       case 'cancelled':
         return 'text-red-600';

@@ -30,27 +30,80 @@ const TeacherApproveAppointments = () => {
   const [showResponseForm, setShowResponseForm] = useState(null);
   const [expandedCards, setExpandedCards] = useState(new Set());
 
-  // Fetch pending appointments for the teacher
+  // Enhanced fetchPendingAppointments with better error handling and debugging
   const fetchPendingAppointments = async () => {
+    console.log('🔄 Fetching pending appointments...');
     setLoading(true);
     setError('');
+    
     try {
-      const response = await apiMethods.getPendingRequests();
+      // First, try to get current teacher info
+      const currentTeacher = JSON.parse(localStorage.getItem('teacher') || sessionStorage.getItem('teacher') || '{}');
+      console.log('👨‍🏫 Current teacher:', currentTeacher);
+      
+      let response;
+      
+      // Try different API methods based on what's available
+      if (currentTeacher._id || currentTeacher.id) {
+        console.log('🔄 Using teacher-specific endpoint...');
+        response = await apiMethods.getTeacherPendingRequests(currentTeacher._id || currentTeacher.id);
+      } else {
+        console.log('🔄 Using general appointments endpoint...');
+        // Fallback to general appointments endpoint with pending filter
+        response = await apiMethods.getAllAppointments({ status: 'pending' });
+      }
+      
+      console.log('📦 Raw API response:', response);
       
       let appointmentsArray = [];
       const data = response.data;
 
+      // Enhanced data extraction logic
       if (Array.isArray(data)) {
         appointmentsArray = data;
-      } else if (data && Array.isArray(data.data)) {
-        appointmentsArray = data.data;
+        console.log('✅ Data is array, using directly');
+      } else if (data && typeof data === 'object') {
+        if (Array.isArray(data.data)) {
+          appointmentsArray = data.data;
+          console.log('✅ Data found in data.data property');
+        } else if (Array.isArray(data.appointments)) {
+          appointmentsArray = data.appointments;
+          console.log('✅ Data found in data.appointments property');
+        } else if (Array.isArray(data.results)) {
+          appointmentsArray = data.results;
+          console.log('✅ Data found in data.results property');
+        } else {
+          console.log('⚠️ Data object structure not recognized:', Object.keys(data));
+          appointmentsArray = [];
+        }
       } else {
+        console.log('⚠️ Unexpected data format:', typeof data, data);
         appointmentsArray = [];
       }
 
-      setPendingAppointments(appointmentsArray);
+      // Filter only pending appointments
+      const pendingOnly = appointmentsArray.filter(appointment => 
+        appointment.status === 'pending'
+      );
+
+      console.log(`📊 Found ${appointmentsArray.length} total appointments, ${pendingOnly.length} pending`);
+      console.log('📋 Pending appointments:', pendingOnly);
+
+      setPendingAppointments(pendingOnly);
+      
+      if (pendingOnly.length === 0) {
+        console.log('ℹ️ No pending appointments found');
+      }
+
     } catch (error) {
-      console.error('Error fetching pending appointments:', error);
+      console.error('❌ Error fetching pending appointments:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        stack: error.stack
+      });
+      
       setError('Failed to load pending appointments. Please try again.');
       setPendingAppointments([]);
     } finally {
@@ -59,6 +112,7 @@ const TeacherApproveAppointments = () => {
   };
 
   useEffect(() => {
+    console.log('🚀 Component mounted, fetching appointments...');
     fetchPendingAppointments();
   }, []);
 
@@ -66,6 +120,10 @@ const TeacherApproveAppointments = () => {
   const formatDateForDisplay = (dateString) => {
     try {
       const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        console.warn('Invalid date string:', dateString);
+        return dateString || 'Invalid Date';
+      }
       return date.toLocaleDateString('en-US', {
         weekday: 'long',
         year: 'numeric',
@@ -73,7 +131,8 @@ const TeacherApproveAppointments = () => {
         day: 'numeric'
       });
     } catch (error) {
-      return dateString;
+      console.error('Error formatting date:', error);
+      return dateString || 'Invalid Date';
     }
   };
 
@@ -81,6 +140,10 @@ const TeacherApproveAppointments = () => {
   const getTimeSinceCreation = (dateString) => {
     try {
       const created = new Date(dateString);
+      if (isNaN(created.getTime())) {
+        return 'Unknown time';
+      }
+      
       const now = new Date();
       const diffInHours = Math.floor((now - created) / (1000 * 60 * 60));
       
@@ -89,7 +152,8 @@ const TeacherApproveAppointments = () => {
       const diffInDays = Math.floor(diffInHours / 24);
       return `${diffInDays}d ago`;
     } catch (error) {
-      return '';
+      console.error('Error calculating time since creation:', error);
+      return 'Unknown time';
     }
   };
 
@@ -101,26 +165,9 @@ const TeacherApproveAppointments = () => {
     }));
   };
 
-  // Direct status update method (fallback)
-  const updateStatusDirectly = async (appointmentId, newStatus) => {
-    try {
-      console.log(`Directly updating appointment ${appointmentId} to status: ${newStatus}`);
-      
-      const response = await apiMethods.updateAppointment(appointmentId, { 
-        status: newStatus,
-        updatedBy: 'teacher',
-        updatedAt: new Date().toISOString()
-      });
-      
-      return response;
-    } catch (error) {
-      console.error('Direct update failed:', error);
-      throw error;
-    }
-  };
-
   // Accept appointment with fallback mechanism
   const acceptAppointment = async (appointmentId) => {
+    console.log(`🔄 Accepting appointment: ${appointmentId}`);
     setProcessingId(appointmentId);
     setError('');
     
@@ -129,14 +176,15 @@ const TeacherApproveAppointments = () => {
       let response;
       let usedFallback = false;
       
-      console.log('Accepting appointment:', appointmentId, 'with message:', responseMessage);
-      
       try {
         response = await apiMethods.acceptAppointmentRequest(appointmentId, responseMessage);
       } catch (error) {
-        console.log('Accept method failed, using fallback:', error.message);
-        // eslint-disable-next-line
-        response = await updateStatusDirectly(appointmentId, 'confirmed');
+        console.log('Accept method failed, using fallback:', error.message);// eslint-disable-next-line
+        response = await apiMethods.updateAppointment(appointmentId, { 
+          status: 'confirmed',
+          updatedBy: 'teacher',
+          updatedAt: new Date().toISOString()
+        });
         usedFallback = true;
       }
       
@@ -159,7 +207,7 @@ const TeacherApproveAppointments = () => {
       setTimeout(() => setError(''), 3000);
       
     } catch (error) {
-      console.error('Error accepting appointment:', error);
+      console.error('❌ Error accepting appointment:', error);
       setError(error.message || 'Failed to accept appointment. Please try again.');
     } finally {
       setProcessingId(null);
@@ -177,6 +225,7 @@ const TeacherApproveAppointments = () => {
       return;
     }
 
+    console.log(`🔄 Rejecting appointment: ${appointmentId}`);
     setProcessingId(appointmentId);
     setError('');
     
@@ -184,10 +233,6 @@ const TeacherApproveAppointments = () => {
       const responseMessage = responseMessages[appointmentId] || '';
       let response;
       let usedFallback = false;
-      
-      console.log('=== REJECTING APPOINTMENT ===');
-      console.log('Appointment ID:', appointmentId);
-      console.log('Response Message:', responseMessage);
       
       // Validate appointment ID format before sending
       if (!appointmentId) {
@@ -200,7 +245,11 @@ const TeacherApproveAppointments = () => {
         console.log('✅ Primary rejection response:', response);
       } catch (error) {
         console.log('Primary reject method failed, using fallback:', error.message);
-        response = await updateStatusDirectly(appointmentId, 'rejected');
+        response = await apiMethods.updateAppointment(appointmentId, { 
+          status: 'rejected',
+          updatedBy: 'teacher',
+          updatedAt: new Date().toISOString()
+        });
         usedFallback = true;
         console.log('✅ Fallback rejection response:', response);
       }
@@ -227,38 +276,7 @@ const TeacherApproveAppointments = () => {
       
     } catch (error) {
       console.error('❌ Error rejecting appointment:', error);
-      console.error('Error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      });
-      
-      // Enhanced error message based on the error type
-      let errorMessage = 'Failed to reject appointment. Please try again.';
-      
-      if (error.response) {
-        const { status, data } = error.response;
-        switch (status) {
-          case 400:
-            errorMessage = data.message || 'Invalid request. Please check the appointment details.';
-            break;
-          case 404:
-            errorMessage = 'Appointment not found or may have been already processed.';
-            break;
-          case 403:
-            errorMessage = 'You do not have permission to reject this appointment.';
-            break;
-          case 409:
-            errorMessage = 'Appointment has already been processed.';
-            break;
-          default:
-            errorMessage = data.message || `Server error (${status}). Please try again.`;
-        }
-      } else if (error.request) {
-        errorMessage = 'Cannot connect to server. Please check your internet connection.';
-      }
-      
-      setError(errorMessage);
+      setError('Failed to reject appointment. Please try again.');
     } finally {
       setProcessingId(null);
     }
@@ -280,9 +298,17 @@ const TeacherApproveAppointments = () => {
     });
   };
 
+  // Debug information
+  console.log('🔍 Current component state:', {
+    pendingAppointments: pendingAppointments.length,
+    loading,
+    error,
+    processingId
+  });
+
   return (
     <>
-    <TeacherNavbar/>
+      <TeacherNavbar />
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
         {/* Modern Header with Glass Morphism */}
         <div className="bg-white/80 backdrop-blur-xl border-b border-white/20 shadow-lg sticky top-0 z-40">
@@ -498,7 +524,7 @@ const TeacherApproveAppointments = () => {
                       {/* Enhanced Response Form */}
                       {showForm && (
                         <div className="mt-6 bg-gradient-to-r from-blue-50/30 to-indigo-50/30 rounded-2xl p-6 border border-blue-200/30">
-                          <label className="block text-sm font-semibold text-gray-800 mb-3 items-center">
+                          <label className="block text-sm font-semibold text-gray-800 mb-3  items-center">
                             <Send className="w-4 h-4 mr-2" />
                             Response Message (Optional)
                           </label>
