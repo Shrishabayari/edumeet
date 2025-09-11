@@ -68,7 +68,8 @@ api.interceptors.request.use(
     } else {
       // Try multiple token types for regular users
       token = getTokenFromStorage('userToken') || 
-              getTokenFromStorage('studentToken');
+              getTokenFromStorage('studentToken') ||
+              getTokenFromStorage('teacherToken'); // Allow teacher tokens for appointment actions
     }
 
     if (token) {
@@ -180,6 +181,7 @@ export const endpoints = {
   // Appointment endpoints
   appointments: {
     getAll: '/appointments',
+    getAllPending: '/appointments/pending/all', // NEW: Get all pending appointments
     getById: (id) => `/appointments/${id}`,
     getStats: '/appointments/stats',
     request: '/appointments/request',
@@ -210,7 +212,7 @@ export const endpoints = {
     rejectUser: (id) => `/auth/admin/reject/${id}`,
   },
   
-  // FIXED: Message endpoints with proper API prefix
+  // Message endpoints with proper API prefix
   messages: {
     getByRoom: (roomId) => `/messages/room/${roomId}`,
     delete: (id) => `/messages/${id}`,
@@ -263,7 +265,7 @@ export const apiMethods = {
   getTeacherProfile: () => api.get(endpoints.teachers.profile),
   teacherLogout: () => api.post(endpoints.teachers.logout),
 
-  // FIXED: Added missing validateAppointmentData function
+  // Appointment data validation
   validateAppointmentData: (data, isTeacherBooking = false) => {
     const errors = [];
     
@@ -346,6 +348,12 @@ export const apiMethods = {
   teacherBookAppointment: (appointmentData) => {
     console.log('🔄 Teacher booking appointment directly:', appointmentData);
     return api.post(endpoints.appointments.book, appointmentData);
+  },
+
+  // NEW: Get ALL pending appointments (not teacher-specific)
+  getAllPendingAppointments: () => {
+    console.log('🔄 Fetching all pending appointments...');
+    return api.get(endpoints.appointments.getAllPending);
   },
 
   acceptAppointmentRequest: async (id, responseMessage = '') => {
@@ -431,7 +439,7 @@ export const apiMethods = {
   approveUser: (id) => api.put(endpoints.admin.approveUser(id)),
   rejectUser: (id, reason) => api.put(endpoints.admin.rejectUser(id), { reason }),
 
-  // FIXED: Message Operations
+  // Message Operations
   getMessagesForRoom: async (roomId, params = {}) => {
     try {
       console.log(`🔄 Fetching messages for room: ${roomId}`);
@@ -513,7 +521,7 @@ export const apiMethods = {
   }
 };
 
-// FIXED: Enhanced token management utilities
+// Enhanced token management utilities
 export const tokenManager = {
   // User token methods
   setUserToken: (token, persistent = false) => {

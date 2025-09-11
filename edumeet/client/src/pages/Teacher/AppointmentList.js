@@ -23,6 +23,24 @@ const AppointmentList = ({ initialAppointments = [], onAppointmentUpdate }) => {
     }
   };
 
+  // Helper function to determine if appointment was booked by teacher
+  const isBookedByTeacher = (appointment) => {
+    // Check various possible fields that might indicate teacher booking
+    return appointment.bookedBy === 'teacher' || 
+           appointment.createdBy === 'teacher' || 
+           appointment.bookingType === 'teacher' ||
+           appointment.initiatedBy === 'teacher' ||
+           (appointment.metadata && appointment.metadata.bookedBy === 'teacher');
+  };
+
+  // Helper function to get initial status based on who booked
+  const getInitialStatus = (appointment) => {
+    if (isBookedByTeacher(appointment)) {
+      return 'confirmed';
+    }
+    return appointment.status || 'pending';
+  };
+
   // Helper function to get status color and icon
   const getStatusDisplay = (status) => {
     const statusConfig = {
@@ -91,9 +109,16 @@ const AppointmentList = ({ initialAppointments = [], onAppointmentUpdate }) => {
         console.warn('Appointments API returned unexpected data format:', data);
         appointmentsArray = [];
       }
-      setAppointments(appointmentsArray);
+
+      // Process appointments to set correct initial status
+      const processedAppointments = appointmentsArray.map(appointment => ({
+        ...appointment,
+        status: getInitialStatus(appointment)
+      }));
+
+      setAppointments(processedAppointments);
       if (onAppointmentUpdate) {
-        onAppointmentUpdate(appointmentsArray);
+        onAppointmentUpdate(processedAppointments);
       }
     } catch (error) {
       console.error('Error fetching appointments:', error);
@@ -247,6 +272,10 @@ const AppointmentList = ({ initialAppointments = [], onAppointmentUpdate }) => {
               <Clock className="w-4 h-4" />
               <span>{safeAppointments.filter(apt => apt.status === 'pending').length} Pending</span>
             </div>
+            <div className="flex items-center space-x-1">
+              <CheckCircle className="w-4 h-4" />
+              <span>{safeAppointments.filter(apt => apt.status === 'confirmed').length} Confirmed</span>
+            </div>
           </div>
         </div>
 
@@ -325,6 +354,7 @@ const AppointmentList = ({ initialAppointments = [], onAppointmentUpdate }) => {
               const StatusIcon = statusDisplay.icon;
               const appointmentId = appointment.id || appointment._id;
               const isUpdating = updatingStatus === appointmentId;
+              const bookedByTeacher = isBookedByTeacher(appointment);
 
               return (
                 <div 
@@ -356,6 +386,11 @@ const AppointmentList = ({ initialAppointments = [], onAppointmentUpdate }) => {
                               </span>
                             </div>
                           </div>
+                          {bookedByTeacher && (
+                            <div className="px-2 py-1 bg-gradient-to-r from-green-100 to-emerald-100 border border-green-200 rounded-full">
+                              <span className="text-xs font-medium text-green-700">Teacher Booked</span>
+                            </div>
+                          )}
                         </div>
 
                         <div className="space-y-1 text-gray-600">
@@ -391,7 +426,7 @@ const AppointmentList = ({ initialAppointments = [], onAppointmentUpdate }) => {
                           disabled={isUpdating}
                           className="w-full bg-white border-2 border-gray-200 rounded-2xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-sm hover:shadow-md"
                         >
-                          <option value="pending">📋 Pending Review</option>
+                          {!bookedByTeacher && <option value="pending">📋 Pending Review</option>}
                           <option value="confirmed">✅ Confirmed</option>
                           <option value="completed">🎯 Completed</option>
                           <option value="cancelled">❌ Cancelled</option>
@@ -404,8 +439,8 @@ const AppointmentList = ({ initialAppointments = [], onAppointmentUpdate }) => {
                         )}
                       </div>
 
-                      {/* Quick Action Buttons */}
-                      {appointment.status === 'pending' && (
+                      {/* Quick Action Buttons - Only show for student-booked pending appointments */}
+                      {appointment.status === 'pending' && !bookedByTeacher && (
                         <div className="flex space-x-2 w-full sm:w-auto lg:w-full">
                           <button
                             onClick={() => updateAppointmentStatus(appointmentId, 'confirmed')}
@@ -424,7 +459,7 @@ const AppointmentList = ({ initialAppointments = [], onAppointmentUpdate }) => {
                         </div>
                       )}
 
-                      {appointment.status === 'active' && (
+                      {appointment.status === 'confirmed' && (
                         <button
                           onClick={() => updateAppointmentStatus(appointmentId, 'completed')}
                           disabled={isUpdating}

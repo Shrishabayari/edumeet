@@ -7,6 +7,7 @@ const {
   teacherBookAppointment,
   acceptAppointmentRequest,
   rejectAppointmentRequest,
+  getAllPendingAppointments,
   updateAppointment,
   cancelAppointment,
   completeAppointment,
@@ -208,6 +209,7 @@ router.post('/request', requestAppointmentValidation, handleValidationErrors, re
 
 // 4. Teacher books appointment directly (specific path)
 router.post('/book', teacherBookingValidation, handleValidationErrors, teacherBookAppointment);
+router.get('/pending/all', getAllPendingAppointments);
 
 // 5. CRITICAL FIX: Appointment action routes (specific paths with parameters)
 // These MUST come before the generic /:id routes

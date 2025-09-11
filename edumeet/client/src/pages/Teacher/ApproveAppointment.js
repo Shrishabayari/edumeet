@@ -30,86 +30,81 @@ const TeacherApproveAppointments = () => {
   const [showResponseForm, setShowResponseForm] = useState(null);
   const [expandedCards, setExpandedCards] = useState(new Set());
 
-  // Enhanced fetchPendingAppointments with better error handling and debugging
-  const fetchPendingAppointments = async () => {
-    console.log('🔄 Fetching pending appointments...');
-    setLoading(true);
-    setError('');
+const fetchPendingAppointments = async () => {
+  console.log('🔄 Fetching ALL pending appointments...');
+  setLoading(true);
+  setError('');
+  
+  try {
+    let response;
     
+    // SOLUTION 1: Get ALL appointments with pending status (not teacher-specific)
     try {
-      // First, try to get current teacher info
-      const currentTeacher = JSON.parse(localStorage.getItem('teacher') || sessionStorage.getItem('teacher') || '{}');
-      console.log('👨‍🏫 Current teacher:', currentTeacher);
-      
-      let response;
-      
-      // Try different API methods based on what's available
-      if (currentTeacher._id || currentTeacher.id) {
-        console.log('🔄 Using teacher-specific endpoint...');
-        response = await apiMethods.getTeacherPendingRequests(currentTeacher._id || currentTeacher.id);
-      } else {
-        console.log('🔄 Using general appointments endpoint...');
-        // Fallback to general appointments endpoint with pending filter
-        response = await apiMethods.getAllAppointments({ status: 'pending' });
-      }
-      
-      console.log('📦 Raw API response:', response);
-      
-      let appointmentsArray = [];
-      const data = response.data;
+      console.log('🔄 Fetching all pending appointments...');
+      response = await apiMethods.getAllAppointments({ status: 'pending' });
+    } catch (error) {
+      console.log('Primary method failed, trying fallback:', error.message);
+      // Fallback: get all appointments and filter client-side
+      response = await apiMethods.getAllAppointments();
+    }
+    
+    console.log('📦 Raw API response:', response);
+    
+    let appointmentsArray = [];
+    const data = response.data;
 
-      // Enhanced data extraction logic
-      if (Array.isArray(data)) {
-        appointmentsArray = data;
-        console.log('✅ Data is array, using directly');
-      } else if (data && typeof data === 'object') {
-        if (Array.isArray(data.data)) {
-          appointmentsArray = data.data;
-          console.log('✅ Data found in data.data property');
-        } else if (Array.isArray(data.appointments)) {
-          appointmentsArray = data.appointments;
-          console.log('✅ Data found in data.appointments property');
-        } else if (Array.isArray(data.results)) {
-          appointmentsArray = data.results;
-          console.log('✅ Data found in data.results property');
-        } else {
-          console.log('⚠️ Data object structure not recognized:', Object.keys(data));
-          appointmentsArray = [];
-        }
+    // Enhanced data extraction logic
+    if (Array.isArray(data)) {
+      appointmentsArray = data;
+      console.log('✅ Data is array, using directly');
+    } else if (data && typeof data === 'object') {
+      if (Array.isArray(data.data)) {
+        appointmentsArray = data.data;
+        console.log('✅ Data found in data.data property');
+      } else if (Array.isArray(data.appointments)) {
+        appointmentsArray = data.appointments;
+        console.log('✅ Data found in data.appointments property');
+      } else if (Array.isArray(data.results)) {
+        appointmentsArray = data.results;
+        console.log('✅ Data found in data.results property');
       } else {
-        console.log('⚠️ Unexpected data format:', typeof data, data);
+        console.log('⚠️ Data object structure not recognized:', Object.keys(data));
         appointmentsArray = [];
       }
-
-      // Filter only pending appointments
-      const pendingOnly = appointmentsArray.filter(appointment => 
-        appointment.status === 'pending'
-      );
-
-      console.log(`📊 Found ${appointmentsArray.length} total appointments, ${pendingOnly.length} pending`);
-      console.log('📋 Pending appointments:', pendingOnly);
-
-      setPendingAppointments(pendingOnly);
-      
-      if (pendingOnly.length === 0) {
-        console.log('ℹ️ No pending appointments found');
-      }
-
-    } catch (error) {
-      console.error('❌ Error fetching pending appointments:', error);
-      console.error('Error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        stack: error.stack
-      });
-      
-      setError('Failed to load pending appointments. Please try again.');
-      setPendingAppointments([]);
-    } finally {
-      setLoading(false);
+    } else {
+      console.log('⚠️ Unexpected data format:', typeof data, data);
+      appointmentsArray = [];
     }
-  };
+
+    // Filter only pending appointments (client-side filtering as backup)
+    const pendingOnly = appointmentsArray.filter(appointment => 
+      appointment.status === 'pending' && appointment.createdBy === 'student'
+    );
+
+    console.log(`📊 Found ${appointmentsArray.length} total appointments, ${pendingOnly.length} pending`);
+    console.log('📋 Pending appointments:', pendingOnly);
+
+    setPendingAppointments(pendingOnly);
+    
+    if (pendingOnly.length === 0) {
+      console.log('ℹ️ No pending appointments found');
+    }
+
+  } catch (error) {
+    console.error('❌ Error fetching pending appointments:', error);
+    console.error('Error details:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      stack: error.stack
+    });
+    
+    setError('Failed to load pending appointments. Please try again.');
+    setPendingAppointments([]);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     console.log('🚀 Component mounted, fetching appointments...');

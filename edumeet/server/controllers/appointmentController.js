@@ -303,7 +303,6 @@ const teacherBookAppointment = async (req, res) => {
   }
 };
 
-// Fixed acceptAppointmentRequest function
 const acceptAppointmentRequest = async (req, res) => {
   try {
     const { id } = req.params;
@@ -323,11 +322,11 @@ const acceptAppointmentRequest = async (req, res) => {
       });
     }
     
-    // First, find the appointment without teacher restriction to debug
-    const appointmentCheck = await Appointment.findById(id);
-    console.log('Appointment found (debug):', appointmentCheck);
+    // Find the appointment
+    const appointment = await Appointment.findById(id);
+    console.log('Appointment found:', appointment);
     
-    if (!appointmentCheck) {
+    if (!appointment) {
       console.error('Appointment not found with ID:', id);
       return res.status(404).json({
         success: false,
@@ -336,49 +335,54 @@ const acceptAppointmentRequest = async (req, res) => {
     }
     
     // Check if appointment is in correct state
-    if (appointmentCheck.status !== 'pending') {
-      console.error('Appointment not pending. Current status:', appointmentCheck.status);
+    if (appointment.status !== 'pending') {
+      console.error('Appointment not pending. Current status:', appointment.status);
       return res.status(400).json({
         success: false,
-        message: `Cannot accept appointment. Current status: ${appointmentCheck.status}`
+        message: `Cannot accept appointment. Current status: ${appointment.status}`
       });
     }
     
-    if (appointmentCheck.createdBy !== 'student') {
-      console.error('Appointment not created by student:', appointmentCheck.createdBy);
+    if (appointment.createdBy !== 'student') {
+      console.error('Appointment not created by student:', appointment.createdBy);
       return res.status(400).json({
         success: false,
         message: 'Only student requests can be accepted'
       });
     }
     
-    // Get teacherId from request (could be from auth middleware or request body)
-    const teacherId = req.user?.id || req.user?._id || req.body.teacherId;
-    console.log('Teacher ID from request:', teacherId);
-    console.log('Appointment teacherId:', appointmentCheck.teacherId);
+    // Get current teacher info
+    const currentTeacherId = req.user?.id || req.user?._id;
+    console.log('Current teacher ID:', currentTeacherId);
     
-    // If we have teacher auth, verify teacher owns this appointment
-    if (teacherId && appointmentCheck.teacherId.toString() !== teacherId.toString()) {
-      console.error('Teacher mismatch. Auth teacher:', teacherId, 'Appointment teacher:', appointmentCheck.teacherId);
-      return res.status(403).json({
-        success: false,
-        message: 'You can only accept appointments assigned to you'
-      });
+    // REMOVED RESTRICTION: Allow any authenticated teacher to accept any pending appointment
+    // This is useful for scenarios where teachers can cover for each other or handle general requests
+    
+    // Optional: If you want to reassign the appointment to the accepting teacher
+    if (currentTeacherId && appointment.teacherId.toString() !== currentTeacherId.toString()) {
+      console.log('Reassigning appointment to accepting teacher');
+      appointment.teacherId = currentTeacherId;
+      
+      // Update teacher name if available
+      const acceptingTeacher = await Teacher.findById(currentTeacherId);
+      if (acceptingTeacher) {
+        appointment.teacherName = acceptingTeacher.name;
+      }
     }
     
     // Update the appointment
     try {
       console.log('Updating appointment status to confirmed...');
-      await appointmentCheck.acceptRequest(responseMessage);
+      await appointment.acceptRequest(responseMessage);
       
       // Populate teacher details for response
-      await appointmentCheck.populate('teacherId', 'name email phone subject');
+      await appointment.populate('teacherId', 'name email phone subject');
       
-      console.log('Appointment accepted successfully:', appointmentCheck._id);
+      console.log('Appointment accepted successfully:', appointment._id);
       
       res.json({
         success: true,
-        data: appointmentCheck,
+        data: appointment,
         message: 'Appointment request accepted successfully'
       });
       
@@ -405,12 +409,15 @@ const acceptAppointmentRequest = async (req, res) => {
   }
 };
 
-// Teacher rejects appointment request
+// FIXED: Modified rejectAppointmentRequest to allow any teacher
 const rejectAppointmentRequest = async (req, res) => {
   try {
     const { id } = req.params;
     const { responseMessage } = req.body;
-    const teacherId = req.user?.id;
+    
+    console.log('=== REJECT APPOINTMENT REQUEST ===');
+    console.log('Appointment ID:', id);
+    console.log('Response Message:', responseMessage);
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -419,9 +426,9 @@ const rejectAppointmentRequest = async (req, res) => {
       });
     }
     
+    // REMOVED TEACHER RESTRICTION: Find appointment regardless of teacher assignment
     const appointment = await Appointment.findOne({
       _id: id,
-      teacherId,
       status: 'pending',
       createdBy: 'student'
     });
@@ -429,12 +436,14 @@ const rejectAppointmentRequest = async (req, res) => {
     if (!appointment) {
       return res.status(404).json({
         success: false,
-        message: 'Appointment request not found or already processed '
+        message: 'Appointment request not found or already processed'
       });
     }
     
     await appointment.rejectRequest(responseMessage);
     await appointment.populate('teacherId', 'name email phone subject');
+    
+    console.log('Appointment rejected successfully:', appointment._id);
     
     res.json({
       success: true,
@@ -447,6 +456,36 @@ const rejectAppointmentRequest = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to reject appointment',
+      error: error.message
+    });
+  }
+};
+
+// ADDED: New function to get ALL pending appointments (not teacher-specific)
+const getAllPendingAppointments = async (req, res) => {
+  try {
+    console.log('Fetching ALL pending appointments for teacher review...');
+    
+    const pendingAppointments = await Appointment.find({
+      status: 'pending',
+      createdBy: 'student'
+    })
+    .populate('teacherId', 'name email phone subject')
+    .sort({ createdAt: -1 });
+    
+    console.log(`Found ${pendingAppointments.length} pending appointments`);
+    
+    res.json({
+      success: true,
+      data: pendingAppointments,
+      count: pendingAppointments.length
+    });
+    
+  } catch (error) {
+    console.error('Error fetching all pending appointments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch pending appointments',
       error: error.message
     });
   }
@@ -722,6 +761,7 @@ module.exports = {
   teacherBookAppointment,      // Teacher books directly
   acceptAppointmentRequest,    // Teacher accepts request
   rejectAppointmentRequest,    // Teacher rejects request
+  getAllPendingAppointments,
   updateAppointment,
   cancelAppointment,
   completeAppointment,
