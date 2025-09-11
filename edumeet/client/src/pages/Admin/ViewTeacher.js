@@ -289,7 +289,7 @@ const ViewTeachers = () => {
       console.error('Error response status:', error.response?.status);
       console.error('Error message:', error.message);
       
-      let errorMessage = 'Failed to save teacher';
+      let errorMessage = '';
       
       if (error.response?.data) {
         if (error.response.data.message) {

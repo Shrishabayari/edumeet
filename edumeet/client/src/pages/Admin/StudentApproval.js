@@ -8,10 +8,10 @@ const tempApiMethods = {
     
     // Try multiple possible endpoints
     const possibleEndpoints = [
-      'https://edumeet.onrender.com/auth/admin/pending',
-      'https://edumeet.onrender.com/admin/pending', 
       'https://edumeet.onrender.com/api/auth/admin/pending',
-      'https://edumeet.onrender.com/api/admin/pending'
+      'https://edumeet.onrender.com/auth/admin/pending',
+      'https://edumeet.onrender.com/api/admin/pending',
+      'https://edumeet.onrender.com/admin/pending'
     ];
 
     let lastError = null;
@@ -31,31 +31,27 @@ const tempApiMethods = {
           console.log(`Success with endpoint: ${endpoint}`);
           return response.json();
         } else if (response.status !== 404) {
-          // If it's not a 404, throw the error
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        // If it's 404, continue to next endpoint
         console.log(`404 for endpoint: ${endpoint}, trying next...`);
       } catch (error) {
         console.log(`Error with endpoint ${endpoint}:`, error.message);
         lastError = error;
-        // Continue to next endpoint
       }
     }
     
-    // If all endpoints failed, throw the last error
     throw lastError || new Error('All API endpoints failed');
   },
   
   approveUser: async (userId) => {
     const adminToken = localStorage.getItem('adminToken');
     
-    // Try multiple possible endpoints for approve
+    // Try multiple possible endpoints for approve - prioritize the working pattern
     const possibleEndpoints = [
-      `https://edumeet.onrender.com/auth/admin/approve/${userId}`,
-      `https://edumeet.onrender.com/admin/approve/${userId}`,
       `https://edumeet.onrender.com/api/auth/admin/approve/${userId}`,
-      `https://edumeet.onrender.com/api/admin/approve/${userId}`
+      `https://edumeet.onrender.com/auth/admin/approve/${userId}`,
+      `https://edumeet.onrender.com/api/admin/approve/${userId}`,
+      `https://edumeet.onrender.com/admin/approve/${userId}`
     ];
 
     let lastError = null;
@@ -90,12 +86,12 @@ const tempApiMethods = {
   rejectUser: async (userId, reason) => {
     const adminToken = localStorage.getItem('adminToken');
     
-    // Try multiple possible endpoints for reject
+    // FIXED: Match the same endpoint pattern as approval
     const possibleEndpoints = [
-      `https://edumeet.onrender.com/auth/admin/reject/${userId}`,
-      `https://edumeet.onrender.com/admin/reject/${userId}`,
       `https://edumeet.onrender.com/api/auth/admin/reject/${userId}`,
-      `https://edumeet.onrender.com/api/admin/reject/${userId}`
+      `https://edumeet.onrender.com/auth/admin/reject/${userId}`,
+      `https://edumeet.onrender.com/api/admin/reject/${userId}`,
+      `https://edumeet.onrender.com/admin/reject/${userId}`
     ];
 
     let lastError = null;
@@ -103,20 +99,40 @@ const tempApiMethods = {
     for (const endpoint of possibleEndpoints) {
       try {
         console.log(`Trying reject endpoint: ${endpoint}`);
+        console.log(`Rejection reason: "${reason}"`);
+        
+        // FIXED: Ensure reason is properly formatted and not empty
+        const requestBody = {
+          reason: reason && reason.trim() ? reason.trim() : 'No specific reason provided'
+        };
+        
+        console.log('Request body:', JSON.stringify(requestBody));
+        
         const response = await fetch(endpoint, {
           method: 'PUT',
           headers: {
             'Authorization': `Bearer ${adminToken}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ reason })
+          body: JSON.stringify(requestBody)
         });
+        
+        console.log(`Response status: ${response.status}`);
         
         if (response.ok) {
           console.log(`Success with reject endpoint: ${endpoint}`);
           return response.json();
         } else if (response.status !== 404) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          // FIXED: Better error handling for 400 errors
+          let errorMessage = `HTTP ${response.status}`;
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorData.error || errorMessage;
+            console.log('Error response data:', errorData);
+          } catch (e) {
+            console.log('Could not parse error response as JSON');
+          }
+          throw new Error(errorMessage);
         }
         console.log(`404 for reject endpoint: ${endpoint}, trying next...`);
       } catch (error) {
@@ -225,7 +241,6 @@ const UserApproval = () => {
     try {
       await tempApiMethods.approveUser(userId);
       setActionStatus('success');
-      // Remove the approved user from the list immediately for better UX
       setPendingUsers(prev => prev.filter(user => getUserInfo(user).id !== userId));
       setDebugInfo('User approved successfully');
     } catch (err) {
@@ -251,23 +266,31 @@ const UserApproval = () => {
     setRejectionReason('');
   };
 
-  // Handle user rejection
+  // FIXED: Enhanced rejection handling
   const handleRejectUser = async () => {
-    if (!selectedUserForRejection || !rejectionReason.trim()) {
-      setError('Please provide a rejection reason.');
+    if (!selectedUserForRejection) {
+      setError('No user selected for rejection.');
       return;
     }
 
+    // FIXED: Allow rejection with empty reason but provide default
+    const finalReason = rejectionReason.trim() || 'Application rejected by administrator';
     const userId = getUserInfo(selectedUserForRejection).id;
+    
+    console.log('Rejecting user:', {
+      userId,
+      reason: finalReason,
+      userInfo: getUserInfo(selectedUserForRejection)
+    });
+
     setProcessingUserId(userId);
     setError('');
     setActionStatus(null);
     
     try {
-      await tempApiMethods.rejectUser(userId, rejectionReason.trim());
+      await tempApiMethods.rejectUser(userId, finalReason);
       setActionStatus('success');
       closeRejectionModal();
-      // Remove the rejected user from the list immediately for better UX
       setPendingUsers(prev => prev.filter(user => getUserInfo(user).id !== userId));
       setDebugInfo('User rejected successfully');
     } catch (err) {
@@ -275,6 +298,16 @@ const UserApproval = () => {
       setError(`Failed to reject user: ${err.message}`);
       setActionStatus('error');
       setDebugInfo(`Reject error: ${err.message}`);
+      
+      // FIXED: Additional debugging for 400 errors
+      if (err.message.includes('400')) {
+        console.log('400 Error Debug Info:', {
+          userId: userId,
+          reason: finalReason,
+          userObject: selectedUserForRejection,
+          adminToken: tempTokenManager.getAdminToken() ? 'Present' : 'Missing'
+        });
+      }
     } finally {
       setProcessingUserId(null);
     }
@@ -481,7 +514,7 @@ const UserApproval = () => {
             </div>
           )}
 
-          {/* Rejection Modal */}
+          {/* FIXED: Enhanced Rejection Modal */}
           {showRejectionModal && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-lg animate-fade-in">
@@ -492,19 +525,28 @@ const UserApproval = () => {
                 
                 <p className="text-gray-600 mb-6 text-lg">
                   You are about to reject the registration for{' '}
-                  <span className="font-medium">{selectedUserForRejection?.name}</span>.
-                  Please provide a reason for rejection.
+                  <span className="font-medium">{getUserInfo(selectedUserForRejection).name}</span>.
+                  Please provide a reason for rejection (optional).
                 </p>
                 
                 <textarea
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
-                  placeholder="Enter rejection reason..."
+                  placeholder="Enter rejection reason (optional)..."
                   className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none text-base"
                   rows="5"
                   maxLength="500"
                   disabled={processingUserId !== null}
                 />
+                
+                <div className="text-sm text-gray-500 mt-2">
+                  {rejectionReason.length}/500 characters
+                  {!rejectionReason.trim() && (
+                    <span className="ml-2 text-blue-600">
+                      (A default reason will be used if left empty)
+                    </span>
+                  )}
+                </div>
                 
                 <div className="flex justify-end space-x-4 mt-8">
                   <button
@@ -517,7 +559,7 @@ const UserApproval = () => {
                   <button
                     onClick={handleRejectUser}
                     className="px-8 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed text-lg font-medium"
-                    disabled={processingUserId !== null || !rejectionReason.trim()}
+                    disabled={processingUserId !== null}
                   >
                     {processingUserId !== null ? (
                       <Loader2 className="w-5 h-5 mr-2 animate-spin" />

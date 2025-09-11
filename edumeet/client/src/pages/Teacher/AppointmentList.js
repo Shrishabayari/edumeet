@@ -126,7 +126,7 @@ const AppointmentList = ({ initialAppointments = [], onAppointmentUpdate }) => {
       setAppointments([]);
     } finally {
       setLoading(false);
-    }
+    }// eslint-disable-next-line
   }, [onAppointmentUpdate]);
 
   useEffect(() => {
