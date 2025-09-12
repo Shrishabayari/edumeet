@@ -95,11 +95,10 @@ EduMeet is a full-stack web application built using the MERN stack. It provides 
   - Edit/Update existing teacher information
   - Delete teacher records from the system
   - View all teachers with comprehensive details
-- **Student Management** ⚠️ **PARTIALLY IMPLEMENTED**
+- **Student Management**
   - Review and approve new student registrations ✅
-  - View all registered students ❌ *Not yet implemented*
-  - Update student account status (active/inactive) ❌ *Not yet implemented*
-  - Delete student accounts ❌ *Not yet implemented*
+  - View all registered students 
+  - Update student account status (Approve/Reject)
 - **Appointment Management** ❌ **NOT YET IMPLEMENTED**
   - View all appointments across the system
   - Monitor real-time appointment bookings
@@ -127,7 +126,7 @@ EduMeet is a full-stack web application built using the MERN stack. It provides 
   - Define availability time slots
   - Set recurring availability patterns
   - Block unavailable time periods
-- **Real-time Communication** ❌ **NOT YET IMPLEMENTED**
+- **Real-time Communication**
   - Send and receive messages from students
   - Real-time notifications for new messages
   - Message history and conversation threads
@@ -158,10 +157,9 @@ EduMeet is a full-stack web application built using the MERN stack. It provides 
   - Search teachers by name, department, or subject
   - Browse teacher profiles and specializations
   - View teacher availability and ratings
-- **Advanced Booking Management** ❌ **NOT YET IMPLEMENTED**
+- **Advanced Booking Management**
   - Track current booking status
-  - Reschedule appointments
-  - Appointment reminders and notifications
+  - Cancel appointments
 - **Real-time Features** ❌ **NOT YET IMPLEMENTED**
   - Real-time message notifications
   - Real-time slot availability checking

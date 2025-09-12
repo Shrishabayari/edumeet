@@ -34,6 +34,7 @@ const AdminNavbar = () => {
           <Link to="/admin/view-teachers" className="hover:underline">Manage Teacher</Link>
           <Link to="/admin/approval" className="hover:underline">Student Approval</Link>
           <Link to="/admin/students" className="hover:underline">Students</Link>
+          <Link to="/admin/appointment-list" className="hover:underline">All Appointments</Link>
           <button onClick={handleLogout} className="hover:underline text-red-100">Logout</button>
         </div>
       </div>
