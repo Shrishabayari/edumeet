@@ -33,6 +33,7 @@ const AdminNavbar = () => {
           <Link to="/admin/teacher-register" className="hover:underline">Add Teacher</Link>
           <Link to="/admin/view-teachers" className="hover:underline">Manage Teacher</Link>
           <Link to="/admin/approval" className="hover:underline">Student Approval</Link>
+          <Link to="/admin/students" className="hover:underline">Students</Link>
           <button onClick={handleLogout} className="hover:underline text-red-100">Logout</button>
         </div>
       </div>
@@ -44,6 +45,7 @@ const AdminNavbar = () => {
           <Link to="/admin/teacher-register" onClick={toggleMenu} className="block hover:underline">Add Teacher</Link>
           <Link to="/admin/view-teachers" onClick={toggleMenu} className="block hover:underline">Manage Teacher</Link>
           <Link to="/admin/approval" onClick={toggleMenu} className="block hover:underline">Student Approval</Link>
+          <Link to="/admin/students" onClick={toggleMenu} className="block hover:underline">Students</Link>
           <button onClick={() => { toggleMenu(); handleLogout(); }} className=" text-left hover:underline text-red-100">Logout</button>
         </div>
       )}

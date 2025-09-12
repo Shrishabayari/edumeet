@@ -19,6 +19,7 @@ import MessageBoard from './pages/Message';
 import ViewTeachers from './pages/Admin/ViewTeacher';
 import AddTeacher from './pages/Admin/AddTeacher';
 import UserAppointmentList from './pages/User/AppointmentList';
+import UserList from './pages/Admin/AllStudents';
 
 function App() {
   return (
@@ -37,6 +38,7 @@ function App() {
               <Route path="/admin/teacher-register" element={<AddTeacher />} />
               <Route path="/admin/view-teachers" element={<ViewTeachers />} />
               <Route path="/admin/approval" element={<StudentApproval />} />
+              <Route path="/admin/Students" element={<UserList />} />
               
               {/* User Routes */}
               <Route path="/user/register" element={<RegistrationForm />} />
