@@ -33,6 +33,7 @@ const UserNavbar = () => {
           <Link to="/user/appointments" className="hover:underline">Shedule Appointment</Link>
           <Link to="/student/message" className="hover:underline">Message</Link>
           <Link to="/user/Appointment-list" className="hover:underline">All Appointments</Link>
+          <Link to="/user/teachers-list" className="hover:underline">All Teachers</Link>
           <button onClick={handleLogout} className="hover:underline text-red-100">Logout</button>
         </div>
       </div>

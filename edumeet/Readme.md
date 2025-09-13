@@ -83,74 +83,54 @@ EduMeet is a full-stack web application built using the MERN stack. It provides 
 
 ## 📋 Features (Current Implementation Status)
 
-### 👨‍💼 Admin Module ✅ **IMPLEMENTED**
-- **Teacher Registration** ✅
-  - Register new teacher accounts with complete details
-- **Authentication** ✅
+### 👨‍💼 Admin Module 
+- **Authentication** 
   - Register new admin account
   - Secure login system
   - Admin logout functionality
-- **Teacher Management** ✅
+- **Teacher Registration** 
+  - Register new teacher accounts with complete details
+- **Teacher Management** 
   - Add new teachers with details (Name, Department, Subject, etc.)
   - Edit/Update existing teacher information
   - Delete teacher records from the system
   - View all teachers with comprehensive details
 - **Student Management**
-  - Review and approve new student registrations ✅
-  - View all registered students 
+  - Review and approve or reject new student registrations requests 
   - Update student account status (Approve/Reject)
-- **Appointment Management** ❌ **NOT YET IMPLEMENTED**
+  - View all registered students 
+- **Appointment Management** 
   - View all appointments across the system
   - Monitor real-time appointment bookings
   - Edit appointment status (confirmed/cancelled/completed)
-  - System-wide appointment analytics
-- **Communication Hub** ❌ **NOT YET IMPLEMENTED**
-  - View all messages between students and teachers
-  - Monitor system communication logs
-  - Moderate platform interactions
-- **Profile Management** ❌ **NOT YET IMPLEMENTED**
-  - View own admin profile
-  - Update name and contact information
-  - Change password securely
 
-### 👨‍🏫 Teacher Module ⚠️ **PARTIALLY IMPLEMENTED**
-- **Authentication** ✅
+
+### 👨‍🏫 Teacher Module 
+- **Authentication** 
   - Secure teacher login system
   - Teacher logout functionality
-- **Appointment Management** ✅
+- **Appointment Management** 
   - Schedule appointments with students
   - Create and manage appointment windows
   - Approve or decline student appointment requests
   - Track appointment status and completion
-- **Schedule Management** ❌ **NOT YET IMPLEMENTED**
-  - Define availability time slots
-  - Set recurring availability patterns
-  - Block unavailable time periods
 - **Real-time Communication**
   - Send and receive messages from students
-  - Real-time notifications for new messages
   - Message history and conversation threads
-- **Appointment Overview** ❌ **NOT YET IMPLEMENTED**
+- **Appointment Overview** 
   - View appointment history and analytics
-  - Student interaction history
-- **Profile Management** ❌ **NOT YET IMPLEMENTED**
-  - View personal teacher profile
-  - Update department, subject, and contact information
-  - Change password and security settings
-- **Session Management** ❌ **NOT YET IMPLEMENTED**
-  - Session timeout handling
 
-### 👩‍🎓 Student Module ⚠️ **PARTIALLY IMPLEMENTED**
-- **Authentication** ✅
+### 👩‍🎓 Student Module 
+- **Authentication** 
   - Student registration (requires admin approval)
   - Secure login system
   - Student logout functionality
-- **Appointment Booking** ✅
+- **Appointment Booking** 
+  - View list of teachers
   - Schedule appointments with teachers (requires teacher confirmation)
   - View booking confirmation and status
-  - View personal appointment history
   - Cancel appointments
-- **Communication** ✅
+- **Communication** 
   - Direct communication with teachers
   - Conversation history and messaging
 - **Teacher Discovery** ❌ **NOT YET IMPLEMENTED**
@@ -160,37 +140,29 @@ EduMeet is a full-stack web application built using the MERN stack. It provides 
 - **Advanced Booking Management**
   - Track current booking status
   - Cancel appointments
-- **Real-time Features** ❌ **NOT YET IMPLEMENTED**
-  - Real-time message notifications
-  - Real-time slot availability checking
-- **Profile Management** ❌ **NOT YET IMPLEMENTED**
-  - View personal student profile
-  - Update academic information and contact details
-  - Change password and account settings
 
 ## 🚧 Development Roadmap
 
-### Phase 1: Core Authentication & Basic Operations ✅ **COMPLETED**
+### Phase 1: Core Authentication & Basic Operations 
 - Admin authentication and teacher registration
 - Basic teacher management (CRUD operations)
 - Student registration with admin approval
 - Teacher and student login systems
 - Core appointment booking workflow
 
-### Phase 2: Appointment System ✅ **COMPLETED**
+### Phase 2: Appointment System 
 - Student appointment scheduling
 - Teacher appointment confirmation/rejection
 - Appointment status tracking
 - Basic communication between students and teachers
 
-### Phase 3: Enhanced User Management 🔄 **IN PROGRESS**
+### Phase 3: Enhanced User Management 
 - Complete student management features
 - Admin profile management
 - User status management and controls
 
-### Phase 4: Advanced Features 📋 **PLANNED**
+### Phase 4: Advanced Features 
 - Teacher availability and schedule management
-- Real-time notifications
 - Advanced search and filtering
 - Appointment analytics
 
@@ -735,7 +707,7 @@ npm test
 cd client
 npm test
 
-# Run tests in watch mode
+# Run tests in  mode
 npm test -- --watch
 
 # Run tests with coverage
