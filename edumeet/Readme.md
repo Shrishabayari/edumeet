@@ -280,9 +280,7 @@ edumeet/
    
    # Database Configuration
    MONGO_URI=mongodb://localhost:27017/edumeet
-   # For MongoDB Atlas:
-   # MONGO_URI=mongodb+srv://username:password@cluster0.mongodb.net/edumeet?retryWrites=true&w=majority
-   
+      
    # JWT Configuration
    JWT_SECRET=your-super-secret-jwt-key-for-edumeet-2024
    JWT_EXPIRE=7d
