@@ -104,7 +104,6 @@ EduMeet is a full-stack web application built using the MERN stack. It provides 
   - Monitor real-time appointment bookings
   - Edit appointment status (confirmed/cancelled/completed)
 
-
 ### 👨‍🏫 Teacher Module 
 - **Authentication** 
   - Secure teacher login system
@@ -133,48 +132,13 @@ EduMeet is a full-stack web application built using the MERN stack. It provides 
 - **Communication** 
   - Direct communication with teachers
   - Conversation history and messaging
-- **Teacher Discovery** ❌ **NOT YET IMPLEMENTED**
+- **Teacher Discovery**
   - Search teachers by name, department, or subject
   - Browse teacher profiles and specializations
-  - View teacher availability and ratings
+  - View teacher availability
 - **Advanced Booking Management**
   - Track current booking status
   - Cancel appointments
-
-## 🚧 Development Roadmap
-
-### Phase 1: Core Authentication & Basic Operations 
-- Admin authentication and teacher registration
-- Basic teacher management (CRUD operations)
-- Student registration with admin approval
-- Teacher and student login systems
-- Core appointment booking workflow
-
-### Phase 2: Appointment System 
-- Student appointment scheduling
-- Teacher appointment confirmation/rejection
-- Appointment status tracking
-- Basic communication between students and teachers
-
-### Phase 3: Enhanced User Management 
-- Complete student management features
-- Admin profile management
-- User status management and controls
-
-### Phase 4: Advanced Features 
-- Teacher availability and schedule management
-- Advanced search and filtering
-- Appointment analytics
-
-### Phase 5: Communication Enhancement 📋 **PLANNED**
-- Real-time messaging system
-- Notification system
-- Communication hub for admins
-
-### Phase 6: Profile & Settings 📋 **PLANNED**
-- User profile management
-- Security settings
-- Password management
 
 ## 🏗️ Project Structure
 
@@ -182,92 +146,35 @@ EduMeet is a full-stack web application built using the MERN stack. It provides 
 edumeet/
 ├── client/                     # React frontend
 │   ├── node_modules/          # Client dependencies
-│   │   ├── @babel/             # Babel compiler packages
-│   │   ├── @heroicons/         # Heroicons React components
-│   │   ├── @testing-library/   # Testing utilities
-│   │   ├── axios/             # HTTP client library
-│   │   ├── react/             # React core library
-│   │   ├── react-dom/         # React DOM renderer
-│   │   ├── react-router-dom/  # React routing
-│   │   ├── socket.io-client/  # Socket.io client
-│   │   ├── tailwindcss/       # Tailwind CSS framework
-│   │   └── ... (other dependencies)
 │   ├── public/
-│   │   ├── favicon.ico
-│   │   ├── index.html
-│   │   ├── logo192.png
-│   │   ├── logo512.png
-│   │   ├── manifest.json
-│   │   └── robots.txt
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── admin/
+│   │   │   ├── Admin/
 │   │   │   │   ├── AdminDashboard.js
 │   │   │   │   ├── AdminLogin.js
+│   │   │   │   ├── AdminManagement.js
 │   │   │   │   ├── AdminRegister.js
-│   │   │   │   ├── AdminProfile.js
-│   │   │   │   ├── TeacherManagement.js
-│   │   │   │   ├── StudentManagement.js
 │   │   │   │   ├── AppointmentManagement.js
-│   │   │   │   ├── MessageOverview.js
-│   │   │   │   └── SystemAnalytics.js
-│   │   │   ├── teacher/
-│   │   │   │   ├── TeacherDashboard.js
-│   │   │   │   ├── TeacherLogin.js
-│   │   │   │   ├── TeacherRegister.js
-│   │   │   │   ├── TeacherProfile.js
-│   │   │   │   ├── ScheduleManagement.js
-│   │   │   │   ├── AppointmentControl.js
-│   │   │   │   ├── StudentMessages.js
-│   │   │   │   └── AppointmentHistory.js
-│   │   │   ├── student/
+│   │   │   │   ├── StudentManagement.js
+│   │   │   │   └── TeacherManagement.js
+│   │   │   ├── Auth/
+│   │   │   │   ├── Login.js
+│   │   │   │   └── ProtectedRoute.js
+│   │   │   ├── Student/
+│   │   │   │   ├── AppointmentBooking.js
 │   │   │   │   ├── StudentDashboard.js
 │   │   │   │   ├── StudentLogin.js
+│   │   │   │   ├── StudentManagement.js
 │   │   │   │   ├── StudentRegister.js
-│   │   │   │   ├── StudentProfile.js
-│   │   │   │   ├── TeacherSearch.js
-│   │   │   │   ├── AppointmentBooking.js
-│   │   │   │   ├── BookingHistory.js
-│   │   │   │   ├── TeacherMessages.js
-│   │   │   │   └── AppointmentTracker.js
-│   │   │   └── common/
-│   │   │       ├── Header.js
-│   │   │       ├── Footer.js
-│   │   │       ├── Navbar.js
-│   │   │       ├── LoadingSpinner.js
-│   │   │       ├── ErrorBoundary.js
-│   │   │       └── ProtectedRoute.js
-│   │   ├── contexts/
-│   │   │   ├── AdminContext.js
-│   │   │   ├── TeacherContext.js
-│   │   │   ├── StudentContext.js
-│   │   │   ├── AuthContext.js
-│   │   │   └── SocketContext.js
-│   │   ├── services/
-│   │   │   ├── adminService.js
-│   │   │   ├── teacherService.js
-│   │   │   ├── studentService.js
-│   │   │   ├── authService.js
-│   │   │   ├── appointmentService.js
-│   │   │   ├── messageService.js
-│   │   │   └── socketService.js
-│   │   ├── hooks/
-│   │   │   ├── useAuth.js
-│   │   │   ├── useSocket.js
-│   │   │   ├── useAppointments.js
-│   │   │   ├── useMessages.js
-│   │   │   └── useRealTime.js
+│   │   │   │   └── TeacherSearch.js
+│   │   │   └── Teacher/
+│   │   │       ├── TeacherDashboard.js
+│   │   │       ├── TeacherLogin.js
+│   │   │       ├── TeacherManagement.js
+│   │   │       └── TeacherRegister.js
 │   │   ├── utils/
 │   │   │   ├── api.js
-│   │   │   ├── constants.js
-│   │   │   ├── helpers.js
-│   │   │   ├── dateUtils.js
-│   │   │   └── validators.js
-│   │   ├── styles/
-│   │   │   ├── admin.css
-│   │   │   ├── teacher.css
-│   │   │   ├── student.css
-│   │   │   └── global.css
+│   │   │   └── constants.js
 │   │   ├── App.css
 │   │   ├── App.js
 │   │   ├── App.test.js
@@ -284,70 +191,51 @@ edumeet/
 │   └── tailwind.config.js
 ├── server/                     # Node.js backend
 │   ├── node_modules/          # Server dependencies
-│   │   ├── express/           # Express.js framework
-│   │   ├── mongoose/          # MongoDB ODM
-│   │   ├── socket.io/         # Real-time communication
-│   │   ├── jsonwebtoken/      # JWT authentication
-│   │   ├── bcryptjs/          # Password hashing
-│   │   ├── cors/              # Cross-origin resource sharing
-│   │   ├── helmet/            # Security headers
-│   │   ├── express-rate-limit/ # Rate limiting
-│   │   ├── express-validator/ # Input validation
-│   │   ├── morgan/            # HTTP request logging
-│   │   ├── cookie-parser/     # Cookie parsing
-│   │   ├── dotenv/            # Environment variables
-│   │   ├── debug/             # Debugging utility
-│   │   ├── colors/            # Console colors
-│   │   ├── nodemon/           # Development auto-restart
-│   │   └── ... (other dependencies)
 │   ├── config/
 │   │   ├── database.js
 │   │   ├── socketConfig.js
 │   │   └── corsConfig.js
 │   ├── controllers/
 │   │   ├── adminController.js
-│   │   ├── teacherController.js
-│   │   ├── studentController.js
-│   │   ├── authController.js
 │   │   ├── appointmentController.js
-│   │   └── messageController.js
+│   │   ├── authController.js
+│   │   ├── messageController.js
+│   │   ├── studentController.js
+│   │   └── teacherController.js
 │   ├── middleware/
-│   │   ├── adminAuth.js
-│   │   ├── teacherAuth.js
-│   │   ├── studentAuth.js
 │   │   ├── auth.js
-│   │   ├── roleAuth.js
-│   │   ├── rateLimiter.js
 │   │   ├── errorHandler.js
+│   │   ├── rateLimiter.js
+│   │   ├── roleAuth.js
 │   │   └── validation.js
 │   ├── models/
 │   │   ├── Admin.js
-│   │   ├── Teacher.js
-│   │   ├── Student.js
 │   │   ├── Appointment.js
-│   │   └── Message.js
+│   │   ├── Message.js
+│   │   ├── Student.js
+│   │   └── Teacher.js
 │   ├── routes/
 │   │   ├── admin.js
-│   │   ├── teacher.js
-│   │   ├── student.js
-│   │   ├── auth.js
 │   │   ├── appointments.js
-│   │   └── messages.js
+│   │   ├── auth.js
+│   │   ├── messages.js
+│   │   ├── student.js
+│   │   └── teacher.js
 │   ├── sockets/
-│   │   ├── socketHandlers.js
 │   │   ├── appointmentSockets.js
-│   │   └── messageSockets.js
+│   │   ├── messageSockets.js
+│   │   └── socketHandlers.js
 │   ├── utils/
+│   │   ├── dateHelpers.js
 │   │   ├── generateToken.js
 │   │   ├── hashPassword.js
-│   │   ├── validators.js
-│   │   ├── dateHelpers.js
-│   │   └── responseHelpers.js
+│   │   ├── responseHelpers.js
+│   │   └── validators.js
 │   ├── .env
 │   ├── .gitignore
+│   ├── index.js
 │   ├── package-lock.json
-│   ├── package.json
-│   └── index.js
+│   └── package.json
 ├── .gitignore
 ├── package-lock.json
 ├── package.json
@@ -606,67 +494,79 @@ npm run eject      # Eject from Create React App (irreversible)
 ## 🔧 API Endpoints
 
 ### Authentication Routes
+#### General Authentication
+- `POST /auth/register` - User registration
+- `POST /auth/login` - User login
+- `POST /auth/logout` - User logout
+- `GET /auth/profile` - Get user profile
+- `PUT /auth/profile` - Update user profile
+- `GET /auth/verify-token` - Verify authentication token
+
 #### Admin Authentication
-- `POST /api/auth/admin/login` - Admin login
-- `POST /api/auth/admin/register` - Admin registration
-- `GET /api/auth/admin/profile` - Get admin profile
-- `PUT /api/auth/admin/profile` - Update admin profile
-- `POST /api/auth/admin/logout` - Admin logout
+- `POST /admin/register` - Admin registration
+- `POST /admin/login` - Admin login
+- `GET /admin/profile` - Get admin profile
+- `PUT /admin/profile` - Update admin profile
+- `GET /auth/admin/pending` - Get pending user registrations
+- `GET /auth/admin/users` - Get all users for admin
+- `PUT /auth/admin/approve/:id` - Approve user registration
+- `PUT /auth/admin/reject/:id` - Reject user registration
 
 #### Teacher Authentication
-- `POST /api/auth/teacher/login` - Teacher login
-- `POST /api/auth/teacher/register` - Teacher registration (requires approval)
-- `GET /api/auth/teacher/profile` - Get teacher profile
-- `PUT /api/auth/teacher/profile` - Update teacher profile
-- `POST /api/auth/teacher/logout` - Teacher logout
+- `POST /teachers/login` - Teacher login
+- `POST /teachers/send-setup-link` - Send account setup link to teacher
+- `POST /teachers/setup-account/:token` - Setup teacher account with token
+- `GET /teachers/profile` - Get teacher profile
+- `POST /teachers/logout` - Teacher logout
 
-#### Student Authentication
-- `POST /api/auth/student/login` - Student login
-- `POST /api/auth/student/register` - Student registration (requires approval)
-- `GET /api/auth/student/profile` - Get student profile
-- `PUT /api/auth/student/profile` - Update student profile
-- `POST /api/auth/student/logout` - Student logout
+### Teacher Management Routes
+- `GET /teachers` - Get all teachers (with query parameters)
+- `GET /teachers/:id` - Get specific teacher by ID
+- `POST /teachers` - Create new teacher
+- `PUT /teachers/:id` - Update teacher information
+- `DELETE /teachers/:id` - Soft delete teacher
+- `DELETE /teachers/:id/permanent` - Permanently delete teacher
+- `GET /teachers/stats` - Get teacher statistics
+- `GET /teachers/department/:department` - Get teachers by department
+
+### Appointment Routes
+#### General Appointment Operations
+- `GET /appointments` - Get all appointments (with query parameters)
+- `GET /appointments/pending/all` - Get all pending appointments
+- `GET /appointments/:id` - Get specific appointment by ID
+- `GET /appointments/stats` - Get appointment statistics
+- `PUT /appointments/:id` - Update appointment details
+- `PUT /appointments/:id/cancel` - Cancel appointment
+
+#### Appointment Booking & Management
+- `POST /appointments/request` - Request new appointment (student)
+- `POST /appointments/book` - Book appointment directly (teacher)
+- `PUT /appointments/:id/accept` - Accept appointment request
+- `PUT /appointments/:id/reject` - Reject appointment request
+- `PUT /appointments/:id/complete` - Mark appointment as completed
+
+#### Teacher-Specific Appointments
+- `GET /appointments/teacher/:teacherId` - Get appointments for specific teacher
+- `GET /appointments/teacher/:teacherId/pending` - Get pending requests for teacher
 
 ### Admin Routes
-#### User Management
-- `GET /api/admin/teachers` - Get all teachers (with approval status)
-- `GET /api/admin/students` - Get all students (with approval status)
-- `PUT /api/admin/teachers/:id/approve` - Approve teacher registration
-- `PUT /api/admin/students/:id/approve` - Approve student registration
-- `DELETE /api/admin/users/:id` - Delete user account
-- `PUT /api/admin/users/:id/status` - Update user status
+#### Dashboard & Statistics
+- `GET /admin/dashboard/stats` - Get admin dashboard statistics
+- `GET /admin/users` - Get all users with filters
+- `DELETE /admin/users/:userId` - Delete user account
+- `GET /admin/appointments` - Get all appointments for admin view
+- `PATCH /admin/teachers/:teacherId/status` - Update teacher approval status
 
-#### System Management
-- `GET /api/admin/appointments` - Get all appointments with filters
-- `GET /api/admin/messages` - Get all system messages
-- `GET /api/admin/statistics` - Get system analytics and statistics
-- `PUT /api/admin/appointments/:id` - Update appointment status
+### Message Routes
+#### Room & Message Management
+- `GET /messages/rooms` - Get all message rooms
+- `GET /messages/room/:roomId` - Get messages for specific room
+- `GET /messages/room/:roomId/stats` - Get statistics for message room
+- `GET /messages/room/:roomId/search` - Search messages within room
+- `DELETE /messages/:id` - Delete specific message
 
-### Teacher Routes
-#### Schedule Management
-- `GET /api/teacher/availability` - Get teacher's availability schedule
-- `PUT /api/teacher/availability` - Update availability schedule
-- `GET /api/teacher/appointments` - Get teacher's appointments
-- `PUT /api/teacher/appointments/:id/approve` - Approve appointment request
-- `PUT /api/teacher/appointments/:id/cancel` - Cancel appointment
-
-#### Communication
-- `GET /api/teacher/messages` - Get messages from students
-- `POST /api/teacher/messages` - Send message to student
-- `PUT /api/teacher/messages/:id/read` - Mark message as read
-
-### Student Routes
-#### Teacher Discovery & Booking
-- `GET /api/student/teachers` - Search teachers by name/subject/department
-- `GET /api/student/teachers/:id` - Get specific teacher details and availability
-- `POST /api/student/appointments` - Book appointment with teacher
-- `GET /api/student/appointments` - Get student's appointments
-- `PUT /api/student/appointments/:id/cancel` - Cancel appointment
-
-#### Communication
-- `GET /api/student/messages` - Get messages from teachers
-- `POST /api/student/messages` - Send message to teacher
-- `PUT /api/student/messages/:id/read` - Mark message as read
+### System Health & Monitoring
+- `GET /api/health` - API health check endpoint
 
 ### Real-time Socket Events
 #### Appointment Events
@@ -687,93 +587,13 @@ npm run eject      # Eject from Create React App (irreversible)
 ### Socket.io Integration
 - **Real-time Appointments**: Live appointment booking and status updates
 - **Instant Messaging**: Real-time chat between students and teachers
-- **Online Status**: Track user online/offline status
-- **Notifications**: Real-time notifications for appointments and messages
+- **Online Status**: Track user online/offline status for messaging
 
 ### Event-driven Architecture
 - **Appointment Events**: Booking, approval, cancellation, and completion events
 - **Message Events**: Send, receive, and read status events
 - **User Events**: Login, logout, and status change events
 - **Admin Events**: System-wide monitoring and alert events
-
-## 🧪 Testing
-
-```bash
-# Run backend tests
-cd server
-npm test
-
-# Run frontend tests (with React Testing Library)
-cd client
-npm test
-
-# Run tests in  mode
-npm test -- --watch
-
-# Run tests with coverage
-npm test -- --coverage
-
-# Build and test production build
-npm run build
-```
-
-## 📱 Usage Guide
-
-### For Administrators
-
-1. **System Setup**: Login with admin credentials to access the admin dashboard
-2. **User Approval**: Review and approve teacher and student registrations
-3. **User Management**: Monitor users, update status, or remove accounts
-4. **System Monitoring**: View all appointments, messages, and system analytics
-5. **Content Management**: Manage system settings and configurations
-
-### For Teachers
-
-1. **Registration**: Register and wait for admin approval
-2. **Profile Setup**: Complete profile with department, subject, and contact information
-3. **Schedule Management**: Set up availability schedule for different days and times
-4. **Appointment Handling**: Review and approve/decline student appointment requests
-5. **Communication**: Use real-time messaging to communicate with students
-6. **Session Management**: Track completed appointments and student interactions
-
-### For Students
-
-1. **Registration**: Register with academic details and wait for admin approval
-2. **Teacher Search**: Search and browse teachers by name, subject, or department
-3. **Appointment Booking**: Book available slots with preferred teachers
-4. **Communication**: Send messages and communicate with teachers in real-time
-5. **Appointment Management**: Track booking status and manage appointments
-6. **Academic Planning**: Use the platform for academic guidance and consultation
-
-## 📈 Optimization
-
-- **Database**: MongoDB indexing with Mongoose for efficient queries
-- **Frontend**: React 19 features with automatic batching and concurrent rendering
-- **API**: RESTful design with proper HTTP status codes and pagination
-- **Real-time**: Optimized Socket.io connections with room-based messaging
-- **Authentication**: JWT tokens with proper expiration and refresh mechanisms
-- **Caching**: Response caching for frequently accessed data
-- **Build**: Tailwind CSS purging and React build optimization
-- **Security**: Rate limiting, input validation, and XSS protection
-- **Development**: Nodemon for automatic server restarts during development
-- **Logging**: Morgan for HTTP request logging and debug for flexible debugging
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-### Development Guidelines
-- Follow React and Node.js best practices
-- Write comprehensive tests for new features
-- Ensure proper error handling and validation
-- Maintain consistent code style and documentation
-- Test real-time features thoroughly
-- Use the debug utility for development logging
-- Leverage nodemon for efficient development workflow
 
 ## 🔧 Development Tools
 

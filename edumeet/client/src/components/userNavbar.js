@@ -32,8 +32,8 @@ const UserNavbar = () => {
           <Link to="/user/dashboard" className="hover:underline">Dashboard</Link>
           <Link to="/user/appointments" className="hover:underline">Shedule Appointment</Link>
           <Link to="/student/message" className="hover:underline">Message</Link>
-          <Link to="/user/Appointment-list" className="hover:underline">All Appointments</Link>
-          <Link to="/user/teachers-list" className="hover:underline">All Teachers</Link>
+          <Link to="/user/Appointment-list" className="hover:underline">Appointments</Link>
+          <Link to="/user/teachers-list" className="hover:underline">Teachers</Link>
           <button onClick={handleLogout} className="hover:underline text-red-100">Logout</button>
         </div>
       </div>
@@ -44,7 +44,8 @@ const UserNavbar = () => {
           <Link to="/user/dashboard" className="hover:underline">Dashboard</Link>
           <Link to="/user/appointments" onClick={toggleMenu} className="block hover:underline">Shedule Appointment</Link>
           <Link to="/student/message" onClick={toggleMenu} className="block hover:underline">Message</Link>
-          <Link to="/user/Appointment-list" onClick={toggleMenu} className="block hover:underline">All Appointments</Link>
+          <Link to="/user/Appointment-list" onClick={toggleMenu} className="block hover:underline">Appointments</Link>
+          <Link to="/user/teachers-list" onClick={toggleMenu} className="block hover:underline">Teachers</Link>
           <button onClick={() => { toggleMenu(); handleLogout(); }} className=" text-left hover:underline text-red-100">Logout</button>
         </div>
       )}
