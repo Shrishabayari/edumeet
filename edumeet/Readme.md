@@ -173,8 +173,7 @@ edumeet/
 │   │   │       ├── TeacherManagement.js
 │   │   │       └── TeacherRegister.js
 │   │   ├── utils/
-│   │   │   ├── api.js
-│   │   │   └── constants.js
+│   │   │   └── api.js
 │   │   ├── App.css
 │   │   ├── App.js
 │   │   ├── App.test.js
@@ -221,10 +220,6 @@ edumeet/
 │   │   ├── messages.js
 │   │   ├── student.js
 │   │   └── teacher.js
-│   ├── sockets/
-│   │   ├── appointmentSockets.js
-│   │   ├── messageSockets.js
-│   │   └── socketHandlers.js
 │   ├── utils/
 │   │   ├── dateHelpers.js
 │   │   ├── generateToken.js
@@ -353,7 +348,6 @@ edumeet/
 - **Password**: `Student@123`
 - **Role**: Student
 
-> **Note**: These are default credentials for testing purposes. In production, ensure to change these credentials and implement proper user registration flows with email verification.
 
 ## 📊 Database Schema
 
