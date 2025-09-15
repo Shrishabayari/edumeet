@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from 'react-router-dom';
-import { PlusCircle, LogOut, User, AlertCircle, BookOpen, UserCheck } from 'lucide-react';
+import { PlusCircle, LogOut, User, AlertCircle, BookOpen, UserCheck, Users, Calendar } from 'lucide-react';
 import AdminNavbar from "../../components/adminNavbar";
 
 // Use the same API configuration as your existing api.js
@@ -126,7 +126,7 @@ const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Updated dashboard items to match educational platform
+  // Updated dashboard items to include Students, Appointments, and Login
   const dashboardItems = [
     {
       title: "Add Teacher",
@@ -154,6 +154,24 @@ const AdminDashboard = () => {
       hoverBg: "hover:bg-green-600",
       textColor: "text-green-800",
       path: "/admin/approval",
+    },
+    {
+      title: "Students",
+      description: "View and manage all registered students in the platform.",
+      icon: <Users className="w-10 h-10 text-orange-600 group-hover:text-white transition-colors duration-300" />,
+      bgColor: "bg-orange-50",
+      hoverBg: "hover:bg-orange-600",
+      textColor: "text-orange-800",
+      path: "/admin/students",
+    },
+    {
+      title: "Appointments",
+      description: "Manage all appointments and meeting schedules.",
+      icon: <Calendar className="w-10 h-10 text-indigo-600 group-hover:text-white transition-colors duration-300" />,
+      bgColor: "bg-indigo-50",
+      hoverBg: "hover:bg-indigo-600",
+      textColor: "text-indigo-800",
+      path: "/admin/appointment-list",
     },
   ];
 

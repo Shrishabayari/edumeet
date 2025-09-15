@@ -30,10 +30,10 @@ const UserNavbar = () => {
 
         <div className="hidden md:flex space-x-6">
           <Link to="/user/dashboard" className="hover:underline">Dashboard</Link>
-          <Link to="/user/appointments" className="hover:underline">Shedule Appointment</Link>
-          <Link to="/student/message" className="hover:underline">Message</Link>
-          <Link to="/user/Appointment-list" className="hover:underline">Appointments</Link>
           <Link to="/user/teachers-list" className="hover:underline">Teachers</Link>
+          <Link to="/user/appointments" className="hover:underline">Shedule Appointment</Link>
+          <Link to="/user/Appointment-list" className="hover:underline">Appointments</Link>
+          <Link to="/student/message" className="hover:underline">Message</Link>
           <button onClick={handleLogout} className="hover:underline text-red-100">Logout</button>
         </div>
       </div>
@@ -42,10 +42,10 @@ const UserNavbar = () => {
       {isOpen && (
         <div className="md:hidden px-4 pb-4 space-y-2 bg-blue-600 text-white flex flex-col">
           <Link to="/user/dashboard" className="hover:underline">Dashboard</Link>
-          <Link to="/user/appointments" onClick={toggleMenu} className="block hover:underline">Shedule Appointment</Link>
-          <Link to="/student/message" onClick={toggleMenu} className="block hover:underline">Message</Link>
-          <Link to="/user/Appointment-list" onClick={toggleMenu} className="block hover:underline">Appointments</Link>
           <Link to="/user/teachers-list" onClick={toggleMenu} className="block hover:underline">Teachers</Link>
+          <Link to="/user/appointments" onClick={toggleMenu} className="block hover:underline">Shedule Appointment</Link>
+          <Link to="/user/Appointment-list" onClick={toggleMenu} className="block hover:underline">Appointments</Link>
+          <Link to="/student/message" onClick={toggleMenu} className="block hover:underline">Message</Link>
           <button onClick={() => { toggleMenu(); handleLogout(); }} className=" text-left hover:underline text-red-100">Logout</button>
         </div>
       )}

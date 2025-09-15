@@ -25,6 +25,7 @@ const Navbar = () => {
           </div>
           
           <div className="hidden md:flex space-x-6">
+            <Link to="/" className="hover:underline">Home</Link>
             <Link to="/admin/login" className="hover:underline">Admin Login</Link>
             <Link to="/teacher/login" className="hover:underline">Teacher login</Link>
             <Link to="/user/register" className="hover:underline">User Register</Link>
@@ -34,6 +35,7 @@ const Navbar = () => {
         {/* Mobile Menu */}
         {isOpen && (
           <div className="md:hidden px-4 pb-4 space-y-2 bg-blue-600 text-white flex flex-col">
+            <Link to="/" onClick={toggleMenu} className="block hover:underline">Home</Link>
             <Link to="/admin/login" onClick={toggleMenu} className="block hover:underline">Admin Login</Link>
             <Link to="/teacher/login" onClick={toggleMenu} className="block hover:underline">Teacher login</Link>
             <Link to="/user/register" onClick={toggleMenu} className="block hover:underline">User Register</Link>

@@ -47,6 +47,7 @@ const AdminNavbar = () => {
           <Link to="/admin/view-teachers" onClick={toggleMenu} className="block hover:underline">Manage Teacher</Link>
           <Link to="/admin/approval" onClick={toggleMenu} className="block hover:underline">Student Approval</Link>
           <Link to="/admin/students" onClick={toggleMenu} className="block hover:underline">Students</Link>
+          <Link to="/admin/appointment-list" onClick={toggleMenu} className="block hover:underline">All Appointments</Link>
           <button onClick={() => { toggleMenu(); handleLogout(); }} className=" text-left hover:underline text-red-100">Logout</button>
         </div>
       )}
