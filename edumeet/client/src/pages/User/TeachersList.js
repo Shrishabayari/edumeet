@@ -90,7 +90,7 @@ const fetchTeachers = async (params) => {
 // Use departments from your API constants
 const DEPARTMENTS = constants.DEPARTMENTS;
 
-const TeacherCard = ({ teacher, onViewProfile, onBookAppointment }) => {
+const TeacherCard = ({ teacher, onBookAppointment }) => {
   const formatLastLogin = (lastLogin) => {
     if (!lastLogin) return 'Never';
     const date = new Date(lastLogin);
@@ -183,13 +183,7 @@ const TeacherCard = ({ teacher, onViewProfile, onBookAppointment }) => {
 
         {/* Action Buttons */}
         <div className="flex space-x-3">
-          <button
-            onClick={() => onViewProfile(teacher)}
-            className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:from-blue-600 hover:to-blue-700 transition-all duration-200 flex items-center justify-center"
-          >
-            <Users className="w-4 h-4 mr-2" />
-            View Profile
-          </button>
+          
           {teacher.hasAccount && (
             <button
               onClick={() => onBookAppointment(teacher)}
