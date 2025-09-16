@@ -306,39 +306,35 @@ const fetchPendingAppointments = async () => {
       <TeacherNavbar />
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
         {/* Modern Header with Glass Morphism */}
-        <div className="bg-white/80 backdrop-blur-xl border-b border-white/20 shadow-lg sticky top-0 z-40">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center py-6">
-              <div className="flex items-center space-x-4">
-                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-3 rounded-2xl shadow-lg">
-                  <GraduationCap className="w-8 h-8 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
-                    Appointment Requests
-                  </h1>
-                  <p className="mt-1 text-gray-600">Review and manage student appointment requests</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center space-x-4">
-                <div className="bg-gradient-to-r from-blue-500/10 to-indigo-500/10 backdrop-blur-sm px-6 py-3 rounded-2xl border border-blue-200/50">
-                  <span className="text-blue-700 font-semibold flex items-center space-x-2">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                    <span>{pendingAppointments.length} Pending</span>
-                  </span>
-                </div>
-                <button
-                  onClick={fetchPendingAppointments}
-                  disabled={loading}
-                  className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-2xl hover:shadow-lg hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:transform-none flex items-center space-x-2"
-                >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                  <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
-                </button>
-              </div>
-            </div>
-          </div>
+       <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center space-y-4 lg:space-y-0 py-6">           
+          <div className="flex items-center space-x-4 px-10 py-1">             
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-3 rounded-2xl shadow-lg">               
+              <GraduationCap className="w-8 h-8 text-white" />             
+            </div>             
+            <div>               
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">                 
+                Appointment Requests               
+              </h1>               
+              <p className="mt-1 text-gray-600">Review and manage student appointment requests</p>             
+            </div>           
+          </div>                      
+          
+          <div className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4 px-4 lg:px-0 lg:pr-10">             
+            <div className="bg-gradient-to-r from-blue-500/10 to-indigo-500/10 backdrop-blur-sm px-6 py-3 rounded-2xl border border-blue-200/50">               
+              <span className="text-blue-700 font-semibold flex items-center space-x-2">                 
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>                 
+                <span>{pendingAppointments.length} Pending</span>               
+              </span>             
+            </div>             
+            <button               
+              onClick={fetchPendingAppointments}               
+              disabled={loading}               
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-2xl hover:shadow-lg hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:transform-none flex items-center space-x-2"             
+            >               
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />               
+              <span>{loading ? 'Refreshing...' : 'Refresh'}</span>             
+            </button>           
+          </div>         
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

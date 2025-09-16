@@ -574,27 +574,28 @@ const TeacherSchedule = () => {
                             </div>
                             
                             <div className="flex-1">
-                              <div className="flex items-start justify-between mb-4">
-                                <div>
-                                  <h3 className="text-2xl font-bold text-gray-800 mb-2">
-                                    {appointment.student?.name || 'Unknown Student'}
-                                  </h3>
-                                  <div className="space-y-2">
-                                    <p className="text-gray-600 flex items-center">
-                                      <Mail className="w-4 h-4 mr-2 text-blue-500"/>
-                                      {appointment.student?.email || 'N/A'}
-                                    </p>
-                                    {appointment.student?.phone && (
+                              <div className="flex-1">
+                                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between mb-4">
+                                  <div>
+                                    <h3 className="text-2xl font-bold text-gray-800 mb-2">
+                                      {appointment.student?.name || 'Unknown Student'}
+                                    </h3>
+                                    <div className="space-y-2">
                                       <p className="text-gray-600 flex items-center">
-                                        <Phone className="w-4 h-4 mr-2 text-green-500"/>
-                                        {appointment.student.phone}
+                                        <Mail className="w-4 h-4 mr-2 text-blue-500"/>
+                                        {appointment.student?.email || 'N/A'}
                                       </p>
-                                    )}
+                                      {appointment.student?.phone && (
+                                        <p className="text-gray-600 flex items-center">
+                                          <Phone className="w-4 h-4 mr-2 text-green-500"/>
+                                          {appointment.student.phone}
+                                        </p>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                                
-                                <div className="flex items-center space-x-4">
-                                  <div className="text-right">
+                                  
+                                  {/* Date/Time - Hidden on small screens, visible on large screens */}
+                                  <div className="hidden lg:block text-right">
                                     <p className="text-gray-700 flex items-center font-semibold text-lg mb-1">
                                       <Calendar className="w-5 h-5 mr-2 text-blue-500" />
                                       {formatDateForDisplay(appointment.date || appointment.appointmentDate)}
@@ -605,24 +606,36 @@ const TeacherSchedule = () => {
                                     </p>
                                   </div>
                                 </div>
-                              </div>
-                              
-                              {/* Status Badge */}
-                              <div className={`inline-flex items-center px-4 py-2 rounded-2xl text-sm font-semibold border-2 shadow-sm ${
-                                appointment.status === 'booked' || appointment.status === 'confirmed' 
-                                  ? 'text-green-700 bg-gradient-to-r from-green-50 to-emerald-50 border-green-200'
-                                  : appointment.status === 'pending'
-                                  ? 'text-yellow-700 bg-gradient-to-r from-yellow-50 to-amber-50 border-yellow-200'
-                                  : appointment.status === 'cancelled'
-                                  ? 'text-red-700 bg-gradient-to-r from-red-50 to-pink-50 border-red-200'
-                                  : 'text-gray-700 bg-gradient-to-r from-gray-50 to-slate-50 border-gray-200'
-                              }`}>
-                                <div className={`w-2 h-2 rounded-full mr-2 ${
-                                  appointment.status === 'booked' || appointment.status === 'confirmed' ? 'bg-green-500' :
-                                  appointment.status === 'pending' ? 'bg-yellow-500' :
-                                  appointment.status === 'cancelled' ? 'bg-red-500' : 'bg-gray-500'
-                                }`}></div>
-                                <span className="capitalize">{appointment.status || 'Scheduled'}</span>
+                                
+                                {/* Status Badge */}
+                                <div className={`inline-flex items-center px-4 py-2 rounded-2xl text-sm font-semibold border-2 shadow-sm ${
+                                  appointment.status === 'booked' || appointment.status === 'confirmed' 
+                                    ? 'text-green-700 bg-gradient-to-r from-green-50 to-emerald-50 border-green-200'
+                                    : appointment.status === 'pending'
+                                    ? 'text-yellow-700 bg-gradient-to-r from-yellow-50 to-amber-50 border-yellow-200'
+                                    : appointment.status === 'cancelled'
+                                    ? 'text-red-700 bg-gradient-to-r from-red-50 to-pink-50 border-red-200'
+                                    : 'text-gray-700 bg-gradient-to-r from-gray-50 to-slate-50 border-gray-200'
+                                }`}>
+                                  <div className={`w-2 h-2 rounded-full mr-2 ${
+                                    appointment.status === 'booked' || appointment.status === 'confirmed' ? 'bg-green-500' :
+                                    appointment.status === 'pending' ? 'bg-yellow-500' :
+                                    appointment.status === 'cancelled' ? 'bg-red-500' : 'bg-gray-500'
+                                  }`}></div>
+                                  <span className="capitalize">{appointment.status || 'Scheduled'}</span>
+                                </div>
+
+                                {/* Date/Time - Visible on small screens only, below status */}
+                                <div className="lg:hidden mt-3">
+                                  <p className="text-gray-700 flex items-center font-semibold text-lg mb-1">
+                                    <Calendar className="w-5 h-5 mr-2 text-blue-500" />
+                                    {formatDateForDisplay(appointment.date || appointment.appointmentDate)}
+                                  </p>
+                                  <p className="text-gray-600 flex items-center">
+                                    <Clock className="w-4 h-4 mr-2 text-purple-500" />
+                                    {appointment.day} at {appointment.time}
+                                  </p>
+                                </div>
                               </div>
                             </div>
                           </div>
