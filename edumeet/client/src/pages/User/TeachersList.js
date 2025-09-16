@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // Added for navigation
 import { 
   Search, 
   Filter, 
@@ -183,7 +184,6 @@ const TeacherCard = ({ teacher, onBookAppointment }) => {
 
         {/* Action Buttons */}
         <div className="flex space-x-3">
-          
           {teacher.hasAccount && (
             <button
               onClick={() => onBookAppointment(teacher)}
@@ -200,6 +200,8 @@ const TeacherCard = ({ teacher, onBookAppointment }) => {
 };
 
 const TeachersListPage = () => {
+  const navigate = useNavigate(); // Added for navigation
+  
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -255,27 +257,31 @@ const TeachersListPage = () => {
     return () => clearTimeout(delayedSearch);
   }, [searchTerm]);
 
-  // API Endpoints being used in this component:
-  // 1. GET /api/teachers - getAllTeachers with query params
-  // 2. GET /api/teachers/:id - getTeacherById (for view profile)
-  // 3. GET /api/teachers/department/:department - getTeachersByDepartment
-  // 4. GET /api/teachers/stats - getTeacherStats
-  // 5. POST /api/appointments/request - requestAppointment (for booking)
-
+  // Handler functions
   const handleViewProfile = (teacher) => {
     console.log('View profile:', teacher);
-    // Uses: GET /api/teachers/:id endpoint
-    // TODO: Navigate to teacher profile page
-    // window.location.href = `/teachers/${teacher._id}`;
-    // or with React Router: navigate(`/teachers/${teacher._id}`);
+    // Navigate to teacher profile page
+    navigate(`/teachers/${teacher._id}`, { 
+      state: { teacher } 
+    });
   };
 
   const handleBookAppointment = (teacher) => {
     console.log('Book appointment with:', teacher);
-    // Uses: POST /api/appointments/request endpoint
-    // TODO: Navigate to appointment booking page
-    // window.location.href = `/appointments/book?teacher=${teacher._id}`;
-    // or with React Router: navigate(`/appointments/book?teacher=${teacher._id}`);
+    
+    // Navigate to appointments page with teacher information
+    navigate('/user/appointments', { 
+      state: { 
+        selectedTeacher: teacher,
+        action: 'book',
+        // Additional data you might need
+        teacherId: teacher._id,
+        teacherName: teacher.name,
+        teacherDepartment: teacher.department,
+        teacherSubject: teacher.subject,
+        teacherAvailability: teacher.availability
+      } 
+    });
   };
 
   const clearFilters = () => {
@@ -294,204 +300,204 @@ const TeachersListPage = () => {
 
   return (
     <>
-        <UserNavbar/>
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 py-8">
+      <UserNavbar/>
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            {/* Header */}
-            <div className="text-center mb-8">
+          {/* Header */}
+          <div className="text-center mb-8">
             <h1 className="text-4xl font-black text-gray-900 mb-4">
-                Our <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Teachers</span>
+              Our <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Teachers</span>
             </h1>
             <p className="text-xl text-gray-600 mx-auto">
-                Connect with expert educators and book appointments to enhance your learning journey
+              Connect with expert educators and book appointments to enhance your learning journey
             </p>
-            </div>
+          </div>
 
-            {/* Compact Search and Filters Bar */}
-            <div className="bg-white rounded-xl shadow-lg p-4 mb-6">
+          {/* Compact Search and Filters Bar */}
+          <div className="bg-white rounded-xl shadow-lg p-4 mb-6">
             {/* Main Search and Filter Row */}
             <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
-                {/* Search Bar - Takes most space */}
-                <div className="relative flex-1 min-w-0">
+              {/* Search Bar - Takes most space */}
+              <div className="relative flex-1 min-w-0">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
-                    type="text"
-                    placeholder="Search teachers by name, email, subject..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  type="text"
+                  placeholder="Search teachers by name, email, subject..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                 />
-                </div>
+              </div>
 
-                {/* Compact Filter Controls */}
-                <div className="flex flex-wrap items-center gap-3 flex-shrink-0">
+              {/* Compact Filter Controls */}
+              <div className="flex flex-wrap items-center gap-3 flex-shrink-0">
                 {/* Department Filter */}
                 <select
-                    value={selectedDepartment}
-                    onChange={(e) => setSelectedDepartment(e.target.value)}
-                    className="border border-gray-200 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm min-w-0"
+                  value={selectedDepartment}
+                  onChange={(e) => setSelectedDepartment(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm min-w-0"
                 >
-                    <option value="">All Departments</option>
-                    {DEPARTMENTS.map(dept => (
+                  <option value="">All Departments</option>
+                  {DEPARTMENTS.map(dept => (
                     <option key={dept} value={dept}>{dept}</option>
-                    ))}
+                  ))}
                 </select>
 
                 {/* Status Filter */}
                 <select
-                    value={selectedStatus}
-                    onChange={(e) => setSelectedStatus(e.target.value)}
-                    className="border border-gray-200 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  value={selectedStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                 >
-                    <option value="">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Pending</option>
+                  <option value="">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Pending</option>
                 </select>
 
                 {/* Advanced Filters Toggle */}
                 <button
-                    onClick={() => setShowFilters(!showFilters)}
-                    className="flex items-center space-x-1 px-3 py-2.5 text-gray-600 hover:text-blue-600 border border-gray-200 rounded-lg hover:border-blue-300 transition-colors text-sm"
+                  onClick={() => setShowFilters(!showFilters)}
+                  className="flex items-center space-x-1 px-3 py-2.5 text-gray-600 hover:text-blue-600 border border-gray-200 rounded-lg hover:border-blue-300 transition-colors text-sm"
                 >
-                    <Filter className="w-4 h-4" />
-                    <span className="hidden sm:inline">More</span>
-                    <ChevronDown className={`w-3 h-3 transform transition-transform ${showFilters ? 'rotate-180' : ''}`} />
+                  <Filter className="w-4 h-4" />
+                  <span className="hidden sm:inline">More</span>
+                  <ChevronDown className={`w-3 h-3 transform transition-transform ${showFilters ? 'rotate-180' : ''}`} />
                 </button>
 
                 {/* Clear Filters Button */}
                 {(selectedDepartment || selectedStatus || searchTerm) && (
-                    <button
+                  <button
                     onClick={clearFilters}
                     className="text-sm text-blue-600 hover:text-blue-800 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors"
-                    >
+                  >
                     Clear
-                    </button>
+                  </button>
                 )}
-                </div>
+              </div>
             </div>
 
             {/* Advanced Filters (Collapsible) */}
             {showFilters && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
+              <div className="mt-4 pt-4 border-t border-gray-200">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {/* Sort By */}
-                    <div>
+                  {/* Sort By */}
+                  <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Sort By</label>
                     <select
-                        value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value)}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                     >
-                        <option value="name">Name</option>
-                        <option value="department">Department</option>
-                        <option value="experience">Experience</option>
-                        <option value="createdAt">Date Added</option>
+                      <option value="name">Name</option>
+                      <option value="department">Department</option>
+                      <option value="experience">Experience</option>
+                      <option value="createdAt">Date Added</option>
                     </select>
-                    </div>
+                  </div>
 
-                    {/* Sort Order */}
-                    <div>
+                  {/* Sort Order */}
+                  <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Order</label>
                     <select
-                        value={sortOrder}
-                        onChange={(e) => setSortOrder(e.target.value)}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      value={sortOrder}
+                      onChange={(e) => setSortOrder(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                     >
-                        <option value="asc">A to Z</option>
-                        <option value="desc">Z to A</option>
+                      <option value="asc">A to Z</option>
+                      <option value="desc">Z to A</option>
                     </select>
-                    </div>
+                  </div>
                 </div>
-                </div>
+              </div>
             )}
-            </div>
+          </div>
 
-            {/* Error State */}
-            {error && (
+          {/* Error State */}
+          {error && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-6 mb-8">
-                <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center">
-                    <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center mr-3">
+                  <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center mr-3">
                     <span className="text-red-600 text-lg">⚠</span>
-                    </div>
-                    <div>
+                  </div>
+                  <div>
                     <h3 className="text-red-800 font-medium">Unable to load teachers</h3>
                     <p className="text-red-600 text-sm mt-1">{error}</p>
-                    </div>
+                  </div>
                 </div>
                 <button
-                    onClick={handleRetry}
-                    className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
-                    disabled={loading}
+                  onClick={handleRetry}
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
+                  disabled={loading}
                 >
-                    {loading ? 'Loading...' : 'Try Again'}
+                  {loading ? 'Loading...' : 'Try Again'}
                 </button>
-                </div>
+              </div>
             </div>
-            )}
+          )}
 
-            {/* Results Summary */}
-            {!loading && !error && pagination && (
+          {/* Results Summary */}
+          {!loading && !error && pagination && (
             <div className="flex items-center justify-between mb-6">
-                <p className="text-gray-600">
+              <p className="text-gray-600">
                 Showing {pagination.totalTeachers} teacher{pagination.totalTeachers !== 1 ? 's' : ''}
                 {searchTerm && ` for "${searchTerm}"`}
                 {selectedDepartment && ` in ${selectedDepartment}`}
-                </p>
-                {pagination.totalTeachers > 0 && (
+              </p>
+              {pagination.totalTeachers > 0 && (
                 <p className="text-sm text-gray-500">
-                    {teachers.filter(t => t.hasAccount).length} active, {teachers.filter(t => !t.hasAccount).length} pending setup
+                  {teachers.filter(t => t.hasAccount).length} active, {teachers.filter(t => !t.hasAccount).length} pending setup
                 </p>
-                )}
+              )}
             </div>
-            )}
+          )}
 
-            {/* Loading State */}
-            {loading && (
+          {/* Loading State */}
+          {loading && (
             <div className="flex items-center justify-center py-16">
-                <div className="text-center">
+              <div className="text-center">
                 <Loader className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
                 <p className="text-gray-600">Loading teachers...</p>
-                </div>
+              </div>
             </div>
-            )}
+          )}
 
-            {/* Teachers Grid */}
-            {!loading && !error && teachers.length > 0 && (
+          {/* Teachers Grid */}
+          {!loading && !error && teachers.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-                {teachers.map((teacher) => (
+              {teachers.map((teacher) => (
                 <TeacherCard
-                    key={teacher._id}
-                    teacher={teacher}
-                    onViewProfile={handleViewProfile}
-                    onBookAppointment={handleBookAppointment}
+                  key={teacher._id}
+                  teacher={teacher}
+                  onViewProfile={handleViewProfile}
+                  onBookAppointment={handleBookAppointment}
                 />
-                ))}
+              ))}
             </div>
-            )}
+          )}
 
-            {/* No Results */}
-            {!loading && !error && teachers.length === 0 && (
+          {/* No Results */}
+          {!loading && !error && teachers.length === 0 && (
             <div className="text-center py-16">
-                <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No teachers found</h3>
-                <p className="text-gray-600 mb-4">
+              <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">No teachers found</h3>
+              <p className="text-gray-600 mb-4">
                 {searchTerm || selectedDepartment || selectedStatus
-                    ? 'Try adjusting your search criteria or filters.'
-                    : 'No teachers are available at the moment.'}
-                </p>
-                {(searchTerm || selectedDepartment || selectedStatus) && (
+                  ? 'Try adjusting your search criteria or filters.'
+                  : 'No teachers are available at the moment.'}
+              </p>
+              {(searchTerm || selectedDepartment || selectedStatus) && (
                 <button
-                    onClick={clearFilters}
-                    className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                  onClick={clearFilters}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
                 >
-                    Clear Filters
+                  Clear Filters
                 </button>
-                )}
+              )}
             </div>
-            )}
+          )}
         </div>
-        </div>
+      </div>
     </>
   );
 };

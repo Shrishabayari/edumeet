@@ -1,6 +1,6 @@
 import React from "react";
 import { useNavigate } from 'react-router-dom';
-import { PlusCircle, MessageCircle, Calendar, LogOut } from 'lucide-react';
+import { PlusCircle, MessageCircle, Calendar, LogOut, Users } from 'lucide-react';
 import { apiMethods, tokenManager } from '../../services/api';
 import UserNavbar from "../../components/userNavbar";
 
@@ -20,6 +20,15 @@ const UserDashboard = () => {
   };
 
   const dashboardItems = [
+    {
+      title: "Teachers",
+      description: "Browse and view all available teachers and their profiles.",
+      icon: <Users className="w-10 h-10 text-purple-600 group-hover:text-purple-600 transition-colors duration-300" />,
+      bgColor: "bg-purple-50",
+      hoverBg: "hover:bg-purple-600",
+      textColor: "text-purple-800",
+      path: "/user/teachers-list",
+    },
     {
       title: "Book an Appointment",
       description: "Find and book appointments with teachers and mentors.",
@@ -69,7 +78,7 @@ const UserDashboard = () => {
         </div>
         
         {/* Dashboard Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {dashboardItems.map((item, index) => (
             <button
               key={index}
